@@ -121,4 +121,54 @@ final class QueryGeneratorTest extends TestCase
             self::assertNotSame('', trim($q->query));
         }
     }
+
+    #[Test]
+    public function unknownBirthYearProducesQueriesWithoutAYearToken(): void
+    {
+        $c = new PersonCandidate(
+            'I1',
+            Gender::Female,
+            new PersonName(['Erika'], null, 'Mueller', 'Mueller', ['Mustermann']),
+            DateRange::unknown(),
+            new Place('Musterstadt'),
+            [new Place('Musterstadt')],
+            DateRange::unknown(),
+        );
+
+        $queries = (new QueryGenerator())->generate($c);
+
+        self::assertNotEmpty($queries);
+
+        // With an unknown birth year no query may carry a four-digit year token.
+        foreach ($queries as $q) {
+            self::assertDoesNotMatchRegularExpression('/\b\d{4}\b/', $q->query);
+        }
+    }
+
+    #[Test]
+    public function blankFirstPlaceIsSkippedInFavourOfTheRealOne(): void
+    {
+        $c = new PersonCandidate(
+            'I1',
+            Gender::Female,
+            new PersonName(['Erika'], null, 'Mueller', 'Mueller'),
+            DateRange::unknown(),
+            new Place('   '),
+            [new Place('   '), new Place('Musterstadt')],
+            DateRange::unknown(),
+        );
+
+        $queries = (new QueryGenerator())->generate($c);
+
+        $pl2 = array_map(static fn (CandidateQuery $q): string => $q->query, $queries);
+
+        // The real place name lands in the place-tier query; the blank place never produces
+        // a trailing or double space.
+        self::assertContains('Erika Mueller Musterstadt', $pl2);
+
+        foreach ($queries as $q) {
+            self::assertStringNotContainsString('  ', $q->query);
+            self::assertSame($q->query, trim($q->query));
+        }
+    }
 }
