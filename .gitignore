@@ -1,0 +1,31 @@
+# PHPStorm
+.idea
+
+# OSX
+.DS_Store
+
+# Composer
+vendor/
+composer.lock
+
+# Build stuff
+.build/
+node_modules/
+
+# Cache
+.php-cs-fixer.cache
+.phplint.cache
+.phpunit.result.cache
+.phpunit.cache
+__pycache__/
+
+# Superpowers workspace
+/.superpowers/
+/docs/
+
+# Playwright
+.playwright-mcp/
+
+# Design mockup workspace — JSX prototype that drives the redesign
+# layouts; not shipped with the module.
+/design/
