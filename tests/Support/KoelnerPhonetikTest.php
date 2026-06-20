@@ -75,6 +75,47 @@ final class KoelnerPhonetikTest extends TestCase
     /**
      * @return list<array{0: string, 1: string}>
      */
+    public static function vowelCodedJAndYCases(): array
+    {
+        return [
+            // J/Y are coded as vowels ('0'), so they are no longer silently dropped.
+            // Between two identically-coded consonants the inserted '0' prevents the
+            // adjacent-duplicate collapse, which is the observable spec difference.
+            ['rjr', '77'],
+            ['lyl', '55'],
+            // A leading-area J-name encodes to the spec code rather than dropping the J.
+            ['Johann', '06'],
+            ['Yohann', '06'],
+        ];
+    }
+
+    /**
+     * Verifies that J and Y are coded as vowels ('0') per the Kölner Phonetik spec,
+     * rather than being dropped like a default consonant.
+     */
+    #[Test]
+    #[DataProvider('vowelCodedJAndYCases')]
+    public function codesJAndYAsVowels(string $input, string $expected): void
+    {
+        self::assertSame($expected, (new KoelnerPhonetik())->encode($input));
+    }
+
+    /**
+     * Verifies that a J-name encodes to a stable, non-empty code and that the J/Y
+     * vowel equivalence holds (Johann and Yohann share a code).
+     */
+    #[Test]
+    public function jAndYAreEquivalentVowels(): void
+    {
+        $encoder = new KoelnerPhonetik();
+
+        self::assertNotSame('', $encoder->encode('Johann'));
+        self::assertSame($encoder->encode('Johann'), $encoder->encode('Yohann'));
+    }
+
+    /**
+     * @return list<array{0: string, 1: string}>
+     */
     public static function boundaryConditionCases(): array
     {
         return [

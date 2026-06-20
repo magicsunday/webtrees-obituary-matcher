@@ -64,20 +64,20 @@ final class KoelnerPhonetik implements PhoneticEncoder
     private function codeFor(string $char, string $prev, string $next, bool $isFirst): string
     {
         return match (true) {
-            in_array($char, ['a', 'e', 'i', 'o', 'u'], true) => '0',
-            ($char === 'h')                                  => '-',
-            ($char === 'b')                                  => '1',
-            ($char === 'p')                                  => ($next === 'h') ? '3' : '1',
-            ($char === 'd' || $char === 't')                 => (($next !== '') && str_contains('csz', $next)) ? '8' : '2',
-            in_array($char, ['f', 'v', 'w'], true)           => '3',
-            in_array($char, ['g', 'k', 'q'], true)           => '4',
-            ($char === 'c')                                  => $this->codeForC($prev, $next, $isFirst),
-            ($char === 'x')                                  => (($prev !== '') && str_contains('ckq', $prev)) ? '8' : '48',
-            ($char === 'l')                                  => '5',
-            ($char === 'm' || $char === 'n')                 => '6',
-            ($char === 'r')                                  => '7',
-            ($char === 's' || $char === 'z')                 => '8',
-            default                                          => '-',
+            in_array($char, ['a', 'e', 'i', 'j', 'o', 'u', 'y'], true) => '0',
+            ($char === 'h')                                            => '-',
+            ($char === 'b')                                            => '1',
+            ($char === 'p')                                            => ($next === 'h') ? '3' : '1',
+            ($char === 'd' || $char === 't')                           => (($next !== '') && str_contains('csz', $next)) ? '8' : '2',
+            in_array($char, ['f', 'v', 'w'], true)                     => '3',
+            in_array($char, ['g', 'k', 'q'], true)                     => '4',
+            ($char === 'c')                                            => $this->codeForC($prev, $next, $isFirst),
+            ($char === 'x')                                            => (($prev !== '') && str_contains('ckq', $prev)) ? '8' : '48',
+            ($char === 'l')                                            => '5',
+            ($char === 'm' || $char === 'n')                           => '6',
+            ($char === 'r')                                            => '7',
+            ($char === 's' || $char === 'z')                           => '8',
+            default                                                    => '-',
         };
     }
 
