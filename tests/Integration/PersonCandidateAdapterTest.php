@@ -207,8 +207,9 @@ final class PersonCandidateAdapterTest extends IntegrationTestCase
         self::assertTrue($confidentialChild->canShow());
 
         // Positive control: as an admin the head's family graph DOES surface the
-        // confidential spouse and child, so the visitor-side emptiness below can only
-        // be the privacy gate firing, not a never-traversed family.
+        // confidential relatives; the visitor-context assertFalse below then proves the
+        // confidentiality gate is what empties the family arrays, not a never-traversed
+        // family.
         $adminCandidate = PersonCandidateAdapter::fromIndividual($this->requireIndividual('I5', $tree));
 
         self::assertNotNull($adminCandidate);

@@ -279,8 +279,9 @@ final class PersonCandidateAdapter
     }
 
     /**
-     * Maps a visible relative to a {@see RelatedPerson} with a plain-text name decoded
-     * from the HTML webtrees emits.
+     * Maps a visible relative to a {@see RelatedPerson}, decomposing the relative's name
+     * via the same {@see getAllNames()}-based {@see name()} mapper used for the candidate
+     * head — no HTML is parsed.
      *
      * @param Individual $relative The relative to map.
      *
