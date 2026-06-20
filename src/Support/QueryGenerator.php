@@ -63,12 +63,11 @@ final readonly class QueryGenerator
 
         // One married-surname pair of tiers per married surname, so a person with two or
         // more married names yields a standalone query for each instead of one blob token.
-        // A person without any married surname still emits the degenerate given+year /
-        // given+place tiers (the empty surname is skipped by assemble()), preserving the
-        // pre-existing single-married-surname output exactly.
-        $marriedSurnames = $candidate->name->marriedSurnames !== [] ? $candidate->name->marriedSurnames : [''];
-
-        foreach ($marriedSurnames as $married) {
+        // A person without any married surname emits no married-surname tier at all: the
+        // degenerate surname-less given+year / given+place queries are deliberately skipped,
+        // as they would match thousands of unrelated obituaries. A single married surname
+        // still yields the same tier-1/tier-3 output as before.
+        foreach ($candidate->name->marriedSurnames as $married) {
             $candidates[] = [$this->assemble($given, $married, $year), 1];
             $candidates[] = [$this->assemble($given, $married, $place), 3];
         }

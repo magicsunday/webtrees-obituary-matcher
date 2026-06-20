@@ -52,7 +52,7 @@ final class FeederRequestFactoryTest extends TestCase
         $c = new PersonCandidate(
             'I1',
             Gender::Female,
-            new PersonName(['Erika'], null, 'Mustermann', null),
+            new PersonName(['Erika'], null, 'Mustermann', 'Mueller', ['Mustermann']),
             DateRange::year(1938),
             null,
             [],
@@ -72,8 +72,8 @@ final class FeederRequestFactoryTest extends TestCase
         // precise array shape already proves the keys exist, so assert their values carry the
         // generated query through unchanged.
         $firstQuery = $array['candidates'][0]['queries'][0];
-        self::assertSame('Erika 1938', $firstQuery['query']);
+        self::assertSame('Erika Mustermann 1938', $firstQuery['query']);
         self::assertSame(1, $firstQuery['priority']);
-        self::assertSame('erika 1938', $firstQuery['dedupKey']);
+        self::assertSame('erika mustermann 1938', $firstQuery['dedupKey']);
     }
 }

@@ -110,6 +110,38 @@ final class QueryGeneratorTest extends TestCase
     }
 
     /**
+     * A candidate without any married surname emits no degenerate surname-less given+year / given+place query.
+     */
+    #[Test]
+    public function noMarriedSurnameEmitsNoSurnamelessQuery(): void
+    {
+        $c = new PersonCandidate(
+            'I1',
+            Gender::Female,
+            new PersonName(['Erika'], null, 'Mueller', 'Mueller'),
+            DateRange::year(1938),
+            new Place('Musterstadt'),
+            [new Place('Musterstadt')],
+            DateRange::unknown(),
+        );
+
+        $queries = (new QueryGenerator())->generate($c);
+
+        self::assertNotEmpty($queries);
+
+        $plain = array_map(static fn (CandidateQuery $q): string => $q->query, $queries);
+
+        // The degenerate surname-less tiers (given + year, given + place) must not be emitted.
+        self::assertNotContains('Erika 1938', $plain);
+        self::assertNotContains('Erika Musterstadt', $plain);
+
+        // Every generated query must carry the birth surname token.
+        foreach ($plain as $query) {
+            self::assertStringContainsString('Mueller', $query);
+        }
+    }
+
+    /**
      * Missing optional components (year, place) leave no double spaces or empty queries.
      */
     #[Test]
