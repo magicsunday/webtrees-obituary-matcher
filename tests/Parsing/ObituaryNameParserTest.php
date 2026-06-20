@@ -80,6 +80,30 @@ final class ObituaryNameParserTest extends TestCase
     }
 
     /**
+     * Consecutive markers do not capture each other: the real name following the
+     * repeated marker becomes the birth surname.
+     */
+    #[Test]
+    public function consecutiveMarkersDoNotCaptureEachOther(): void
+    {
+        $name = ObituaryNameParser::parse('Maria geb. geb. Becker');
+        self::assertSame('Becker', $name->birthSurname);
+    }
+
+    /**
+     * A trailing marker with no following token captures nothing, leaving the birth
+     * surname unset while the rest of the name is handled sanely.
+     */
+    #[Test]
+    public function trailingMarkerCapturesNothing(): void
+    {
+        $name = ObituaryNameParser::parse('Maria geb.');
+        self::assertNull($name->birthSurname);
+        self::assertSame('Maria', $name->surname);
+        self::assertSame([], $name->givenNames);
+    }
+
+    /**
      * A multi-KB untrusted input is bounded: the parsed name never exceeds the token cap.
      */
     #[Test]

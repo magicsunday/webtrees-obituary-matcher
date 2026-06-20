@@ -105,7 +105,15 @@ final class ObituaryNameParser
         $consumeNext = false;
 
         foreach ($tokens as $token) {
+            $isMarker = in_array(strtolower($token), $markers, true);
+
             if ($consumeNext) {
+                // A second consecutive marker is dropped, not captured: stay in capture
+                // mode so the real name following it becomes the captured value.
+                if ($isMarker) {
+                    continue;
+                }
+
                 $captured    = $token;
                 $consumeNext = false;
                 $found       = true;
@@ -113,7 +121,7 @@ final class ObituaryNameParser
                 continue;
             }
 
-            if (in_array(strtolower($token), $markers, true)) {
+            if ($isMarker) {
                 $consumeNext = true;
 
                 continue;

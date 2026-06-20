@@ -78,5 +78,7 @@ final class DateValueTest extends TestCase
         self::assertSame(30, DateValue::lastDayOfMonth(2023, 4));
         self::assertSame(28, DateValue::lastDayOfMonth(2023, 2));
         self::assertSame(29, DateValue::lastDayOfMonth(2024, 2));
+        self::assertSame(29, DateValue::lastDayOfMonth(2000, 2));
+        self::assertSame(28, DateValue::lastDayOfMonth(1900, 2));
     }
 }

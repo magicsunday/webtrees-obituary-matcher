@@ -11,7 +11,6 @@ declare(strict_types=1);
 
 namespace MagicSunday\ObituaryMatcher\Domain;
 
-use DateTimeImmutable;
 use InvalidArgumentException;
 
 use function checkdate;
@@ -26,6 +25,25 @@ use function sprintf;
  */
 final readonly class DateValue
 {
+    /**
+     * @var array<int, int> Days per month keyed by month number (1..12); February is
+     *                      computed separately to honour leap years.
+     */
+    private const array DAYS_IN_MONTH = [
+        1  => 31,
+        2  => 28,
+        3  => 31,
+        4  => 30,
+        5  => 31,
+        6  => 30,
+        7  => 31,
+        8  => 31,
+        9  => 30,
+        10 => 31,
+        11 => 30,
+        12 => 31,
+    ];
+
     /**
      * Constructor.
      *
@@ -77,6 +95,9 @@ final readonly class DateValue
     /**
      * Returns the last calendar day of the given month, honouring leap years.
      *
+     * Uses pure arithmetic to avoid the overhead and edge-case year limits of
+     * DateTimeImmutable.
+     *
      * @param int $year  Four-digit year.
      * @param int $month Month 1..12.
      *
@@ -84,7 +105,13 @@ final readonly class DateValue
      */
     public static function lastDayOfMonth(int $year, int $month): int
     {
-        return (int) (new DateTimeImmutable(sprintf('%04d-%02d-01', $year, $month)))
-            ->format('t');
+        if ($month === 2) {
+            $isLeapYear = (($year % 4 === 0) && ($year % 100 !== 0))
+                || ($year % 400 === 0);
+
+            return $isLeapYear ? 29 : 28;
+        }
+
+        return self::DAYS_IN_MONTH[$month] ?? 31;
     }
 }
