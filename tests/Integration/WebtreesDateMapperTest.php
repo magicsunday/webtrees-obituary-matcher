@@ -118,6 +118,53 @@ final class WebtreesDateMapperTest extends TestCase
     }
 
     /**
+     * Reversed BET..AND / FROM..TO source values whose lower bound is the later date.
+     *
+     * webtrees' {@see Date::isOK()} only checks both julian days are non-zero, never their
+     * ordering, so a data-entry-error range like "BET 1940 AND 1936" arrives bounds-swapped
+     * ({@see Date::minimumDate()} yields the later year). The mapper must normalise rather
+     * than let {@see DateRange::known()} throw and crash the whole tree scan.
+     *
+     * @return list<array{0:string}>
+     */
+    public static function reversedRangeCases(): array
+    {
+        return [
+            ['BET 1940 AND 1936'],
+            ['FROM 1940 TO 1936'],
+            ['BET MAR 1940 AND JAN 1940'],
+        ];
+    }
+
+    /**
+     * A reversed BET..AND / FROM..TO range is normalised to a known interval rather than crashing.
+     */
+    #[Test]
+    #[DataProvider('reversedRangeCases')]
+    public function reversedRangeIsNormalised(string $value): void
+    {
+        $range = WebtreesDateMapper::toRange(new Date($value));
+
+        // No throw, and the swapped bounds now span the intended interval.
+        self::assertTrue($range->isKnown());
+        self::assertSame(DatePrecision::Interval, $range->precision);
+    }
+
+    /**
+     * The reversed full-year interval "BET 1940 AND 1936" maps to the normalised 1936..1940 span.
+     */
+    #[Test]
+    public function reversedYearIntervalNormalisesBounds(): void
+    {
+        $range = WebtreesDateMapper::toRange(new Date('BET 1940 AND 1936'));
+
+        // 1938 lies inside the normalised [1936, 1940] interval; 1942 lies outside it.
+        self::assertTrue($range->contains(new DateValue(1938, 1, 1)));
+        self::assertFalse($range->contains(new DateValue(1942, 1, 1)));
+        self::assertFalse($range->contains(new DateValue(1935, 1, 1)));
+    }
+
+    /**
      * An empty GEDCOM date string maps to an unknown range.
      */
     #[Test]

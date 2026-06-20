@@ -15,6 +15,7 @@ use Fisharebest\Webtrees\Auth;
 use Fisharebest\Webtrees\Individual;
 use Fisharebest\Webtrees\Tree;
 use MagicSunday\ObituaryMatcher\Domain\DateRange;
+use MagicSunday\ObituaryMatcher\Domain\DateValue;
 use MagicSunday\ObituaryMatcher\Domain\Gender;
 use MagicSunday\ObituaryMatcher\Domain\Place;
 use MagicSunday\ObituaryMatcher\Domain\RelatedPerson;
@@ -48,7 +49,7 @@ use function file_get_contents;
 #[UsesClass(RelatedPerson::class)]
 #[UsesClass(\MagicSunday\ObituaryMatcher\Domain\PersonName::class)]
 #[UsesClass(\MagicSunday\ObituaryMatcher\Domain\PersonCandidate::class)]
-#[UsesClass(\MagicSunday\ObituaryMatcher\Domain\DateValue::class)]
+#[UsesClass(DateValue::class)]
 #[UsesClass(\MagicSunday\ObituaryMatcher\Domain\DatePrecision::class)]
 final class PersonCandidateAdapterTest extends IntegrationTestCase
 {
@@ -144,6 +145,29 @@ final class PersonCandidateAdapterTest extends IntegrationTestCase
         self::assertSame('I3', $child->id);
         self::assertSame(['Klara'], $child->name->givenNames);
         self::assertSame('Mueller', $child->name->surname);
+    }
+
+    /**
+     * An individual carrying a reversed BET..AND birth date maps without crashing and the birth range is normalised.
+     */
+    #[Test]
+    public function reversedBirthDateDoesNotCrashAndNormalises(): void
+    {
+        $tree       = $this->adapterTree();
+        $individual = $this->requireIndividual('I10', $tree);
+
+        // The reversed "BET 1940 AND 1936" birth would crash DateRange::known() unless the
+        // mapper normalises the swapped bounds; fromIndividual() must therefore not throw.
+        $candidate = PersonCandidateAdapter::fromIndividual($individual);
+
+        self::assertNotNull($candidate);
+        self::assertSame('I10', $candidate->id);
+
+        // The normalised birth interval spans [1936, 1940]; a year inside it is contained,
+        // a year outside is not.
+        self::assertTrue($candidate->birth->isKnown());
+        self::assertTrue($candidate->birth->contains(new DateValue(1938, 1, 1)));
+        self::assertFalse($candidate->birth->contains(new DateValue(1942, 1, 1)));
     }
 
     /**

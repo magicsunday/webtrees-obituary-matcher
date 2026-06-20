@@ -75,6 +75,17 @@ final class WebtreesDateMapper
         $earliest = self::toDateValue($minimum);
         $latest   = self::toDateValue($maximum);
 
+        // webtrees' isOK() does not enforce min <= max, so a reversed BET..AND / FROM..TO
+        // (e.g. "BET 1940 AND 1936") arrives bounds-swapped. Normalise rather than letting
+        // DateRange::known() throw and crash the whole tree scan. The reversal is detected on
+        // webtrees' own julian-day ordering — the lower bound's earliest day against the upper
+        // bound's latest day — so a legitimately less-precise upper bound ("FROM FEB 2023 TO
+        // 2023", whose latest day is still December) is never mistaken for a reversed range.
+        if ($minimum->minimumJulianDay() > $maximum->maximumJulianDay()) {
+            [$earliest, $latest] = [$latest, $earliest];
+            [$minimum, $maximum] = [$maximum, $minimum];
+        }
+
         return DateRange::known(
             $earliest,
             $latest,
