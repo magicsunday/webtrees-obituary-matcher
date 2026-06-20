@@ -57,6 +57,10 @@ final class NormalizerTest extends TestCase
             ['FRANÇOIS', 'francois'],
             ['Núñez', 'nunez'],
             ['NÚÑEZ', 'nunez'],
+            // A multibyte uppercase letter NOT in the fold map (Polish Ł) must still be
+            // lowercased: a byte-based strtolower() would leave it uppercase, mb_strtolower
+            // correctly yields "ł".
+            ['Łukasz', 'łukasz'],
         ];
     }
 

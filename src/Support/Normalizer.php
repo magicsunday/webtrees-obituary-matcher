@@ -11,15 +11,16 @@ declare(strict_types=1);
 
 namespace MagicSunday\ObituaryMatcher\Support;
 
+use function mb_strtolower;
 use function mb_substr;
 use function preg_replace;
-use function strtolower;
 use function strtr;
 use function trim;
 
 /**
- * Pure name/text normalisation: diacritic folding is byte-safe strtr; the input-length
- * cap is multibyte-safe (mb_substr) so a truncation never splits a UTF-8 character.
+ * Pure name/text normalisation: diacritic folding is byte-safe strtr; lowercasing is
+ * multibyte-safe (mb_strtolower) and the input-length cap is multibyte-safe (mb_substr) so
+ * a truncation never splits a UTF-8 character.
  *
  * @author  Rico Sonntag <mail@ricosonntag.de>
  * @license https://opensource.org/licenses/GPL-3.0 GNU General Public License v3.0
@@ -31,8 +32,8 @@ final readonly class Normalizer
      * @var array<string, string> Accented letters (both cases) folded to their base ASCII
      *                            letter, shared by both fold maps.
      *
-     * Uppercase accented letters map to the lowercase base letter because the subsequent
-     * byte-based strtolower() in clean() cannot lowercase multibyte characters.
+     * Uppercase accented letters map directly to the lowercase base letter so the folded
+     * key is already lowercase before clean() applies its multibyte-safe mb_strtolower().
      */
     private const array FOLD_ACCENTS = [
         'á' => 'a', 'à' => 'a', 'â' => 'a', 'ã' => 'a', 'å' => 'a',
@@ -136,7 +137,7 @@ final readonly class Normalizer
      */
     private static function clean(string $value): string
     {
-        $lower = strtolower($value);
+        $lower = mb_strtolower($value, 'UTF-8');
 
         // Replace each title/affix with a single space (never the empty string) so a
         // stripped middle word cannot concatenate its neighbours ("maria geb. becker"

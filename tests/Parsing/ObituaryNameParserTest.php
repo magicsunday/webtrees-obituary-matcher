@@ -106,6 +106,20 @@ final class ObituaryNameParserTest extends TestCase
     }
 
     /**
+     * A born marker is recognised case-insensitively even when its uppercase form carries a
+     * multibyte letter: "GEBÜRTIGE" must lowercase to the "gebürtige" marker via mb_strtolower,
+     * which a byte-based strtolower() cannot do for the "Ü".
+     */
+    #[Test]
+    public function recognisesAccentedBornMarkerRegardlessOfCase(): void
+    {
+        $name = ObituaryNameParser::parse('Maria Schmidt GEBÜRTIGE Müller');
+        self::assertSame(['Maria'], $name->givenNames);
+        self::assertSame('Schmidt', $name->surname);
+        self::assertSame('Müller', $name->birthSurname);
+    }
+
+    /**
      * A multi-KB untrusted input is bounded: the parsed name never exceeds the token cap.
      */
     #[Test]

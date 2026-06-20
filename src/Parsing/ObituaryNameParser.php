@@ -15,9 +15,9 @@ use MagicSunday\ObituaryMatcher\Domain\PersonName;
 
 use function array_pop;
 use function in_array;
+use function mb_strtolower;
 use function mb_substr;
 use function preg_split;
-use function strtolower;
 use function trim;
 
 use const PREG_SPLIT_NO_EMPTY;
@@ -105,7 +105,7 @@ final class ObituaryNameParser
         $consumeNext = false;
 
         foreach ($tokens as $token) {
-            $isMarker = in_array(strtolower($token), $markers, true);
+            $isMarker = in_array(mb_strtolower($token, 'UTF-8'), $markers, true);
 
             if ($consumeNext) {
                 // A second consecutive marker is dropped, not captured: stay in capture
