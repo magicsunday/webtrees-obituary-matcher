@@ -65,6 +65,19 @@ final class DateRangeTest extends TestCase
     }
 
     /**
+     * Verifies that a year-only DateValue wrapped with Exact precision is NOT reported
+     * as exact, while a fully-specified day still is. The comparable() value defaults a
+     * missing month/day to 1, so isExact() must additionally require a non-null month/day.
+     */
+    #[Test]
+    public function yearOnlyValueWithExactPrecisionIsNotExact(): void
+    {
+        self::assertFalse(DateRange::exact(new DateValue(1962))->isExact());
+        self::assertFalse(DateRange::exact(new DateValue(1962, 8))->isExact());
+        self::assertTrue(DateRange::exact(new DateValue(1962, 8, 2))->isExact());
+    }
+
+    /**
      * Verifies that a whole-year range contains a day within that year
      * but not a day in a different year.
      */

@@ -19,6 +19,8 @@ use PHPUnit\Framework\Attributes\UsesClass;
 use PHPUnit\Framework\TestCase;
 
 use function count;
+use function implode;
+use function mb_check_encoding;
 use function str_repeat;
 
 /**
@@ -116,5 +118,24 @@ final class ObituaryNameParserTest extends TestCase
 
         // Given names plus the surname token must stay within the 65-token cap.
         self::assertLessThanOrEqual(65, count($name->givenNames) + 1);
+    }
+
+    /**
+     * Verifies that the multibyte-safe raw-length cap never splits a UTF-8 character: an
+     * oversized run of two-byte characters whose byte-512 boundary falls inside a character
+     * must still produce well-formed UTF-8 tokens.
+     */
+    #[Test]
+    public function boundsOversizedMultibyteInputWithoutSplittingACharacter(): void
+    {
+        // "ä" is two bytes; 600 of them is 1200 bytes. A byte-based cut at 512 would land
+        // inside a character. mb_substr keeps the truncation on a character boundary.
+        $oversized = str_repeat('ä', 600);
+
+        $name      = ObituaryNameParser::parse($oversized);
+        $assembled = implode(' ', [...$name->givenNames, $name->surname]);
+
+        self::assertTrue(mb_check_encoding($assembled, 'UTF-8'));
+        self::assertTrue(mb_check_encoding($name->surname, 'UTF-8'));
     }
 }

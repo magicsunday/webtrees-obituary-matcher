@@ -15,9 +15,9 @@ use MagicSunday\ObituaryMatcher\Domain\PersonName;
 
 use function array_pop;
 use function in_array;
+use function mb_substr;
 use function preg_split;
 use function strtolower;
-use function substr;
 use function trim;
 
 use const PREG_SPLIT_NO_EMPTY;
@@ -47,7 +47,7 @@ final class ObituaryNameParser
     private const array WIDOW_MARKERS = ['verw.', 'verh.'];
 
     /**
-     * Maximum number of raw input bytes processed; untrusted notice text is truncated to this length.
+     * Maximum number of raw input characters processed; untrusted notice text is truncated to this length.
      */
     private const int MAX_RAW_LENGTH = 512;
 
@@ -72,7 +72,7 @@ final class ObituaryNameParser
      */
     public static function parse(string $raw): PersonName
     {
-        $bounded = substr(trim($raw), 0, self::MAX_RAW_LENGTH);
+        $bounded = mb_substr(trim($raw), 0, self::MAX_RAW_LENGTH, 'UTF-8');
         $split   = preg_split('/\s+/', $bounded, self::MAX_TOKENS, PREG_SPLIT_NO_EMPTY);
         $tokens  = ($split !== false) ? $split : [];
 

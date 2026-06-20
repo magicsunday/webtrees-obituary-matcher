@@ -17,6 +17,8 @@ use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
 
+use function mb_check_encoding;
+use function mb_strlen;
 use function str_repeat;
 use function strlen;
 
@@ -42,6 +44,9 @@ final class NormalizerTest extends TestCase
             ['Weiß', 'weiss'],
             ['Dr. Anna Schmidt', 'anna schmidt'],
             ['Maria geb. Becker', 'maria becker'],
+            // A title/affix stripped without surrounding spaces must not concatenate its
+            // neighbours: "anna geb.becker" yields "anna becker", not "annabecker".
+            ['anna geb.becker', 'anna becker'],
             ['Anna Dr. Schmidt', 'anna schmidt'],
             ['geb.', ''],
             ['JÉRÔME', 'jerome'],
@@ -112,5 +117,24 @@ final class NormalizerTest extends TestCase
         $result    = Normalizer::normalize($oversized);
 
         self::assertSame(512, strlen($result));
+    }
+
+    /**
+     * Verifies that the multibyte-safe length cap never splits a UTF-8 character, even when
+     * the equivalent byte-512 boundary would fall inside a two-byte character. The cap is
+     * applied to the raw input (before diacritic folding), so a multibyte run that exceeds
+     * the character cap must be truncated on a character boundary and stay valid UTF-8.
+     */
+    #[Test]
+    public function normalizeCapNeverSplitsAMultibyteCharacter(): void
+    {
+        // "ñ" is two bytes; 600 of them is 1200 bytes. A byte-based substr(…, 0, 512)
+        // would cut at byte 512, inside the 257th "ñ", producing invalid UTF-8.
+        $oversized = str_repeat('ñ', 600);
+        $result    = Normalizer::strip($oversized);
+
+        self::assertTrue(mb_check_encoding($result, 'UTF-8'));
+        // "ñ" folds to "n"; the input is capped at 512 characters, so at most 512 letters.
+        self::assertLessThanOrEqual(512, mb_strlen($result, 'UTF-8'));
     }
 }

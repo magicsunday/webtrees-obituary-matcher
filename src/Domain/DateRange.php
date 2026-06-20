@@ -156,6 +156,10 @@ final readonly class DateRange
             && ($this->precision === DatePrecision::Exact)
             && ($this->earliest instanceof DateValue)
             && ($this->latest instanceof DateValue)
+            && ($this->earliest->month !== null)
+            && ($this->earliest->day !== null)
+            && ($this->latest->month !== null)
+            && ($this->latest->day !== null)
             && ($this->earliest->comparable() === $this->latest->comparable());
     }
 

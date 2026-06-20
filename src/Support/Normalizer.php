@@ -11,14 +11,15 @@ declare(strict_types=1);
 
 namespace MagicSunday\ObituaryMatcher\Support;
 
+use function mb_substr;
 use function preg_replace;
 use function strtolower;
 use function strtr;
-use function substr;
 use function trim;
 
 /**
- * Pure name/text normalisation. Avoids mbstring: folding is byte-safe strtr.
+ * Pure name/text normalisation: diacritic folding is byte-safe strtr; the input-length
+ * cap is multibyte-safe (mb_substr) so a truncation never splits a UTF-8 character.
  *
  * @author  Rico Sonntag <mail@ricosonntag.de>
  * @license https://opensource.org/licenses/GPL-3.0 GNU General Public License v3.0
@@ -84,7 +85,7 @@ final readonly class Normalizer
     private const array STRIP_WORDS = [...self::TITLES, ...self::AFFIXES];
 
     /**
-     * Maximum number of input bytes processed; untrusted input is truncated to this length.
+     * Maximum number of input characters processed; untrusted input is truncated to this length.
      */
     private const int MAX_INPUT_LENGTH = 512;
 
@@ -104,7 +105,7 @@ final readonly class Normalizer
      */
     public static function normalize(string $value): string
     {
-        $bounded = substr(trim($value), 0, self::MAX_INPUT_LENGTH);
+        $bounded = mb_substr(trim($value), 0, self::MAX_INPUT_LENGTH, 'UTF-8');
 
         return self::clean(strtr($bounded, self::FOLD_CANONICAL));
     }
@@ -120,7 +121,7 @@ final readonly class Normalizer
      */
     public static function strip(string $value): string
     {
-        $bounded = substr(trim($value), 0, self::MAX_INPUT_LENGTH);
+        $bounded = mb_substr(trim($value), 0, self::MAX_INPUT_LENGTH, 'UTF-8');
         $cleaned = self::clean(strtr($bounded, self::FOLD_STRIP));
 
         return strtr($cleaned, ['ae' => 'a', 'oe' => 'o', 'ue' => 'u']);
@@ -137,11 +138,15 @@ final readonly class Normalizer
     {
         $lower = strtolower($value);
 
+        // Replace each title/affix with a single space (never the empty string) so a
+        // stripped middle word cannot concatenate its neighbours ("maria geb. becker"
+        // must yield "maria becker", not "mariabecker"). The trailing whitespace
+        // collapse and trim() below remove the resulting padding.
         foreach (self::STRIP_WORDS as $word) {
             $lower = strtr($lower, [
                 ' ' . $word . ' ' => ' ',
-                $word . ' '       => '',
-                ' ' . $word       => '',
+                $word . ' '       => ' ',
+                ' ' . $word       => ' ',
             ]);
 
             if ($lower === $word) {
