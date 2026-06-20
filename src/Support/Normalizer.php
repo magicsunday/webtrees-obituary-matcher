@@ -11,6 +11,7 @@ declare(strict_types=1);
 
 namespace MagicSunday\ObituaryMatcher\Support;
 
+use function in_array;
 use function mb_strtolower;
 use function mb_substr;
 use function preg_replace;
@@ -149,10 +150,12 @@ final readonly class Normalizer
                 $word . ' '       => ' ',
                 ' ' . $word       => ' ',
             ]);
+        }
 
-            if ($lower === $word) {
-                $lower = '';
-            }
+        // A bare standalone title/affix (e.g. "dr.") carries no surrounding space for
+        // strtr to match, so drop it once here rather than re-checking every iteration.
+        if (in_array($lower, self::STRIP_WORDS, true)) {
+            $lower = '';
         }
 
         $collapsed = preg_replace('/\s+/', ' ', $lower);
