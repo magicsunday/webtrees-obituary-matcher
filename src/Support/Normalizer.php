@@ -11,13 +11,18 @@ declare(strict_types=1);
 
 namespace MagicSunday\ObituaryMatcher\Support;
 
+use function implode;
 use function in_array;
+use function mb_strlen;
 use function mb_strtolower;
 use function mb_substr;
-use function preg_replace;
+use function preg_split;
 use function str_contains;
+use function str_starts_with;
 use function strtr;
 use function trim;
+
+use const PREG_SPLIT_NO_EMPTY;
 
 /**
  * Pure name/text normalisation: diacritic folding is byte-safe strtr; lowercasing is
@@ -146,36 +151,67 @@ final readonly class Normalizer
     {
         $lower = mb_strtolower($value, 'UTF-8');
 
-        // Replace each title/affix with a single space (never the empty string) so a
-        // stripped middle word cannot concatenate its neighbours ("maria geb. becker"
-        // must yield "maria becker", not "mariabecker"). The trailing whitespace
-        // collapse and trim() below remove the resulting padding.
-        foreach (self::STRIP_WORDS as $word) {
-            $replacements = [
-                ' ' . $word . ' ' => ' ',
-                $word . ' '       => ' ',
-                ' ' . $word       => ' ',
-            ];
+        // Tokenise on whitespace and decide per token. Substring matching (the previous
+        // strtr approach with space-padded keys) wrongly stripped a dotless strip-word from
+        // the start of a real name ("ing" out of "ingrid" → "rid"), so stripping is now
+        // strictly whole-word — with one safe exception for glued DOTTED abbreviations.
+        $tokens = preg_split('/\s+/', $lower, -1, PREG_SPLIT_NO_EMPTY);
 
-            // A DOTTED abbreviation ("dr.", "geb.") may be glued straight onto the following
-            // name ("dr.schmidt", "geb.becker") because the dot cannot occur mid-name, so its
-            // bare (unpadded) occurrence is safe to strip too. A dotless word ("dr", "geb")
-            // stays whole-word only — stripping it bare would corrupt "pedro"/"gebhard".
-            if (str_contains($word, '.')) {
-                $replacements[$word] = ' ';
+        if ($tokens === false) {
+            $tokens = [];
+        }
+
+        $kept = [];
+
+        foreach ($tokens as $token) {
+            // An exact whole-token title/affix ("dr", "dr.", "geb", "genannt", …) is dropped.
+            if (in_array($token, self::STRIP_WORDS, true)) {
+                continue;
             }
 
-            $lower = strtr($lower, $replacements);
+            // A DOTTED abbreviation ("dr.", "geb.") may be glued straight onto the following
+            // name ("dr.schmidt", "geb.becker"): strip only the dotted prefix and keep the
+            // remainder. This is safe because a dot cannot occur mid-name, so the prefix can
+            // never be the leading run of a real name. A DOTLESS strip-word is never removed
+            // as a prefix — that would corrupt "pedro"/"ingrid"/"general".
+            $stripped = self::stripDottedPrefix($token);
+
+            if ($stripped !== null) {
+                if ($stripped !== '') {
+                    $kept[] = $stripped;
+                }
+
+                continue;
+            }
+
+            $kept[] = $token;
         }
 
-        // A bare standalone title/affix (e.g. "dr.") carries no surrounding space for
-        // strtr to match, so drop it once here rather than re-checking every iteration.
-        if (in_array($lower, self::STRIP_WORDS, true)) {
-            $lower = '';
+        return implode(' ', $kept);
+    }
+
+    /**
+     * Removes a leading DOTTED strip-word prefix from a glued token, returning the remainder.
+     *
+     * Returns null when the token does not start with any dotted strip-word, so the caller can
+     * tell "no dotted prefix" apart from "dotted prefix consumed the whole token" (empty string).
+     *
+     * @param string $token The lowercased token to inspect.
+     *
+     * @return string|null The remainder after the dotted prefix, or null if no prefix matched.
+     */
+    private static function stripDottedPrefix(string $token): ?string
+    {
+        foreach (self::STRIP_WORDS as $word) {
+            if (!str_contains($word, '.')) {
+                continue;
+            }
+
+            if (str_starts_with($token, $word)) {
+                return mb_substr($token, mb_strlen($word, 'UTF-8'), null, 'UTF-8');
+            }
         }
 
-        $collapsed = preg_replace('/\s+/', ' ', $lower);
-
-        return trim($collapsed ?? $lower);
+        return null;
     }
 }

@@ -64,6 +64,13 @@ final class NormalizerTest extends TestCase
             // never be stripped from inside a word ("pedro" contains "dr", "gebhard" "geb").
             ['pedro', 'pedro'],
             ['gebhard', 'gebhard'],
+            // A dotless strip-word must never match as a leading substring of the NEXT token:
+            // "ingrid" begins with "ing", "inge" begins with "ing", "general" begins with "gen".
+            // Whole-word tokenisation keeps these names intact.
+            ['maria ingrid', 'maria ingrid'],
+            ['inge schmidt', 'inge schmidt'],
+            ['ingrid mueller', 'ingrid mueller'],
+            ['anna general', 'anna general'],
             ['Anna Dr. Schmidt', 'anna schmidt'],
             ['geb.', ''],
             ['JÉRÔME', 'jerome'],
