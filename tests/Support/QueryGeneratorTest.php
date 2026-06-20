@@ -78,6 +78,32 @@ final class QueryGeneratorTest extends TestCase
     }
 
     #[Test]
+    public function emitsOneQueryPerMarriedSurname(): void
+    {
+        $c = new PersonCandidate(
+            'I1',
+            Gender::Female,
+            new PersonName(['Erika'], null, 'Schmidt', 'Schmidt', ['Mueller', 'Bauer']),
+            DateRange::year(1938),
+            new Place('Musterstadt'),
+            [new Place('Musterstadt')],
+            DateRange::unknown(),
+        );
+
+        $plain = array_map(static fn (CandidateQuery $q): string => $q->query, (new QueryGenerator())->generate($c));
+
+        // Each married surname must produce its own given + surname + year query; the
+        // second married surname must not be dropped into a joined blob with the first.
+        self::assertContains('Erika Mueller 1938', $plain);
+        self::assertContains('Erika Bauer 1938', $plain);
+
+        // No query may carry both married surnames joined as one token.
+        foreach ($plain as $query) {
+            self::assertStringNotContainsString('Mueller Bauer', $query);
+        }
+    }
+
+    #[Test]
     public function skipsEmptyComponents(): void
     {
         $c = new PersonCandidate(

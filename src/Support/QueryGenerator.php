@@ -51,7 +51,6 @@ final readonly class QueryGenerator
         $callName     = $candidate->name->callName ?? '';
         $surname      = $candidate->name->surname;
         $birthSurname = $candidate->name->birthSurname ?? '';
-        $married      = implode(' ', $candidate->name->marriedSurnames);
         $year         = $this->birthYear($candidate);
         $place        = $this->firstPlace($candidate);
 
@@ -60,15 +59,25 @@ final readonly class QueryGenerator
         $name = $callName !== '' ? $callName : $given;
 
         /** @var list<array{0:string,1:int}> $candidates Each entry is [assembled query, priority]. */
-        $candidates = [
-            [$this->assemble($given, $married, $year), 1],
-            [$this->assemble($given, $birthSurname, $year), 2],
-            [$this->assemble($given, $married, $place), 3],
-            [$this->assemble($callName, $surname), 4],
-            [$this->assemble($given, $birthSurname), 5],
-            [$this->assemble($name, $surname, $year), 6],
-            [$this->assemble($name, $surname, $place), 7],
-        ];
+        $candidates = [];
+
+        // One married-surname pair of tiers per married surname, so a person with two or
+        // more married names yields a standalone query for each instead of one blob token.
+        // A person without any married surname still emits the degenerate given+year /
+        // given+place tiers (the empty surname is skipped by assemble()), preserving the
+        // pre-existing single-married-surname output exactly.
+        $marriedSurnames = $candidate->name->marriedSurnames !== [] ? $candidate->name->marriedSurnames : [''];
+
+        foreach ($marriedSurnames as $married) {
+            $candidates[] = [$this->assemble($given, $married, $year), 1];
+            $candidates[] = [$this->assemble($given, $married, $place), 3];
+        }
+
+        $candidates[] = [$this->assemble($given, $birthSurname, $year), 2];
+        $candidates[] = [$this->assemble($callName, $surname), 4];
+        $candidates[] = [$this->assemble($given, $birthSurname), 5];
+        $candidates[] = [$this->assemble($name, $surname, $year), 6];
+        $candidates[] = [$this->assemble($name, $surname, $place), 7];
 
         /** @var array<string, CandidateQuery> $byKey */
         $byKey = [];
