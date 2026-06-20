@@ -75,7 +75,7 @@ final readonly class PlaceScorer
         }
 
         foreach ($candidate->places as $residence) {
-            if (Normalizer::normalize($residence->name) === $needle) {
+            if ($this->matchesPlace($residence, $needle)) {
                 return new SignalScore(min(self::RESIDENCE, $this->config->maxPlace), $this->config->maxPlace, ['place matches residence']);
             }
         }
@@ -91,11 +91,38 @@ final readonly class PlaceScorer
 
         if (
             ($candidate->birthPlace instanceof Place)
-            && (Normalizer::normalize($candidate->birthPlace->name) === $needle)
+            && $this->matchesPlace($candidate->birthPlace, $needle)
         ) {
             return new SignalScore(min(self::BIRTH_PLACE, $this->config->maxPlace), $this->config->maxPlace, ['birth place matches']);
         }
 
         return new SignalScore(0, $this->config->maxPlace, []);
+    }
+
+    /**
+     * Checks whether a place matches the normalised needle by its primary name or any alias.
+     *
+     * Aliases capture historical or alternative spellings of the same place, so an alias match
+     * is treated as equivalent to a primary-name match. The needle is already normalised and
+     * guaranteed non-empty by the caller, so an empty alias key can never match it.
+     *
+     * @param Place  $place  The candidate place (residence or birth place).
+     * @param string $needle The normalised, non-empty notice place key.
+     *
+     * @return bool Whether the place's name or one of its aliases equals the needle.
+     */
+    private function matchesPlace(Place $place, string $needle): bool
+    {
+        if (Normalizer::normalize($place->name) === $needle) {
+            return true;
+        }
+
+        foreach ($place->aliases as $alias) {
+            if (Normalizer::normalize($alias) === $needle) {
+                return true;
+            }
+        }
+
+        return false;
     }
 }

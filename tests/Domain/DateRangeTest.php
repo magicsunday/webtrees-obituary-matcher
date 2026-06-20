@@ -134,4 +134,38 @@ final class DateRangeTest extends TestCase
             DatePrecision::Interval,
         );
     }
+
+    /**
+     * Verifies that a legitimately less-precise upper bound does not trigger the inverted-range
+     * guard: "FROM FEB 2023 TO 2023" has an earliest of 2023-02-01 and a latest of the whole
+     * year 2023, whose UPPER bound is 2023-12-31. Validating earliest's lower bound against
+     * latest's UPPER bound must accept this range.
+     */
+    #[Test]
+    public function acceptsEarliestWithinLessPreciseLatestUpperBound(): void
+    {
+        $range = DateRange::known(
+            new DateValue(2023, 2, 1),
+            new DateValue(2023),
+            DatePrecision::Interval,
+        );
+
+        self::assertTrue($range->isKnown());
+    }
+
+    /**
+     * Verifies that a genuinely inverted range still raises even when validated against the
+     * latest's upper bound: earliest 2025 cannot precede a latest whose upper bound is 2020-12-31.
+     */
+    #[Test]
+    public function rejectsGenuinelyInvertedRangeAgainstUpperBound(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+
+        DateRange::known(
+            new DateValue(2025),
+            new DateValue(2020),
+            DatePrecision::Interval,
+        );
+    }
 }

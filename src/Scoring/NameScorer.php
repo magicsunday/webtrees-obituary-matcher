@@ -179,7 +179,11 @@ final readonly class NameScorer
         $noticeSurname = Normalizer::normalize($notice->surname);
         $noticeBorn    = ($notice->birthSurname !== null) ? Normalizer::normalize($notice->birthSurname) : null;
 
-        $candidateBirth   = Normalizer::normalize($candidate->birthSurname ?? $candidate->surname);
+        // Fall back to the display surname when the birth surname is null OR an empty string:
+        // a "" ?? $surname would yield "" and silently lose the surname role, so an explicit
+        // empty check recovers the display surname for an empty birth surname.
+        $birthSurname     = $candidate->birthSurname;
+        $candidateBirth   = Normalizer::normalize((($birthSurname !== null) && ($birthSurname !== '')) ? $birthSurname : $candidate->surname);
         $candidateMarried = array_map(Normalizer::normalize(...), $candidate->marriedSurnames);
 
         // Each branch guards its own operands: an empty key ('' === '') must never award a role.

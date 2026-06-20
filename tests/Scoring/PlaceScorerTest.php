@@ -114,6 +114,42 @@ final class PlaceScorerTest extends TestCase
     }
 
     /**
+     * A residence whose ALIAS (not its primary name) equals the notice place still scores the
+     * residence weight: aliases capture historical or alternative spellings of the same place.
+     */
+    #[Test]
+    public function residenceAliasMatchScoresResidence(): void
+    {
+        $candidate = $this->candidate(
+            new Place('Beispielstadt'),
+            [new Place('Musterstadt', null, null, null, ['Mustertown'])],
+        );
+
+        $signal = (new PlaceScorer(new ScoreConfig()))->score($candidate, new Place('Mustertown'));
+
+        self::assertSame(12, $signal->score);
+        self::assertContains('place matches residence', $signal->reasons);
+    }
+
+    /**
+     * A birth place whose ALIAS (not its primary name) equals the notice place still scores the
+     * birth-place weight.
+     */
+    #[Test]
+    public function birthPlaceAliasMatchScoresBirthPlace(): void
+    {
+        $candidate = $this->candidate(
+            new Place('Musterstadt', null, null, null, ['Mustertown']),
+            [],
+        );
+
+        $signal = (new PlaceScorer(new ScoreConfig()))->score($candidate, new Place('Mustertown'));
+
+        self::assertSame(5, $signal->score);
+        self::assertContains('birth place matches', $signal->reasons);
+    }
+
+    /**
      * An empty/whitespace notice place must not match an empty/whitespace residence,
      * birth place or region: '' === '' would otherwise award place points for nothing.
      */

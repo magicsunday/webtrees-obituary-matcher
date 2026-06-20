@@ -312,6 +312,25 @@ final class NameScorerTest extends TestCase
     }
 
     /**
+     * A candidate whose birth surname is an empty string (rather than null) must fall back to
+     * its display surname for the surname-role comparison: "" ?? $surname would yield "" and
+     * silently lose the role, whereas "" ?: $surname recovers the display surname.
+     */
+    #[Test]
+    public function emptyBirthSurnameFallsBackToDisplaySurname(): void
+    {
+        // Candidate birth surname is '' (empty, not null); display surname is "Becker".
+        $candidate = new PersonName(['Maria'], null, 'Becker', '');
+        $notice    = new PersonName(['Maria'], null, 'Becker', null);
+        $signal    = $this->scorer()->score($candidate, $notice);
+
+        // Surname matches the candidate's display surname via the birth-name role (+10),
+        // given name "Maria" matches exactly (+10) -> coherent, non-zero surname role.
+        self::assertContains('surname matches birth name', $signal->reasons);
+        self::assertNotContains('no surname role matched', $signal->reasons);
+    }
+
+    /**
      * The reported score of a role-rich exact match equals the sum of its reasons (capped).
      */
     #[Test]

@@ -43,10 +43,13 @@ final readonly class DateRange
         public DateRangeStatus $status,
         public ?string $original = null,
     ) {
+        // Validate the earliest's LOWER bound against the latest's UPPER bound: a legitimately
+        // less-precise upper bound (e.g. "FROM FEB 2023 TO 2023", where latest is the whole year
+        // 2023) must not be rejected just because comparable() defaults its month/day to January.
         if (
             ($earliest instanceof DateValue)
             && ($latest instanceof DateValue)
-            && ($earliest->comparable() > $latest->comparable())
+            && ($earliest->comparable() > $this->upperComparable($latest))
         ) {
             throw new InvalidArgumentException('Earliest date must not be after latest date.');
         }
@@ -222,17 +225,31 @@ final readonly class DateRange
             return PHP_INT_MAX;
         }
 
+        return $this->upperComparable($this->latest);
+    }
+
+    /**
+     * Returns the highest comparable key a less-precise date can stand for: a missing month
+     * defaults to December and a missing day to the last day of that month, so the value
+     * spans the whole imprecise period rather than only its first day.
+     *
+     * @param DateValue $date The (possibly imprecise) date.
+     *
+     * @return int The upper comparable bound (yyyymmdd) of the date.
+     */
+    private function upperComparable(DateValue $date): int
+    {
         // Fill a missing day with the last day of the month so an upper bound
         // never excludes valid days late in the month.
-        $day = $this->latest->day;
+        $day = $date->day;
 
         if (
             ($day === null)
-            && ($this->latest->month !== null)
+            && ($date->month !== null)
         ) {
-            $day = DateValue::lastDayOfMonth($this->latest->year, $this->latest->month);
+            $day = DateValue::lastDayOfMonth($date->year, $date->month);
         }
 
-        return ($this->latest->year * 10000) + (($this->latest->month ?? 12) * 100) + ($day ?? 31);
+        return ($date->year * 10000) + (($date->month ?? 12) * 100) + ($day ?? 31);
     }
 }
