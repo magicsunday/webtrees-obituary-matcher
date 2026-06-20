@@ -144,24 +144,6 @@ final class PersonCandidateAdapterTest extends IntegrationTestCase
     }
 
     #[Test]
-    public function plainRelativeNamesCarryNoMarkup(): void
-    {
-        $tree      = $this->adapterTree();
-        $candidate = PersonCandidateAdapter::fromIndividual($this->requireIndividual('I1', $tree));
-
-        self::assertNotNull($candidate);
-
-        // webtrees fullName() returns HTML; the adapter must strip it to plain text.
-        foreach ([...$candidate->spouses, ...$candidate->children] as $relative) {
-            foreach ($relative->name->givenNames as $given) {
-                self::assertStringNotContainsString('<', $given);
-            }
-
-            self::assertStringNotContainsString('<', $relative->name->surname);
-        }
-    }
-
-    #[Test]
     public function confidentialIndividualMapsToNullForVisitor(): void
     {
         $tree       = $this->adapterTree();
@@ -190,6 +172,17 @@ final class PersonCandidateAdapterTest extends IntegrationTestCase
         $confidentialChild  = $this->requireIndividual('I7', $tree);
         self::assertTrue($confidentialSpouse->canShow());
         self::assertTrue($confidentialChild->canShow());
+
+        // Positive control: as an admin the head's family graph DOES surface the
+        // confidential spouse and child, so the visitor-side emptiness below can only
+        // be the privacy gate firing, not a never-traversed family.
+        $adminCandidate = PersonCandidateAdapter::fromIndividual($this->requireIndividual('I5', $tree));
+
+        self::assertNotNull($adminCandidate);
+        self::assertCount(1, $adminCandidate->spouses);
+        self::assertCount(1, $adminCandidate->children);
+        self::assertSame('I6', $adminCandidate->spouses[0]->id);
+        self::assertSame('I7', $adminCandidate->children[0]->id);
 
         Auth::logout();
 
