@@ -1,0 +1,16 @@
+{
+    "format": [
+        "php"
+    ],
+    "threshold": 0,
+    "reporters": [
+        "console-full"
+    ],
+    "minTokens": 100,
+    "minLines": 5,
+    "path": [
+        "src",
+        "tests"
+    ],
+    "exitCode": 1
+}

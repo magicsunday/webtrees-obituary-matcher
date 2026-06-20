@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+# Run the full CI test suite before every push to catch regressions before
+# they reach the remote. Skip deletions — a branch deletion has no code to test.
+#
+# Bypass once for a deliberate hand-off: AUDIT_BYPASS=1 git push …
+
+set -euo pipefail
+
+if [[ "${AUDIT_BYPASS:-0}" = "1" ]]; then
+    exit 0
+fi
+
+# A pre-push hook receives the ref updates on stdin as
+# "<local-ref> <local-sha> <remote-ref> <remote-sha>" lines. Skip the check
+# when every pushed ref is a deletion (local sha is the all-zero oid).
+has_update=0
+while read -r _local_ref local_sha _remote_ref _remote_sha; do
+    if [[ ! "$local_sha" =~ ^0+$ ]]; then
+        has_update=1
+    fi
+done
+
+if [[ "$has_update" -eq 0 ]]; then
+    exit 0
+fi
+
+if command -v composer >/dev/null 2>&1; then
+    exec composer ci:test
+fi
+
+echo "composer not found on PATH — skipping checks (run 'composer ci:test' in your dev container; CI enforces them)."
+exit 0

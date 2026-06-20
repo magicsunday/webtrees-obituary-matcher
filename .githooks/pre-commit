@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+# Run the PHP CI test suite before every commit to catch regressions early.
+# This mirrors what the CI build job runs so a local commit stays green.
+#
+# Bypass once for a deliberate work-in-progress: AUDIT_BYPASS=1 git commit …
+
+set -euo pipefail
+
+if [[ "${AUDIT_BYPASS:-0}" = "1" ]]; then
+    exit 0
+fi
+
+if command -v composer >/dev/null 2>&1; then
+    exec composer ci:test
+fi
+
+echo "composer not found on PATH — skipping checks (run 'composer ci:test' in your dev container; CI enforces them)."
+exit 0
