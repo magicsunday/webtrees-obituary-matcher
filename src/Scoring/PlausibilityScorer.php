@@ -46,11 +46,6 @@ final readonly class PlausibilityScorer
     private const int GENDER_CONSISTENT = 2;
 
     /**
-     * Highest plausible age at death, in years.
-     */
-    private const int MAX_AGE = 120;
-
-    /**
      * Constructor.
      *
      * @param ScoreConfig $config The scoring configuration.
@@ -94,7 +89,7 @@ final readonly class PlausibilityScorer
 
             if (
                 ($minAge >= $this->config->minPlausibleAge)
-                && ($maxAge <= self::MAX_AGE)
+                && ($maxAge <= $this->config->maxPlausibleAge)
             ) {
                 $score += self::PLAUSIBLE_AGE;
                 $reasons[] = 'plausible age (' . $minAge . ')';

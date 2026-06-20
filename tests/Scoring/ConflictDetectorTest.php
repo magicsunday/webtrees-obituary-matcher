@@ -263,6 +263,41 @@ final class ConflictDetectorTest extends TestCase
     }
 
     /**
+     * A candidate born far too early to be the deceased (age above the plausible cap)
+     * is a hard age conflict; the band is capped by the penalty.
+     */
+    #[Test]
+    public function implausiblyOldIsHardConflict(): void
+    {
+        // Born 1850, notice death 2020 -> maximum age 170, far above the 120-year cap.
+        $candidate = $this->candidate(DateRange::year(1850));
+        $notice    = $this->notice(DateRange::unknown(), DateRange::exact(new DateValue(2020, 1, 1)));
+        $result    = (new ConflictDetector(new ScoreConfig()))->detect($candidate, $notice);
+
+        self::assertTrue($result->hasHardConflict());
+        self::assertSame(20, $result->penalty);
+        self::assertSame('age', $result->reasons[0]->field);
+        self::assertSame(ConflictSeverity::Hard, $result->reasons[0]->severity);
+        self::assertSame('1850', $result->reasons[0]->treeValue);
+        self::assertSame('2020', $result->reasons[0]->obituaryValue);
+    }
+
+    /**
+     * A normal lifespan (1938 birth, 2023 death -> age 85) raises no age conflict.
+     */
+    #[Test]
+    public function normalAgeIsNoConflict(): void
+    {
+        $candidate = $this->candidate(DateRange::year(1938));
+        $notice    = $this->notice(DateRange::unknown(), DateRange::exact(new DateValue(2023, 9, 4)));
+        $result    = (new ConflictDetector(new ScoreConfig()))->detect($candidate, $notice);
+
+        self::assertFalse($result->hasHardConflict());
+        self::assertSame(0, $result->penalty);
+        self::assertSame([], $result->reasons);
+    }
+
+    /**
      * An unparseable date on a side yields a soft conflict with no penalty.
      */
     #[Test]

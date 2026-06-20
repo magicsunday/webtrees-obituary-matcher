@@ -163,7 +163,7 @@ final class PlausibilityScorerTest extends TestCase
     public function wideBirthRangeExceedingUpperBoundEarnsNoAgePoint(): void
     {
         // Birth between 1850 and 1950, death 2023: latest endpoint -> age 73 (plausible),
-        // but earliest endpoint -> age 173 (> MAX_AGE 120), so the candidate must not score.
+        // but earliest endpoint -> age 173 (> maxPlausibleAge 120), so the candidate must not score.
         $candidate = new PersonCandidate(
             'I1',
             Gender::Male,

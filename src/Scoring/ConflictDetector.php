@@ -49,6 +49,11 @@ final readonly class ConflictDetector
     private const int IMPLAUSIBLY_YOUNG = 20;
 
     /**
+     * Penalty for a candidate too old at the notice's death date (an ancestor namesake).
+     */
+    private const int IMPLAUSIBLY_OLD = 20;
+
+    /**
      * Placeholder value used when a side carries an unparseable date.
      */
     private const string UNINTERPRETABLE = '(uninterpretable)';
@@ -103,6 +108,16 @@ final readonly class ConflictDetector
                 ConflictSeverity::Hard,
             );
             $penalty += self::IMPLAUSIBLY_YOUNG;
+        }
+
+        if ($this->implausiblyOld($candidate, $notice)) {
+            $reasons[] = new ConflictReason(
+                'age',
+                (string) $candidate->birth->earliest?->year,
+                (string) $notice->death->latest?->year,
+                ConflictSeverity::Hard,
+            );
+            $penalty += self::IMPLAUSIBLY_OLD;
         }
 
         if (
@@ -172,6 +187,34 @@ final readonly class ConflictDetector
         $age = $notice->death->earliest->year - $candidate->birth->latest->year;
 
         return $age < $this->config->minPlausibleAge;
+    }
+
+    /**
+     * Checks whether the candidate would be implausibly old at the notice's death, which marks
+     * an ancestor namesake (e.g. a great-grandparent born more than 120 years before the death)
+     * rather than the deceased. The MAXIMUM possible age is used (the earliest birth endpoint
+     * against the latest death endpoint), so an imprecise range conflicts as soon as its most
+     * extreme interpretation (the oldest possible age) exceeds the cap.
+     *
+     * @param PersonCandidate $candidate The tree candidate.
+     * @param ObituaryRecord  $notice    The obituary notice.
+     *
+     * @return bool Whether the candidate would be above the maximum plausible age.
+     */
+    private function implausiblyOld(PersonCandidate $candidate, ObituaryRecord $notice): bool
+    {
+        if (
+            !$candidate->birth->isKnown()
+            || !$notice->death->isKnown()
+            || !$candidate->birth->earliest instanceof DateValue
+            || !$notice->death->latest instanceof DateValue
+        ) {
+            return false;
+        }
+
+        $age = $notice->death->latest->year - $candidate->birth->earliest->year;
+
+        return $age > $this->config->maxPlausibleAge;
     }
 
     /**

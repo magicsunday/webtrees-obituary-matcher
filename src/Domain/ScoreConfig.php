@@ -31,6 +31,8 @@ final readonly class ScoreConfig
      * @param int $ambiguityGap    Score gap below which a match is considered ambiguous.
      * @param int $minPlausibleAge Lowest age at death (in years) that is treated as plausible;
      *                             below it the age is flagged as a conflict instead of rewarded.
+     * @param int $maxPlausibleAge Highest age at death (in years) that is treated as plausible;
+     *                             above it the age is flagged as a conflict instead of rewarded.
      */
     public function __construct(
         public int $maxName = 45,
@@ -40,6 +42,7 @@ final readonly class ScoreConfig
         public int $maxPenalty = 50,
         public int $ambiguityGap = 10,
         public int $minPlausibleAge = 10,
+        public int $maxPlausibleAge = 120,
     ) {
     }
 }
