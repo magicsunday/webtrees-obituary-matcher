@@ -15,8 +15,14 @@
          failOnWarning="true"
 >
     <testsuites>
-        <testsuite name="Unit Tests">
-            <directory>tests</directory>
+        <testsuite name="unit">
+            <directory>tests/Domain</directory>
+            <directory>tests/Support</directory>
+            <directory>tests/Parsing</directory>
+            <directory>tests/Scoring</directory>
+        </testsuite>
+        <testsuite name="integration">
+            <directory>tests/Integration</directory>
         </testsuite>
     </testsuites>
 

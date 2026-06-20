@@ -1,0 +1,74 @@
+0 HEAD
+1 SOUR obituary-matcher-tests
+1 GEDC
+2 VERS 5.5.1
+1 CHAR UTF-8
+0 @I1@ INDI
+1 NAME Otto /Searchable/
+2 GIVN Otto
+2 SURN Searchable
+1 SEX M
+1 BIRT
+2 DATE 17 MAR 1930
+0 @I2@ INDI
+1 NAME Greta /Deceased/
+2 GIVN Greta
+2 SURN Deceased
+1 SEX F
+1 BIRT
+2 DATE 5 MAY 1928
+1 DEAT
+2 DATE 3 JAN 2010
+0 @I3@ INDI
+1 NAME Bruno /Approx/
+2 GIVN Bruno
+2 SURN Approx
+1 SEX M
+1 BIRT
+2 DATE 9 SEP 1926
+1 DEAT
+2 DATE ABT 2020
+0 @I4@ INDI
+1 NAME Lena /Young/
+2 GIVN Lena
+2 SURN Young
+1 SEX F
+1 BIRT
+2 DATE 1 JAN 2000
+0 @I5@ INDI
+1 NAME Klaus /Bracket/
+2 GIVN Klaus
+2 SURN Bracket
+1 SEX M
+1 BIRT
+2 DATE BET 1936 AND 1940
+0 @I6@ INDI
+1 NAME Heinz /Flagged/
+2 GIVN Heinz
+2 SURN Flagged
+1 SEX M
+1 BIRT
+2 DATE 8 AUG 1929
+1 DEAT Y
+0 @I7@ INDI
+1 NAME Ida /Private/
+2 GIVN Ida
+2 SURN Private
+1 SEX F
+1 RESN confidential
+1 BIRT
+2 DATE 4 APR 1931
+0 @I8@ INDI
+1 NAME Walter /Unborn/
+2 GIVN Walter
+2 SURN Unborn
+1 SEX M
+1 DEAT Y
+0 @I9@ INDI
+1 NAME Wilhelmine /Christened/
+2 GIVN Wilhelmine
+2 SURN Christened
+1 SEX F
+1 CHR
+2 DATE 12 MAR 1900
+0 TRLR
