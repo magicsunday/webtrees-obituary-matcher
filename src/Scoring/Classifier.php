@@ -82,8 +82,11 @@ final readonly class Classifier
         $ambiguous = false;
         $second    = $this->secondBest($best, $allResults);
 
+        // Ambiguity applies whenever the best is at least a possible match AND the runner-up is
+        // within the gap: a possible-band pair (e.g. 60 vs 58) genuinely fits two people equally,
+        // while a weak/none best stays unflagged so low-confidence noise is not surfaced.
         if (
-            ($best->total >= self::THRESHOLD_PROBABLE)
+            ($best->total >= self::THRESHOLD_POSSIBLE)
             && ($second !== null)
             && (($best->total - $second) < $this->config->ambiguityGap)
         ) {

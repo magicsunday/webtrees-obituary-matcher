@@ -78,7 +78,7 @@ The total score is a weighted sum of independent positive signals, capped at 100
 
 - **`ConflictDetector` is the only negative evidence.** A field contradiction (e.g. a birth-date mismatch) is emitted as a `ConflictResult`; a **hard** conflict caps the band regardless of how high the positive signals scored. Penalty is bounded by the configured cap.
 - **Bands** (defaults in `ScoreConfig` / `Band` mapping): score ≥ **85** → `strong`, ≥ **70** → `probable`, ≥ **55** → `possible`, ≥ **40** → `weak`, below → `none`.
-- **Ambiguity gap = 10.** When the runner-up candidate scores within 10 points of the best, the result is flagged `ambiguous` so the reviewer knows two people fit almost equally well.
+- **Ambiguity gap = 10.** When the best is at least a *possible* match (score ≥ **55**) **and** the runner-up candidate scores within 10 points of it, the result is flagged `ambiguous` so the reviewer knows two people fit almost equally well. A weak/none best is never flagged, so low-confidence noise is not surfaced.
 - **Death date is an extracted fact, NOT a positive signal.** The engine never scores points for the obituary having a death date — the death date is the *answer* the suggestion delivers, carried in `extractedFacts`, not evidence that the match is correct. Scoring the death date would be circular.
 - **Missing data scores 0, never negative.** An absent place or birth year contributes 0 points to its signal; it is not a conflict. Only a present-and-contradicting value is negative evidence.
 

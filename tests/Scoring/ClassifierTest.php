@@ -115,4 +115,31 @@ final class ClassifierTest extends TestCase
 
         self::assertFalse((new Classifier())->classify($best, [$best, $second])->ambiguous);
     }
+
+    /**
+     * A possible-band best (>= 55) with a runner-up within the gap is ambiguous: a 60-vs-58
+     * pair is two people fitting almost equally well, so the gate fires for possible-or-better
+     * matches, not only for probable-or-better ones.
+     */
+    #[Test]
+    public function ambiguousWhenPossibleBandRunnerUpWithinGap(): void
+    {
+        $best   = $this->explanation(60);
+        $second = $this->explanation(58); // Gap 2, both possible -> ambiguous.
+
+        self::assertTrue((new Classifier())->classify($best, [$best, $second])->ambiguous);
+    }
+
+    /**
+     * A weak-band best (< 55) is never flagged ambiguous even with a close runner-up: ambiguity
+     * requires the best to be at least a possible match, so weak/none noise stays unflagged.
+     */
+    #[Test]
+    public function notAmbiguousWhenBestBelowPossible(): void
+    {
+        $best   = $this->explanation(50);
+        $second = $this->explanation(49); // Gap 1, but best is below the possible threshold.
+
+        self::assertFalse((new Classifier())->classify($best, [$best, $second])->ambiguous);
+    }
 }
