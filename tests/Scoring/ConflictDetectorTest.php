@@ -94,6 +94,42 @@ final class ConflictDetectorTest extends TestCase
     }
 
     /**
+     * Builds an approximate birth range spanning whole years (the ABT shape from webtrees).
+     *
+     * @param int $fromYear The inclusive lower-bound year.
+     * @param int $toYear   The inclusive upper-bound year.
+     *
+     * @return DateRange The approximate range.
+     */
+    private function approximateYears(int $fromYear, int $toYear): DateRange
+    {
+        return DateRange::known(
+            new DateValue($fromYear, 1, 1),
+            new DateValue($toYear, 12, 31),
+            DatePrecision::Approximate,
+        );
+    }
+
+    /**
+     * Asserts the result is a single hard birth-date conflict with the given rendered values.
+     *
+     * @param ConflictResult $result        The detection result.
+     * @param string         $treeValue     The expected rendered tree value.
+     * @param string         $obituaryValue The expected rendered obituary value.
+     *
+     * @return void
+     */
+    private function assertHardBirthConflict(ConflictResult $result, string $treeValue, string $obituaryValue): void
+    {
+        self::assertTrue($result->hasHardConflict());
+        self::assertSame(30, $result->penalty);
+        self::assertSame('birth date', $result->reasons[0]->field);
+        self::assertSame(ConflictSeverity::Hard, $result->reasons[0]->severity);
+        self::assertSame($treeValue, $result->reasons[0]->treeValue);
+        self::assertSame($obituaryValue, $result->reasons[0]->obituaryValue);
+    }
+
+    /**
      * Two exact but differing birth dates are a hard conflict with the field values.
      */
     #[Test]
@@ -103,12 +139,7 @@ final class ConflictDetectorTest extends TestCase
         $notice    = $this->notice(DateRange::exact(new DateValue(1962, 8, 27)), DateRange::unknown());
         $result    = (new ConflictDetector(new ScoreConfig()))->detect($candidate, $notice);
 
-        self::assertTrue($result->hasHardConflict());
-        self::assertSame(30, $result->penalty);
-        self::assertSame('birth date', $result->reasons[0]->field);
-        self::assertSame(ConflictSeverity::Hard, $result->reasons[0]->severity);
-        self::assertSame('1962-08-02', $result->reasons[0]->treeValue);
-        self::assertSame('1962-08-27', $result->reasons[0]->obituaryValue);
+        $this->assertHardBirthConflict($result, '1962-08-02', '1962-08-27');
     }
 
     /**
@@ -141,6 +172,63 @@ final class ConflictDetectorTest extends TestCase
         self::assertSame('death date', $result->reasons[0]->field);
         self::assertSame('1980-01-01', $result->reasons[0]->treeValue);
         self::assertSame('2023-09-04', $result->reasons[0]->obituaryValue);
+    }
+
+    /**
+     * Two known but non-overlapping birth year ranges are a hard conflict even though
+     * neither side is an exact single day.
+     */
+    #[Test]
+    public function nonOverlappingBirthYearsAreHardConflict(): void
+    {
+        $candidate = $this->candidate(DateRange::year(1930));
+        $notice    = $this->notice(DateRange::year(1940), DateRange::unknown());
+        $result    = (new ConflictDetector(new ScoreConfig()))->detect($candidate, $notice);
+
+        $this->assertHardBirthConflict($result, '1930', '1940');
+    }
+
+    /**
+     * Two overlapping approximate ranges (ABT 1938 = 1936..1940 vs 1940) raise no conflict.
+     */
+    #[Test]
+    public function overlappingApproximateBirthRangesAreNoConflict(): void
+    {
+        $candidate = $this->candidate($this->approximateYears(1936, 1940));
+        $notice    = $this->notice(DateRange::year(1940), DateRange::unknown());
+        $result    = (new ConflictDetector(new ScoreConfig()))->detect($candidate, $notice);
+
+        self::assertFalse($result->hasHardConflict());
+        self::assertSame(0, $result->penalty);
+    }
+
+    /**
+     * An approximate range that does not overlap an exact day is a hard conflict and the
+     * reason renders the year-range against the ISO exact date.
+     */
+    #[Test]
+    public function nonOverlappingApproximateBirthRangeIsHardConflict(): void
+    {
+        $candidate = $this->candidate($this->approximateYears(1936, 1940));
+        $notice    = $this->notice(DateRange::year(1960), DateRange::unknown());
+        $result    = (new ConflictDetector(new ScoreConfig()))->detect($candidate, $notice);
+
+        $this->assertHardBirthConflict($result, '1936-1940', '1960');
+    }
+
+    /**
+     * An approximate birth range overlapping an exact day raises no conflict: ABT 1938
+     * (1936..1940) against the exact 12.03.1938 must stay a clean match.
+     */
+    #[Test]
+    public function approximateRangeOverlappingExactDayIsNoConflict(): void
+    {
+        $candidate = $this->candidate($this->approximateYears(1936, 1940));
+        $notice    = $this->notice(DateRange::exact(new DateValue(1938, 3, 12)), DateRange::unknown());
+        $result    = (new ConflictDetector(new ScoreConfig()))->detect($candidate, $notice);
+
+        self::assertFalse($result->hasHardConflict());
+        self::assertSame(0, $result->penalty);
     }
 
     /**

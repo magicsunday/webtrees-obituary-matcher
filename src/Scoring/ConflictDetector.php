@@ -34,12 +34,12 @@ use function sprintf;
 final readonly class ConflictDetector
 {
     /**
-     * Penalty for two exact but differing birth dates.
+     * Penalty for two known but non-overlapping birth dates.
      */
     private const int BIRTH_DIFFERENT = 30;
 
     /**
-     * Penalty for a certain death date in the tree that differs from the notice.
+     * Penalty for two known but non-overlapping death dates.
      */
     private const int DEATH_DIFFERENT = 30;
 
@@ -75,21 +75,21 @@ final readonly class ConflictDetector
         $reasons = [];
         $penalty = 0;
 
-        if ($this->bothExactDiffer($candidate->birth, $notice->birth)) {
+        if ($this->bothKnownAndDisjoint($candidate->birth, $notice->birth)) {
             $reasons[] = new ConflictReason(
                 'birth date',
-                $this->formatExact($candidate->birth),
-                $this->formatExact($notice->birth),
+                $this->formatRange($candidate->birth),
+                $this->formatRange($notice->birth),
                 ConflictSeverity::Hard,
             );
             $penalty += self::BIRTH_DIFFERENT;
         }
 
-        if ($this->bothExactDiffer($candidate->death, $notice->death)) {
+        if ($this->bothKnownAndDisjoint($candidate->death, $notice->death)) {
             $reasons[] = new ConflictReason(
                 'death date',
-                $this->formatExact($candidate->death),
-                $this->formatExact($notice->death),
+                $this->formatRange($candidate->death),
+                $this->formatRange($notice->death),
                 ConflictSeverity::Hard,
             );
             $penalty += self::DEATH_DIFFERENT;
@@ -133,20 +133,21 @@ final readonly class ConflictDetector
     }
 
     /**
-     * Checks whether both ranges are exact single days that differ.
+     * Checks whether both ranges are known yet do not overlap at all. This subsumes the
+     * exact-versus-exact case (two different single days never overlap) while also catching
+     * imprecise but non-overlapping contradictions such as the year 1930 against 1940 or
+     * ABT 1938 (1936..1940) against 1960.
      *
      * @param DateRange $a The first range.
      * @param DateRange $b The second range.
      *
-     * @return bool Whether both are exact and carry different days.
+     * @return bool Whether both are known and disjoint.
      */
-    private function bothExactDiffer(DateRange $a, DateRange $b): bool
+    private function bothKnownAndDisjoint(DateRange $a, DateRange $b): bool
     {
-        return $a->isExact()
-            && $b->isExact()
-            && ($a->earliest instanceof DateValue)
-            && ($b->earliest instanceof DateValue)
-            && ($a->earliest->comparable() !== $b->earliest->comparable());
+        return $a->isKnown()
+            && $b->isKnown()
+            && !$a->overlaps($b);
     }
 
     /**
@@ -174,23 +175,36 @@ final readonly class ConflictDetector
     }
 
     /**
-     * Formats the earliest day of an exact range as an ISO YYYY-MM-DD string.
+     * Formats a range as a human-readable value: an ISO YYYY-MM-DD day when the range is an
+     * exact single day, otherwise the year (or year-range when the bounds span several years),
+     * falling back to the raw source string when no bounds are available.
      *
-     * @param DateRange $range The exact range to format.
+     * @param DateRange $range The range to format.
      *
-     * @return string The formatted day, or an empty string when not exactly known.
+     * @return string A readable representation of the range.
      */
-    private function formatExact(DateRange $range): string
+    private function formatRange(DateRange $range): string
     {
-        if (!$range->earliest instanceof DateValue) {
-            return '';
+        if ($range->isExact() && ($range->earliest instanceof DateValue)) {
+            return sprintf(
+                '%04d-%02d-%02d',
+                $range->earliest->year,
+                $range->earliest->month ?? 1,
+                $range->earliest->day ?? 1,
+            );
         }
 
-        return sprintf(
-            '%04d-%02d-%02d',
-            $range->earliest->year,
-            $range->earliest->month ?? 1,
-            $range->earliest->day ?? 1,
-        );
+        if (
+            !$range->earliest instanceof DateValue
+            || !$range->latest instanceof DateValue
+        ) {
+            return $range->original ?? '';
+        }
+
+        if ($range->earliest->year === $range->latest->year) {
+            return sprintf('%04d', $range->earliest->year);
+        }
+
+        return sprintf('%04d-%04d', $range->earliest->year, $range->latest->year);
     }
 }

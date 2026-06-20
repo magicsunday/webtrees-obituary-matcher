@@ -80,7 +80,12 @@ final readonly class Classifier
         }
 
         $ambiguous = false;
-        $second    = $this->secondBest($best, $allResults);
+
+        // When the best match itself is clean, a band-capped runner-up that carries a hard
+        // conflict is a known-different person and must not make the clean best look uncertain;
+        // it is therefore excluded from the runner-up consideration.
+        $excludeConflicted = !$best->conflicts->hasHardConflict();
+        $second            = $this->secondBest($best, $allResults, $excludeConflicted);
 
         // Ambiguity applies whenever the best is at least a possible match AND the runner-up is
         // within the gap: a possible-band pair (e.g. 60 vs 58) genuinely fits two people equally,
@@ -149,17 +154,25 @@ final readonly class Classifier
     /**
      * Finds the next-highest total among the other results.
      *
-     * @param MatchExplanation       $best       The best result (excluded by identity).
-     * @param list<MatchExplanation> $allResults All results.
+     * @param MatchExplanation       $best              The best result (excluded by identity).
+     * @param list<MatchExplanation> $allResults        All results.
+     * @param bool                   $excludeConflicted Whether to skip results carrying a hard conflict.
      *
      * @return int|null The next-highest total among the others, or null when there is none.
      */
-    private function secondBest(MatchExplanation $best, array $allResults): ?int
+    private function secondBest(MatchExplanation $best, array $allResults, bool $excludeConflicted): ?int
     {
         $second = null;
 
         foreach ($allResults as $result) {
             if ($result === $best) {
+                continue;
+            }
+
+            if (
+                $excludeConflicted
+                && $result->conflicts->hasHardConflict()
+            ) {
                 continue;
             }
 

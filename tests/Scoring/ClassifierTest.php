@@ -131,6 +131,33 @@ final class ClassifierTest extends TestCase
     }
 
     /**
+     * A clean best with a hard-conflicted runner-up within the gap is NOT ambiguous: a
+     * band-capped namesake that is a known-different person must not make the real match
+     * look uncertain.
+     */
+    #[Test]
+    public function notAmbiguousWhenRunnerUpHasHardConflict(): void
+    {
+        $best   = $this->explanation(80);
+        $second = $this->explanation(78, true); // Gap 2 but the runner-up is a known mismatch.
+
+        self::assertFalse((new Classifier())->classify($best, [$best, $second])->ambiguous);
+    }
+
+    /**
+     * A clean best with a clean runner-up within the gap is still flagged ambiguous: the
+     * conflict exclusion must not suppress a genuine two-candidate tie.
+     */
+    #[Test]
+    public function ambiguousWhenCleanRunnerUpWithinGap(): void
+    {
+        $best   = $this->explanation(80);
+        $second = $this->explanation(78); // Gap 2, both clean -> ambiguous.
+
+        self::assertTrue((new Classifier())->classify($best, [$best, $second])->ambiguous);
+    }
+
+    /**
      * A weak-band best (< 55) is never flagged ambiguous even with a close runner-up: ambiguity
      * requires the best to be at least a possible match, so weak/none noise stays unflagged.
      */
