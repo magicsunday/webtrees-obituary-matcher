@@ -2,7 +2,7 @@
     "name": "magicsunday/webtrees-obituary-matcher",
     "description": "Explainable entity-matching engine that scores webtrees individuals against public obituary notices to suggest missing death dates.",
     "license": "GPL-3.0-or-later",
-    "type": "library",
+    "type": "webtrees-module",
     "keywords": [
         "death-date",
         "entity-matching",
@@ -23,6 +23,12 @@
         }
     ],
     "config": {
+        "audit": {
+            "ignore": {
+                "CVE-2026-55767": "guzzlehttp/guzzle <7.12.1: webtrees pins guzzle to an exact version that production already runs; the pin, not this module, governs the upgrade.",
+                "CVE-2026-55568": "guzzlehttp/guzzle <7.12.1: webtrees pins guzzle to an exact version that production already runs; the pin, not this module, governs the upgrade."
+            }
+        },
         "bin-dir": ".build/bin",
         "vendor-dir": ".build/vendor",
         "sort-packages": true,
@@ -30,7 +36,12 @@
     },
     "require": {
         "php": "8.3 - 8.5",
-        "ext-mbstring": "*"
+        "ext-calendar": "*",
+        "ext-dom": "*",
+        "ext-intl": "*",
+        "ext-mbstring": "*",
+        "fisharebest/webtrees": "~2.2.0 || dev-main",
+        "magicsunday/webtrees-module-base": "^2.5"
     },
     "require-dev": {
         "friendsofphp/php-cs-fixer": "^3.50",
@@ -42,6 +53,8 @@
         "phpunit/phpunit": "^12.0 || ^13.0",
         "rector/rector": "^2.0"
     },
+    "minimum-stability": "dev",
+    "prefer-stable": true,
     "autoload": {
         "psr-4": {
             "MagicSunday\\ObituaryMatcher\\": "src/"
@@ -72,7 +85,10 @@
             "@ci:rector --dry-run"
         ],
         "ci:test:php:unit": [
-            "phpunit --configuration phpunit.xml --display-all-issues"
+            "phpunit --configuration phpunit.xml --testsuite unit --display-all-issues"
+        ],
+        "ci:test:php:integration": [
+            "phpunit --configuration phpunit.xml --testsuite integration --display-all-issues"
         ],
         "ci:test:cpd": [
             "npx jscpd@5.0.11 src tests --config .jscpd.json --skip-comments --no-tips"
@@ -83,7 +99,8 @@
             "@ci:test:php:phpstan",
             "@ci:test:php:rector",
             "@ci:test:cpd",
-            "@ci:test:php:unit"
+            "@ci:test:php:unit",
+            "@ci:test:php:integration"
         ]
     }
 }
