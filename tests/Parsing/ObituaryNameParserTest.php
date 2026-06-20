@@ -120,6 +120,35 @@ final class ObituaryNameParserTest extends TestCase
     }
 
     /**
+     * The ASCII-folded "gebuertige" and the umlaut "Gebürtige" are both recognised as the
+     * birth-surname marker, so an obituary that ASCII-folds the umlaut still parses correctly.
+     */
+    #[Test]
+    public function recognisesFoldedAndUmlautBornMarkerSpellings(): void
+    {
+        $folded = ObituaryNameParser::parse('Maria Schmidt gebuertige Becker');
+        self::assertSame('Schmidt', $folded->surname);
+        self::assertSame('Becker', $folded->birthSurname);
+
+        $umlaut = ObituaryNameParser::parse('Maria Schmidt Gebürtige Becker');
+        self::assertSame('Schmidt', $umlaut->surname);
+        self::assertSame('Becker', $umlaut->birthSurname);
+    }
+
+    /**
+     * A dotless widow marker ("verw") is treated as a (dropped) widow marker, not captured as
+     * a name, just like the dotted "verw." form.
+     */
+    #[Test]
+    public function dropsDotlessWidowMarker(): void
+    {
+        $name = ObituaryNameParser::parse('Maria Schmidt verw Becker geb. Mueller');
+        self::assertSame('Schmidt', $name->surname);
+        self::assertSame('Mueller', $name->birthSurname);
+        self::assertNotContains('Becker', $name->givenNames);
+    }
+
+    /**
      * A parenthesised "geb." group is unwrapped so the birth surname is captured and the
      * parentheses never stick to the marker or the name token.
      */

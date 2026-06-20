@@ -55,6 +55,15 @@ final class NormalizerTest extends TestCase
             // A title/affix stripped without surrounding spaces must not concatenate its
             // neighbours: "anna geb.becker" yields "anna becker", not "annabecker".
             ['anna geb.becker', 'anna becker'],
+            // A DOTTED abbreviation glued straight onto a name (no surrounding space) is safe
+            // to strip without a word boundary, because the dot cannot occur mid-name:
+            // "dr.schmidt" -> "schmidt", "maria geb.becker" -> "maria becker".
+            ['dr.schmidt', 'schmidt'],
+            ['maria geb.becker', 'maria becker'],
+            // ...but a DOTLESS abbreviation must stay whole-word only: a bare "dr"/"geb" must
+            // never be stripped from inside a word ("pedro" contains "dr", "gebhard" "geb").
+            ['pedro', 'pedro'],
+            ['gebhard', 'gebhard'],
             ['Anna Dr. Schmidt', 'anna schmidt'],
             ['geb.', ''],
             ['JÉRÔME', 'jerome'],

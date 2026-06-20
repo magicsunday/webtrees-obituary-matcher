@@ -38,14 +38,19 @@ use const PREG_SPLIT_NO_EMPTY;
 final class ObituaryNameParser
 {
     /**
-     * @var list<string> Marker words introducing the birth surname.
+     * @var list<string> Marker words introducing the birth surname. Both the umlaut
+     *                   "gebürtige" and its ASCII-folded spellings ("gebuertige",
+     *                   "geburtige") are listed because obituaries write either.
      */
-    private const array BORN_MARKERS = ['geb.', 'geborene', 'gebürtige', 'gen.', 'genannt'];
+    private const array BORN_MARKERS = [
+        'geb.', 'geborene', 'gebürtige', 'gebuertige', 'geburtige', 'gen.', 'genannt',
+    ];
 
     /**
      * @var list<string> Marker words introducing a widow/married surname (dropped for matching).
+     *                   Both the dotted and the dotless forms are listed ("verw." or "verw").
      */
-    private const array WIDOW_MARKERS = ['verw.', 'verh.'];
+    private const array WIDOW_MARKERS = ['verw.', 'verw', 'verh.', 'verh'];
 
     /**
      * Maximum number of raw input characters processed; untrusted notice text is truncated to this length.

@@ -15,6 +15,7 @@ use function in_array;
 use function mb_strtolower;
 use function mb_substr;
 use function preg_replace;
+use function str_contains;
 use function strtr;
 use function trim;
 
@@ -150,11 +151,21 @@ final readonly class Normalizer
         // must yield "maria becker", not "mariabecker"). The trailing whitespace
         // collapse and trim() below remove the resulting padding.
         foreach (self::STRIP_WORDS as $word) {
-            $lower = strtr($lower, [
+            $replacements = [
                 ' ' . $word . ' ' => ' ',
                 $word . ' '       => ' ',
                 ' ' . $word       => ' ',
-            ]);
+            ];
+
+            // A DOTTED abbreviation ("dr.", "geb.") may be glued straight onto the following
+            // name ("dr.schmidt", "geb.becker") because the dot cannot occur mid-name, so its
+            // bare (unpadded) occurrence is safe to strip too. A dotless word ("dr", "geb")
+            // stays whole-word only — stripping it bare would corrupt "pedro"/"gebhard".
+            if (str_contains($word, '.')) {
+                $replacements[$word] = ' ';
+            }
+
+            $lower = strtr($lower, $replacements);
         }
 
         // A bare standalone title/affix (e.g. "dr.") carries no surrounding space for
