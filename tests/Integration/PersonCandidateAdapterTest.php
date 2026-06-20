@@ -144,6 +144,39 @@ final class PersonCandidateAdapterTest extends IntegrationTestCase
     }
 
     #[Test]
+    public function unknownGivenNamePlaceholderDoesNotLeak(): void
+    {
+        $tree       = $this->adapterTree();
+        $individual = $this->requireIndividual('I8', $tree);
+
+        $candidate = PersonCandidateAdapter::fromIndividual($individual);
+
+        self::assertNotNull($candidate);
+
+        // webtrees writes the @P.N. placeholder into the GIVN of a name with no given
+        // part; it must never leak into the mapped given names.
+        self::assertSame([], $candidate->name->givenNames);
+        self::assertSame('Searchable', $candidate->name->surname);
+    }
+
+    #[Test]
+    public function unknownSurnamePlaceholderDoesNotLeak(): void
+    {
+        $tree       = $this->adapterTree();
+        $individual = $this->requireIndividual('I9', $tree);
+
+        $candidate = PersonCandidateAdapter::fromIndividual($individual);
+
+        self::assertNotNull($candidate);
+
+        // webtrees writes the @N.N. placeholder into the SURN of a name with an empty
+        // surname; it must never leak into the surname or birth surname.
+        self::assertSame(['Otto'], $candidate->name->givenNames);
+        self::assertSame('', $candidate->name->surname);
+        self::assertNull($candidate->name->birthSurname);
+    }
+
+    #[Test]
     public function confidentialIndividualMapsToNullForVisitor(): void
     {
         $tree       = $this->adapterTree();

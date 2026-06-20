@@ -135,14 +135,30 @@ final class PersonCandidateAdapter
      * Reads a string field from a webtrees name row, collapsing a missing key to an empty
      * string so callers never have to guard the loosely-populated shape themselves.
      *
+     * webtrees writes the whole-value placeholders {@see Individual::PRAENOMEN_NESCIO}
+     * (`@P.N.`, unknown given name) and {@see Individual::NOMEN_NESCIO} (`@N.N.`, unknown
+     * surname) into the `givn`/`surn` keys; the placeholder is always the entire value,
+     * never a substring, so an exact match collapses to an empty string here. Filtering at
+     * this single boundary keeps the placeholders out of the primary name, the `_MARNM`
+     * married surname and the alias paths alike.
+     *
      * @param array<string, string> $name The name row from {@see Individual::getAllNames()}.
      * @param string                $key  The field to read.
      *
-     * @return string The trimmed field value, or an empty string when absent.
+     * @return string The trimmed field value, or an empty string when absent or a placeholder.
      */
     private static function nameField(array $name, string $key): string
     {
-        return trim($name[$key] ?? '');
+        $value = trim($name[$key] ?? '');
+
+        if (
+            ($value === Individual::PRAENOMEN_NESCIO)
+            || ($value === Individual::NOMEN_NESCIO)
+        ) {
+            return '';
+        }
+
+        return $value;
     }
 
     /**
