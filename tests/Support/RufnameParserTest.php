@@ -28,6 +28,8 @@ use PHPUnit\Framework\TestCase;
 final class RufnameParserTest extends TestCase
 {
     /**
+     * Provides GEDCOM fragments paired with the expected call name (or null when absent).
+     *
      * @return list<array{0:string,1:?string}>
      */
     public static function cases(): array

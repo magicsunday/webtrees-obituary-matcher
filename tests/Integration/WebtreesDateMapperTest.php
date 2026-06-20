@@ -83,6 +83,9 @@ final class WebtreesDateMapperTest extends TestCase
         ];
     }
 
+    /**
+     * Each GEDCOM date string maps to the expected DatePrecision value.
+     */
     #[Test]
     #[DataProvider('precisionCases')]
     public function mapsPrecisionExactly(string $value, DatePrecision $expected): void
@@ -92,6 +95,9 @@ final class WebtreesDateMapperTest extends TestCase
         self::assertSame($expected, $range->precision);
     }
 
+    /**
+     * A month-precision range covers only the days within that month and rejects dates in the following month.
+     */
     #[Test]
     public function monthRangeHasTightBounds(): void
     {
@@ -100,6 +106,9 @@ final class WebtreesDateMapperTest extends TestCase
         self::assertFalse($range->contains(new DateValue(1938, 4, 1)));   // a Year mapper would wrongly accept this
     }
 
+    /**
+     * A BET interval range contains dates in the middle year and rejects dates outside the stated bounds.
+     */
     #[Test]
     public function intervalSpansBothYears(): void
     {
@@ -108,12 +117,18 @@ final class WebtreesDateMapperTest extends TestCase
         self::assertFalse($range->contains(new DateValue(1942, 1, 1)));
     }
 
+    /**
+     * An empty GEDCOM date string maps to an unknown range.
+     */
     #[Test]
     public function emptyDateIsUnknown(): void
     {
         self::assertFalse(WebtreesDateMapper::toRange(new Date(''))->isKnown());
     }
 
+    /**
+     * A date with an unparseable year but a surviving qualifier maps to an invalid range carrying the reconstructed qualifier.
+     */
     #[Test]
     public function uninterpretableValueWithSurvivingQualifierIsInvalid(): void
     {

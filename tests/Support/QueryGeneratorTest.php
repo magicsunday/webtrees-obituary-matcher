@@ -45,6 +45,9 @@ use function trim;
 #[UsesClass(DateRange::class)]
 final class QueryGeneratorTest extends TestCase
 {
+    /**
+     * The generator emits plain-text queries ordered by priority with normalised dedup keys and no duplicate keys.
+     */
     #[Test]
     public function generatesPrioritisedDedupedPlainTextQueries(): void
     {
@@ -77,6 +80,9 @@ final class QueryGeneratorTest extends TestCase
         self::assertSame($keys, array_values(array_unique($keys)));
     }
 
+    /**
+     * A candidate with multiple married surnames produces one independent query per surname rather than a joined blob.
+     */
     #[Test]
     public function emitsOneQueryPerMarriedSurname(): void
     {
@@ -103,6 +109,9 @@ final class QueryGeneratorTest extends TestCase
         }
     }
 
+    /**
+     * Missing optional components (year, place) leave no double spaces or empty queries.
+     */
     #[Test]
     public function skipsEmptyComponents(): void
     {
@@ -122,6 +131,9 @@ final class QueryGeneratorTest extends TestCase
         }
     }
 
+    /**
+     * When the birth year is unknown all generated queries contain no four-digit year token.
+     */
     #[Test]
     public function unknownBirthYearProducesQueriesWithoutAYearToken(): void
     {
@@ -145,6 +157,9 @@ final class QueryGeneratorTest extends TestCase
         }
     }
 
+    /**
+     * A blank birth place is skipped and the first non-blank place from the places list appears in the query instead.
+     */
     #[Test]
     public function blankFirstPlaceIsSkippedInFavourOfTheRealOne(): void
     {

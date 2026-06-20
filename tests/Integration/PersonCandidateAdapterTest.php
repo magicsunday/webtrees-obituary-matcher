@@ -92,6 +92,9 @@ final class PersonCandidateAdapterTest extends IntegrationTestCase
         return $individual;
     }
 
+    /**
+     * Maps a married woman with a birth name, married name, call name, spouse, and child to a PersonCandidate.
+     */
     #[Test]
     public function mapsMarriedWomanWithFullNameAndFamilyGraph(): void
     {
@@ -143,6 +146,9 @@ final class PersonCandidateAdapterTest extends IntegrationTestCase
         self::assertSame('Mueller', $child->name->surname);
     }
 
+    /**
+     * The webtrees @P.N. given-name placeholder is stripped and the mapped given names list is empty.
+     */
     #[Test]
     public function unknownGivenNamePlaceholderDoesNotLeak(): void
     {
@@ -159,6 +165,9 @@ final class PersonCandidateAdapterTest extends IntegrationTestCase
         self::assertSame('Searchable', $candidate->name->surname);
     }
 
+    /**
+     * The webtrees @N.N. surname placeholder is stripped and the mapped surname is an empty string.
+     */
     #[Test]
     public function unknownSurnamePlaceholderDoesNotLeak(): void
     {
@@ -176,6 +185,9 @@ final class PersonCandidateAdapterTest extends IntegrationTestCase
         self::assertNull($candidate->name->birthSurname);
     }
 
+    /**
+     * A confidential individual that is visible to an admin maps to null when viewed as a visitor.
+     */
     #[Test]
     public function confidentialIndividualMapsToNullForVisitor(): void
     {
@@ -195,6 +207,9 @@ final class PersonCandidateAdapterTest extends IntegrationTestCase
         self::assertNull(PersonCandidateAdapter::fromIndividual($visitorView));
     }
 
+    /**
+     * Confidential spouses and children that are visible to an admin are omitted from the family graph for a visitor.
+     */
     #[Test]
     public function confidentialRelativesAreOmittedForVisitor(): void
     {

@@ -106,6 +106,9 @@ final class CandidateRepositoryTest extends IntegrationTestCase
         return $xrefs;
     }
 
+    /**
+     * Finds old candidates without a death date and excludes individuals filtered by age, death, or privacy.
+     */
     #[Test]
     public function selectsOldPeopleWithoutACertainDeathDate(): void
     {
@@ -142,6 +145,9 @@ final class CandidateRepositoryTest extends IntegrationTestCase
         self::assertSame(['I1', 'I6'], $this->xrefs($candidates));
     }
 
+    /**
+     * The includeUnknownBirth flag adds individuals with no birth date to the result set.
+     */
     #[Test]
     public function includeUnknownBirthAlsoSurfacesPeopleWithoutABirthDate(): void
     {

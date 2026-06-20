@@ -43,6 +43,9 @@ use PHPUnit\Framework\TestCase;
 #[UsesClass(DateRange::class)]
 final class FeederRequestFactoryTest extends TestCase
 {
+    /**
+     * The factory produces a request with the correct schema version, job metadata, and per-candidate query arrays.
+     */
     #[Test]
     public function buildsRequestWithSchemaVersionAndPerCandidateQueries(): void
     {
