@@ -44,6 +44,14 @@ final class NormalizerTest extends TestCase
             ['Weiß', 'weiss'],
             ['Dr. Anna Schmidt', 'anna schmidt'],
             ['Maria geb. Becker', 'maria becker'],
+            // Real obituaries write titles/affixes without the trailing dot, so the
+            // dotless variants must strip too ("dr schmidt" -> "schmidt").
+            ['dr schmidt', 'schmidt'],
+            ['maria geb becker', 'maria becker'],
+            ['prof mueller', 'mueller'],
+            // ...but the dotless marker must never be stripped from inside a word:
+            // "andrea" contains "dr" and must stay intact.
+            ['andrea', 'andrea'],
             // A title/affix stripped without surrounding spaces must not concatenate its
             // neighbours: "anna geb.becker" yields "anna becker", not "annabecker".
             ['anna geb.becker', 'anna becker'],

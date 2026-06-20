@@ -72,14 +72,19 @@ final readonly class Normalizer
     ];
 
     /**
-     * @var list<string> Academic titles removed during cleaning.
+     * @var list<string> Academic titles removed during cleaning. Both the dotted and the
+     *                   dotless forms are listed because obituaries write either ("Dr." or "dr").
      */
-    private const array TITLES = ['dr.', 'prof.', 'ing.', 'pfarrer', 'dipl.'];
+    private const array TITLES = ['dr.', 'dr', 'prof.', 'prof', 'ing.', 'ing', 'pfarrer', 'dipl.', 'dipl'];
 
     /**
      * @var list<string> Name affixes (born/widow/known-as markers) removed during cleaning.
+     *                   Both the dotted and the dotless forms are listed ("geb." or "geb").
      */
-    private const array AFFIXES = ['geb.', 'geborene', 'gebuertige', 'geburtige', 'verw.', 'verh.', 'genannt', 'gen.'];
+    private const array AFFIXES = [
+        'geb.', 'geb', 'geborene', 'gebuertige', 'geburtige',
+        'verw.', 'verw', 'verh.', 'verh', 'genannt', 'gen.', 'gen',
+    ];
 
     /**
      * @var list<string> Combined titles and affixes, precomputed to avoid a per-call array_merge.

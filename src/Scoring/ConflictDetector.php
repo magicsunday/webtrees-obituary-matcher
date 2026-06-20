@@ -126,8 +126,8 @@ final readonly class ConflictDetector
         ) {
             $reasons[] = new ConflictReason(
                 'birth date',
-                $candidate->birth->isInvalid() ? self::UNINTERPRETABLE : '',
-                $notice->birth->isInvalid() ? self::UNINTERPRETABLE : '',
+                $candidate->birth->isInvalid() ? self::UNINTERPRETABLE : $this->formatRange($candidate->birth),
+                $notice->birth->isInvalid() ? self::UNINTERPRETABLE : $this->formatRange($notice->birth),
                 ConflictSeverity::Soft,
             );
         }
@@ -138,8 +138,8 @@ final readonly class ConflictDetector
         ) {
             $reasons[] = new ConflictReason(
                 'death date',
-                $candidate->death->isInvalid() ? self::UNINTERPRETABLE : '',
-                $notice->death->isInvalid() ? self::UNINTERPRETABLE : '',
+                $candidate->death->isInvalid() ? self::UNINTERPRETABLE : $this->formatRange($candidate->death),
+                $notice->death->isInvalid() ? self::UNINTERPRETABLE : $this->formatRange($notice->death),
                 ConflictSeverity::Soft,
             );
         }

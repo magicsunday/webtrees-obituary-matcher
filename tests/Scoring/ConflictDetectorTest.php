@@ -298,7 +298,27 @@ final class ConflictDetectorTest extends TestCase
     }
 
     /**
-     * An unparseable date on a side yields a soft conflict with no penalty.
+     * Asserts the result is a single soft, penalty-free birth-date conflict with the given
+     * rendered values, factoring out the shared assertion block of the invalid-date cases.
+     *
+     * @param ConflictResult $result        The detection result.
+     * @param string         $treeValue     The expected rendered tree value.
+     * @param string         $obituaryValue The expected rendered obituary value.
+     *
+     * @return void
+     */
+    private function assertSoftBirthConflict(ConflictResult $result, string $treeValue, string $obituaryValue): void
+    {
+        self::assertFalse($result->hasHardConflict());
+        self::assertSame(0, $result->penalty);
+        self::assertSame('birth date', $result->reasons[0]->field);
+        self::assertSame(ConflictSeverity::Soft, $result->reasons[0]->severity);
+        self::assertSame($treeValue, $result->reasons[0]->treeValue);
+        self::assertSame($obituaryValue, $result->reasons[0]->obituaryValue);
+    }
+
+    /**
+     * An unparseable date with no known counterpart yields a soft, penalty-free conflict.
      */
     #[Test]
     public function invalidDateIsSoftConflictWithoutPenalty(): void
@@ -307,11 +327,21 @@ final class ConflictDetectorTest extends TestCase
         $notice    = $this->notice(DateRange::unknown(), DateRange::unknown());
         $result    = (new ConflictDetector(new ScoreConfig()))->detect($candidate, $notice);
 
-        self::assertFalse($result->hasHardConflict());
-        self::assertSame(0, $result->penalty);
-        self::assertSame('birth date', $result->reasons[0]->field);
-        self::assertSame(ConflictSeverity::Soft, $result->reasons[0]->severity);
-        self::assertSame('(uninterpretable)', $result->reasons[0]->treeValue);
+        $this->assertSoftBirthConflict($result, '(uninterpretable)', '');
+    }
+
+    /**
+     * When one side's date is uninterpretable and the other is known, the soft conflict
+     * carries the readable valid-side value instead of an empty string.
+     */
+    #[Test]
+    public function invalidDateConflictShowsValidSideValue(): void
+    {
+        $candidate = $this->candidate(DateRange::invalid('32. Hornung 1962'));
+        $notice    = $this->notice(DateRange::year(1962), DateRange::unknown());
+        $result    = (new ConflictDetector(new ScoreConfig()))->detect($candidate, $notice);
+
+        $this->assertSoftBirthConflict($result, '(uninterpretable)', '1962');
     }
 
     /**
