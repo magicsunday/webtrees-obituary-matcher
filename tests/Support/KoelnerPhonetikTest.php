@@ -1,0 +1,100 @@
+<?php
+
+/**
+ * This file is part of the package magicsunday/webtrees-obituary-matcher.
+ *
+ * For the full copyright and license information, please read the
+ * LICENSE file that was distributed with this source code.
+ */
+
+declare(strict_types=1);
+
+namespace MagicSunday\ObituaryMatcher\Test\Support;
+
+use MagicSunday\ObituaryMatcher\Support\KoelnerPhonetik;
+use MagicSunday\ObituaryMatcher\Support\Normalizer;
+use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\DataProvider;
+use PHPUnit\Framework\Attributes\Test;
+use PHPUnit\Framework\Attributes\UsesClass;
+use PHPUnit\Framework\TestCase;
+
+/**
+ * Tests the Kölner Phonetik encoder that maps German names to phonetic codes.
+ *
+ * @author  Rico Sonntag <mail@ricosonntag.de>
+ * @license https://opensource.org/licenses/GPL-3.0 GNU General Public License v3.0
+ * @link    https://github.com/magicsunday/webtrees-obituary-matcher/
+ */
+#[CoversClass(KoelnerPhonetik::class)]
+#[UsesClass(Normalizer::class)]
+final class KoelnerPhonetikTest extends TestCase
+{
+    /**
+     * Verifies that a common German name is encoded to the correct Kölner code.
+     */
+    #[Test]
+    public function smokeCodeForMueller(): void
+    {
+        self::assertSame('657', (new KoelnerPhonetik())->encode('Müller'));
+    }
+
+    /**
+     * Verifies that common spelling variants of the same name produce identical codes.
+     */
+    #[Test]
+    public function variantsShareACode(): void
+    {
+        $encoder = new KoelnerPhonetik();
+        self::assertSame('67', $encoder->encode('Meyer'));
+        self::assertSame('67', $encoder->encode('Maier'));
+        self::assertSame('67', $encoder->encode('Mayer'));
+        self::assertSame('862', $encoder->encode('Schmidt'));
+        self::assertSame('862', $encoder->encode('Schmitt'));
+    }
+
+    /**
+     * Verifies that phonetically distinct names produce different codes.
+     */
+    #[Test]
+    public function differentNamesDifferentCodes(): void
+    {
+        $encoder = new KoelnerPhonetik();
+        self::assertNotSame($encoder->encode('Mueller'), $encoder->encode('Schmidt'));
+    }
+
+    /**
+     * Verifies that an empty input encodes to an empty string without error.
+     */
+    #[Test]
+    public function emptyInputEncodesToEmptyString(): void
+    {
+        self::assertSame('', (new KoelnerPhonetik())->encode(''));
+    }
+
+    /**
+     * @return list<array{0: string, 1: string}>
+     */
+    public static function boundaryConditionCases(): array
+    {
+        return [
+            // Terminal d: next='' must NOT trigger the csz-branch (would yield '8' without the guard)
+            ['Bad', '12'],
+            // Terminal t: next='' must NOT trigger the csz-branch (would yield '8' without the guard)
+            ['Rat', '72'],
+        ];
+    }
+
+    /**
+     * Verifies that a word-terminal d or t is coded as '2', not '8'.
+     *
+     * Without the empty-string boundary guard in codeFor(), str_contains('csz', '')
+     * returns true, which would mis-code terminal d/t as '8'.
+     */
+    #[Test]
+    #[DataProvider('boundaryConditionCases')]
+    public function terminalConsonantIsNotMiscoded(string $input, string $expected): void
+    {
+        self::assertSame($expected, (new KoelnerPhonetik())->encode($input));
+    }
+}
