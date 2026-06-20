@@ -12,6 +12,7 @@ declare(strict_types=1);
 namespace MagicSunday\ObituaryMatcher\Test\Integration;
 
 use Fisharebest\Webtrees\Auth;
+use Fisharebest\Webtrees\Gedcom;
 use Fisharebest\Webtrees\Tree;
 use MagicSunday\ObituaryMatcher\Domain\PersonCandidate;
 use MagicSunday\ObituaryMatcher\Webtrees\CandidateCriteria;
@@ -42,6 +43,9 @@ use function sort;
  * - I7 (confidential) is excluded by the privacy gate when viewed as a visitor, proven
  *   non-vacuous by first showing the admin context returns it.
  * - I8 (no birth date) is surfaced only when `includeUnknownBirth` is set.
+ * - I9 (`1 CHR` christening, no `BIRT`) is kept: webtrees derives the birth date from the
+ *   christening, so the SQL birth pre-filter must match all {@see Gedcom::BIRTH_EVENTS}, not
+ *   just `BIRT`, or the oldest parish-record people would be silently dropped.
  *
  * @author  Rico Sonntag <mail@ricosonntag.de>
  * @license https://opensource.org/licenses/GPL-3.0 GNU General Public License v3.0
@@ -123,7 +127,7 @@ final class CandidateRepositoryTest extends IntegrationTestCase
             new CandidateCriteria(minAge: 90, referenceYear: self::REFERENCE_YEAR),
         );
 
-        self::assertSame(['I1', 'I6', 'I7'], $this->xrefs($adminCandidates));
+        self::assertSame(['I1', 'I6', 'I7', 'I9'], $this->xrefs($adminCandidates));
 
         // Drop to a visitor: the confidential I7 is now hidden by the privacy gate,
         // while the dated old people stay visible (MAX_ALIVE_AGE makes them dead).
@@ -142,7 +146,8 @@ final class CandidateRepositoryTest extends IntegrationTestCase
         // I5: `BET 1936 AND 1940`       -> excluded by the PHP latest-birth re-check
         // I7: confidential              -> excluded by the privacy gate
         // I8: no birth date             -> excluded (unknown births not requested)
-        self::assertSame(['I1', 'I6'], $this->xrefs($candidates));
+        // I9: `1 CHR` christening 1900  -> kept (birth derived from the christening date)
+        self::assertSame(['I1', 'I6', 'I9'], $this->xrefs($candidates));
     }
 
     /**
@@ -161,7 +166,8 @@ final class CandidateRepositoryTest extends IntegrationTestCase
         );
 
         // The no-birth-date I8 (kept visible via its `1 DEAT Y` flag) now joins the set;
-        // I5 stays excluded because its known latest birth is still too young.
-        self::assertSame(['I1', 'I6', 'I8'], $this->xrefs($candidates));
+        // I5 stays excluded because its known latest birth is still too young. I9 (christened
+        // 1900, birth derived from the christening) stays in the set.
+        self::assertSame(['I1', 'I6', 'I8', 'I9'], $this->xrefs($candidates));
     }
 }

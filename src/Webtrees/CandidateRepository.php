@@ -12,6 +12,7 @@ declare(strict_types=1);
 namespace MagicSunday\ObituaryMatcher\Webtrees;
 
 use Fisharebest\Webtrees\DB;
+use Fisharebest\Webtrees\Gedcom;
 use Fisharebest\Webtrees\Individual;
 use Fisharebest\Webtrees\Registry;
 use Fisharebest\Webtrees\Tree;
@@ -71,6 +72,10 @@ final readonly class CandidateRepository
                     ->from('dates')
                     ->whereColumn('dates.d_file', 'individuals.i_file')
                     ->whereColumn('dates.d_gid', 'individuals.i_id')
+                    // Deliberately keyed on `DEAT` only — unlike the widened birth set
+                    // below. A person with only a `BURI`/`CREM` date but no death date is
+                    // still "missing a death date" and worth searching, so the asymmetry is
+                    // intentional: do NOT widen this to the burial/cremation events.
                     ->where('dates.d_fact', '=', 'DEAT')
                     ->where(static function (Builder $dateQuery): void {
                         $dateQuery
@@ -90,7 +95,12 @@ final readonly class CandidateRepository
                     ->from('dates')
                     ->whereColumn('dates.d_file', 'individuals.i_file')
                     ->whereColumn('dates.d_gid', 'individuals.i_id')
-                    ->where('dates.d_fact', '=', 'BIRT')
+                    // Match every event webtrees treats as a birth ({@see Gedcom::BIRTH_EVENTS}
+                    // = BIRT/CHR/BAPM), the same set `Individual::getBirthDate()` and the PHP
+                    // re-check below honour: a christening/baptism-only individual (common for
+                    // the oldest parish-record people) has no `BIRT` dates row and would
+                    // otherwise be silently dropped before reaching the PHP layer.
+                    ->whereIn('dates.d_fact', Gedcom::BIRTH_EVENTS)
                     ->where('dates.d_year', '>', 0)
                     ->where('dates.d_year', '<=', $birthCeiling);
             });
