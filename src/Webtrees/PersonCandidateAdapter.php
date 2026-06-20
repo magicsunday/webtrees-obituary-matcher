@@ -11,7 +11,9 @@ declare(strict_types=1);
 
 namespace MagicSunday\ObituaryMatcher\Webtrees;
 
+use Fisharebest\Webtrees\Family;
 use Fisharebest\Webtrees\Individual;
+use Illuminate\Support\Collection;
 use MagicSunday\ObituaryMatcher\Domain\Gender;
 use MagicSunday\ObituaryMatcher\Domain\PersonCandidate;
 use MagicSunday\ObituaryMatcher\Domain\PersonName;
@@ -62,6 +64,10 @@ final class PersonCandidateAdapter
 
         $places = self::places($i);
 
+        // Resolve the spouse families once and thread them into both family helpers, so the
+        // (privacy-gated) FAMS traversal runs a single time per individual.
+        $spouseFamilies = $i->spouseFamilies();
+
         return new PersonCandidate(
             $i->xref(),
             self::gender($i->sex()),
@@ -70,8 +76,8 @@ final class PersonCandidateAdapter
             $places[0] ?? null,
             $places,
             WebtreesDateMapper::toRange($i->getDeathDate()),
-            self::spouses($i),
-            self::children($i),
+            self::spouses($i, $spouseFamilies),
+            self::children($spouseFamilies),
         );
     }
 
@@ -221,15 +227,16 @@ final class PersonCandidateAdapter
      * Builds the visible spouses from the individual's spouse families, excluding the
      * individual itself and any relative the current user may not see.
      *
-     * @param Individual $i The individual whose spouses to collect.
+     * @param Individual              $i        The individual whose spouses to collect.
+     * @param Collection<int, Family> $families The individual's visible spouse families.
      *
      * @return list<RelatedPerson> The visible spouses.
      */
-    private static function spouses(Individual $i): array
+    private static function spouses(Individual $i, Collection $families): array
     {
         $spouses = [];
 
-        foreach ($i->spouseFamilies() as $family) {
+        foreach ($families as $family) {
             foreach ($family->spouses() as $spouse) {
                 if ($spouse->xref() === $i->xref()) {
                     continue;
@@ -250,15 +257,15 @@ final class PersonCandidateAdapter
      * Builds the visible children from the individual's spouse families, excluding any
      * relative the current user may not see.
      *
-     * @param Individual $i The individual whose children to collect.
+     * @param Collection<int, Family> $families The individual's visible spouse families.
      *
      * @return list<RelatedPerson> The visible children.
      */
-    private static function children(Individual $i): array
+    private static function children(Collection $families): array
     {
         $children = [];
 
-        foreach ($i->spouseFamilies() as $family) {
+        foreach ($families as $family) {
             foreach ($family->children() as $child) {
                 if (!$child->canShow()) {
                     continue;
