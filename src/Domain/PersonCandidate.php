@@ -23,13 +23,15 @@ final readonly class PersonCandidate
     /**
      * Constructor.
      *
-     * @param string      $id         Stable identifier (e.g. the GEDCOM xref).
-     * @param Gender      $gender     Recorded sex, or Unknown.
-     * @param PersonName  $name       Decomposed name.
-     * @param DateRange   $birth      Birth date range.
-     * @param Place|null  $birthPlace Birth place, if known.
-     * @param list<Place> $places     Known residences / associated places.
-     * @param DateRange   $death      Death date range; Unknown for forward-search candidates.
+     * @param string              $id         Stable identifier (e.g. the GEDCOM xref).
+     * @param Gender              $gender     Recorded sex, or Unknown.
+     * @param PersonName          $name       Decomposed name.
+     * @param DateRange           $birth      Birth date range.
+     * @param Place|null          $birthPlace Birth place, if known.
+     * @param list<Place>         $places     Known residences / associated places.
+     * @param DateRange           $death      Death date range; Unknown for forward-search candidates.
+     * @param list<RelatedPerson> $spouses    Visible spouses from the family graph.
+     * @param list<RelatedPerson> $children   Visible children from the family graph.
      */
     public function __construct(
         public string $id,
@@ -39,6 +41,8 @@ final readonly class PersonCandidate
         public ?Place $birthPlace,
         public array $places,
         public DateRange $death,
+        public array $spouses = [],
+        public array $children = [],
     ) {
     }
 }

@@ -20,6 +20,7 @@ use MagicSunday\ObituaryMatcher\Domain\ObituaryRecord;
 use MagicSunday\ObituaryMatcher\Domain\PersonCandidate;
 use MagicSunday\ObituaryMatcher\Domain\PersonName;
 use MagicSunday\ObituaryMatcher\Domain\Place;
+use MagicSunday\ObituaryMatcher\Domain\RelatedPerson;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\Attributes\UsesClass;
@@ -41,6 +42,7 @@ use PHPUnit\Framework\TestCase;
 #[UsesClass(DateRangeStatus::class)]
 #[UsesClass(DateValue::class)]
 #[UsesClass(Gender::class)]
+#[UsesClass(RelatedPerson::class)]
 final class DomainValueObjectsTest extends TestCase
 {
     /**
@@ -61,6 +63,29 @@ final class DomainValueObjectsTest extends TestCase
         self::assertSame('I100', $candidate->id);
         self::assertSame(Gender::Female, $candidate->gender);
         self::assertFalse($candidate->death->isKnown());
+    }
+
+    /**
+     * Verifies that PersonCandidate carries the visible spouses and children from the family graph.
+     */
+    #[Test]
+    public function candidateCarriesRelatives(): void
+    {
+        $spouse    = new RelatedPerson('I2', new PersonName(['Karl'], null, 'Mustermann', null), Gender::Male);
+        $candidate = new PersonCandidate(
+            'I1',
+            Gender::Female,
+            new PersonName(['Erika'], null, 'Mustermann', null),
+            DateRange::year(1938),
+            null,
+            [],
+            DateRange::unknown(),
+            [$spouse],
+            [],
+        );
+        self::assertSame('I2', $candidate->spouses[0]->id);
+        self::assertSame('Karl', $candidate->spouses[0]->name->givenNames[0]);
+        self::assertSame([], $candidate->children);
     }
 
     /**
