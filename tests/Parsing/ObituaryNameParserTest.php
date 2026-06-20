@@ -120,6 +120,32 @@ final class ObituaryNameParserTest extends TestCase
     }
 
     /**
+     * A parenthesised "geb." group is unwrapped so the birth surname is captured and the
+     * parentheses never stick to the marker or the name token.
+     */
+    #[Test]
+    public function parsesParenthesisedBornSurname(): void
+    {
+        $name = ObituaryNameParser::parse('Maria Schmidt (geb. Becker)');
+        self::assertSame(['Maria'], $name->givenNames);
+        self::assertSame('Schmidt', $name->surname);
+        self::assertSame('Becker', $name->birthSurname);
+    }
+
+    /**
+     * A "Surname, Given" inverted form drops the stray comma so the surname token still
+     * matches the trailing surname rather than carrying the punctuation.
+     */
+    #[Test]
+    public function parsesCommaSeparatedSurnameFirst(): void
+    {
+        $name = ObituaryNameParser::parse('Schmidt, Maria');
+        self::assertSame(['Schmidt'], $name->givenNames);
+        self::assertSame('Maria', $name->surname);
+        self::assertNull($name->birthSurname);
+    }
+
+    /**
      * A multi-KB untrusted input is bounded: the parsed name never exceeds the token cap.
      */
     #[Test]

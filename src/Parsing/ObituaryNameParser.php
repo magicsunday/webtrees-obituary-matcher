@@ -17,6 +17,7 @@ use function array_pop;
 use function in_array;
 use function mb_strtolower;
 use function mb_substr;
+use function preg_replace;
 use function preg_split;
 use function trim;
 
@@ -72,9 +73,13 @@ final class ObituaryNameParser
      */
     public static function parse(string $raw): PersonName
     {
-        $bounded = mb_substr(trim($raw), 0, self::MAX_RAW_LENGTH, 'UTF-8');
-        $split   = preg_split('/\s+/', $bounded, self::MAX_TOKENS, PREG_SPLIT_NO_EMPTY);
-        $tokens  = ($split !== false) ? $split : [];
+        // Apply the length cap first, then strip punctuation that would otherwise stick to a
+        // token: parentheses (often wrapping a "geb." group) and stray commas from inverted
+        // "Surname, Given" forms. Without this, "(geb." or "Schmidt," no longer match.
+        $bounded   = mb_substr(trim($raw), 0, self::MAX_RAW_LENGTH, 'UTF-8');
+        $sanitised = preg_replace('/[(),]+/u', ' ', $bounded);
+        $split     = preg_split('/\s+/', $sanitised ?? $bounded, self::MAX_TOKENS, PREG_SPLIT_NO_EMPTY);
+        $tokens    = ($split !== false) ? $split : [];
 
         $birthSurname = self::extractMarked($tokens, self::BORN_MARKERS);
         self::extractMarked($tokens, self::WIDOW_MARKERS); // dropped for matching

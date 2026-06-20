@@ -93,6 +93,32 @@ final class ObituaryDateParserTest extends TestCase
     }
 
     /**
+     * A German full date with spaces after the dots still parses into an exact range.
+     */
+    #[Test]
+    public function parsesGermanFullDateWithSpacedDots(): void
+    {
+        $range = ObituaryDateParser::parse('02. 08. 1962');
+        self::assertTrue($range->isExact());
+        self::assertNotNull($range->earliest);
+        self::assertSame(19620802, $range->earliest->comparable());
+    }
+
+    /**
+     * A month/year string with a space after the dot yields the same month range.
+     */
+    #[Test]
+    public function parsesMonthOnlyWithSpacedDot(): void
+    {
+        $range = ObituaryDateParser::parse('08. 1962');
+
+        self::assertTrue($range->isKnown());
+        self::assertFalse($range->isExact());
+        self::assertTrue($range->contains(new DateValue(1962, 8, 15)));
+        self::assertFalse($range->contains(new DateValue(1962, 9, 1)));
+    }
+
+    /**
      * A null or empty input yields an unknown, non-invalid range.
      */
     #[Test]

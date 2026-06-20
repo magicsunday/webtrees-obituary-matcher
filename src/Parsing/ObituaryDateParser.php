@@ -52,7 +52,7 @@ final class ObituaryDateParser
         }
 
         try {
-            if (preg_match('/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/', $value, $m) === 1) {
+            if (preg_match('/^(\d{1,2})\.\s*(\d{1,2})\.\s*(\d{4})$/', $value, $m) === 1) {
                 return DateRange::exact(new DateValue((int) $m[3], (int) $m[2], (int) $m[1]), $value);
             }
 
@@ -60,7 +60,7 @@ final class ObituaryDateParser
                 return DateRange::exact(new DateValue((int) $m[1], (int) $m[2], (int) $m[3]), $value);
             }
 
-            if (preg_match('/^(\d{1,2})\.(\d{4})$/', $value, $m) === 1) {
+            if (preg_match('/^(\d{1,2})\.\s*(\d{4})$/', $value, $m) === 1) {
                 $year  = (int) $m[2];
                 $month = (int) $m[1];
 
