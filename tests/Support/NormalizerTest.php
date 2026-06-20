@@ -44,6 +44,14 @@ final class NormalizerTest extends TestCase
             ['Maria geb. Becker', 'maria becker'],
             ['Anna Dr. Schmidt', 'anna schmidt'],
             ['geb.', ''],
+            ['JÉRÔME', 'jerome'],
+            ['Jérôme', 'jerome'],
+            ['ÅSA', 'asa'],
+            ['ÖZGÜR', 'oezguer'],
+            ['François', 'francois'],
+            ['FRANÇOIS', 'francois'],
+            ['Núñez', 'nunez'],
+            ['NÚÑEZ', 'nunez'],
         ];
     }
 
@@ -66,6 +74,32 @@ final class NormalizerTest extends TestCase
         self::assertSame('muller', Normalizer::strip('Müller'));
         self::assertSame('muller', Normalizer::strip('Mueller'));
         self::assertSame('muller', Normalizer::strip('Muller'));
+    }
+
+    /**
+     * Verifies that uppercase accented characters fold to the same ASCII key as their
+     * lowercase counterparts, so case never changes the normalised result.
+     */
+    #[Test]
+    public function normalizeFoldsUppercaseAccentsLikeLowercase(): void
+    {
+        self::assertSame('jerome', Normalizer::normalize('JÉRÔME'));
+        self::assertSame(Normalizer::normalize('jérôme'), Normalizer::normalize('JÉRÔME'));
+        self::assertSame('oezguer', Normalizer::normalize('ÖZGÜR'));
+        self::assertSame(Normalizer::normalize('özgür'), Normalizer::normalize('ÖZGÜR'));
+    }
+
+    /**
+     * Verifies that strip reduces uppercase accented characters to their base ASCII letter,
+     * yielding the same key regardless of the input letter case.
+     */
+    #[Test]
+    public function stripFoldsUppercaseAccentsToBaseLetter(): void
+    {
+        self::assertSame('jerome', Normalizer::strip('JÉRÔME'));
+        self::assertSame('ozgur', Normalizer::strip('ÖZGÜR'));
+        self::assertSame(Normalizer::strip('özgür'), Normalizer::strip('ÖZGÜR'));
+        self::assertSame(Normalizer::strip('müller'), Normalizer::strip('MÜLLER'));
     }
 
     /**

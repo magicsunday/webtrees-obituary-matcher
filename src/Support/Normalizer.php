@@ -11,7 +11,6 @@ declare(strict_types=1);
 
 namespace MagicSunday\ObituaryMatcher\Support;
 
-use function array_merge;
 use function preg_replace;
 use function strtolower;
 use function strtr;
@@ -28,22 +27,45 @@ use function trim;
 final readonly class Normalizer
 {
     /**
-     * @var array<string, string> Diacritics folded to their canonical ASCII digraphs.
+     * @var array<string, string> Accented letters (both cases) folded to their base ASCII
+     *                            letter, shared by both fold maps.
+     *
+     * Uppercase accented letters map to the lowercase base letter because the subsequent
+     * byte-based strtolower() in clean() cannot lowercase multibyte characters.
+     */
+    private const array FOLD_ACCENTS = [
+        'á' => 'a', 'à' => 'a', 'â' => 'a', 'ã' => 'a', 'å' => 'a',
+        'é' => 'e', 'è' => 'e', 'ê' => 'e', 'ë' => 'e',
+        'í' => 'i', 'ì' => 'i', 'î' => 'i', 'ï' => 'i',
+        'ó' => 'o', 'ò' => 'o', 'ô' => 'o', 'õ' => 'o',
+        'ú' => 'u', 'ù' => 'u', 'û' => 'u',
+        'ç' => 'c', 'ñ' => 'n',
+        'Á' => 'a', 'À' => 'a', 'Â' => 'a', 'Ã' => 'a', 'Å' => 'a',
+        'É' => 'e', 'È' => 'e', 'Ê' => 'e', 'Ë' => 'e',
+        'Í' => 'i', 'Ì' => 'i', 'Î' => 'i', 'Ï' => 'i',
+        'Ó' => 'o', 'Ò' => 'o', 'Ô' => 'o', 'Õ' => 'o',
+        'Ú' => 'u', 'Ù' => 'u', 'Û' => 'u',
+        'Ç' => 'c', 'Ñ' => 'n',
+    ];
+
+    /**
+     * @var array<string, string> Diacritics folded to their canonical ASCII digraphs;
+     *                            umlauts become ae/oe/ue, other accents drop to the base letter.
      */
     private const array FOLD_CANONICAL = [
         'ä' => 'ae', 'ö' => 'oe', 'ü' => 'ue', 'ß' => 'ss',
         'Ä' => 'Ae', 'Ö' => 'Oe', 'Ü' => 'Ue',
-        'á' => 'a', 'à' => 'a', 'â' => 'a', 'é' => 'e', 'è' => 'e', 'ê' => 'e',
-        'í' => 'i', 'ì' => 'i', 'ó' => 'o', 'ò' => 'o', 'ô' => 'o', 'ú' => 'u', 'ù' => 'u',
-        'ç' => 'c', 'ñ' => 'n',
+        ...self::FOLD_ACCENTS,
     ];
 
     /**
-     * @var array<string, string> Diacritics reduced to their base ASCII letter.
+     * @var array<string, string> Diacritics reduced to their base ASCII letter;
+     *                            umlauts drop to the single base letter, ß to ss.
      */
     private const array FOLD_STRIP = [
         'ä' => 'a', 'ö' => 'o', 'ü' => 'u', 'ß' => 'ss',
         'Ä' => 'a', 'Ö' => 'o', 'Ü' => 'u',
+        ...self::FOLD_ACCENTS,
     ];
 
     /**
@@ -55,6 +77,11 @@ final readonly class Normalizer
      * @var list<string> Name affixes (born/widow/known-as markers) removed during cleaning.
      */
     private const array AFFIXES = ['geb.', 'geborene', 'gebuertige', 'geburtige', 'verw.', 'verh.', 'genannt', 'gen.'];
+
+    /**
+     * @var list<string> Combined titles and affixes, precomputed to avoid a per-call array_merge.
+     */
+    private const array STRIP_WORDS = [...self::TITLES, ...self::AFFIXES];
 
     /**
      * Maximum number of input bytes processed; untrusted input is truncated to this length.
@@ -110,7 +137,7 @@ final readonly class Normalizer
     {
         $lower = strtolower($value);
 
-        foreach (array_merge(self::TITLES, self::AFFIXES) as $word) {
+        foreach (self::STRIP_WORDS as $word) {
             $lower = strtr($lower, [
                 ' ' . $word . ' ' => ' ',
                 $word . ' '       => '',
