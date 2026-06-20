@@ -20,8 +20,6 @@ use Illuminate\Database\Query\Expression;
 use MagicSunday\ObituaryMatcher\Domain\PersonCandidate;
 
 use function date;
-use function get_object_vars;
-use function is_string;
 
 /**
  * Selects the individuals worth searching an obituary for: old people whose death date is
@@ -103,7 +101,10 @@ final readonly class CandidateRepository
         $candidates = [];
 
         foreach ($rows as $row) {
-            $xref = $this->xref($row);
+            /** @var array{i_id?: string} $typedRow */
+            $typedRow = (array) $row;
+
+            $xref = $this->xref($typedRow);
 
             if ($xref === '') {
                 continue;
@@ -134,18 +135,16 @@ final readonly class CandidateRepository
     }
 
     /**
-     * Read the `i_id` xref from a loosely-typed Eloquent result row, collapsing a missing
-     * or non-string value to an empty string the caller skips.
+     * Read the `i_id` xref from an Eloquent result row, cast to a typed array shape at the
+     * boundary, collapsing a missing value to an empty string the caller skips.
      *
-     * @param object $row The result row from the `individuals` query.
+     * @param array{i_id?: string} $row The result row from the `individuals` query.
      *
      * @return string The xref, or an empty string when absent.
      */
-    private function xref(object $row): string
+    private function xref(array $row): string
     {
-        $value = get_object_vars($row)['i_id'] ?? null;
-
-        return is_string($value) ? $value : '';
+        return $row['i_id'] ?? '';
     }
 
     /**
