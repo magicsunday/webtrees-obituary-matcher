@@ -1,0 +1,90 @@
+name: Bug report
+description: Report a bug to help us improve the library
+title: "[BUG] "
+labels: ["bug"]
+assignees:
+    - magicsunday
+body:
+    -   type: markdown
+        attributes:
+            value: |
+                Thank you for reporting a bug! Please fill in the following details so we can investigate the issue.
+
+    -   type: textarea
+        id: description
+        attributes:
+            label: Description of the problem
+            description: Describe what happened and how the error manifests itself.
+            placeholder: "MatchEngine::score() returns a lower total than the documented band threshold for an exact name and birth-year match."
+        validations:
+            required: true
+
+    -   type: textarea
+        id: expected
+        attributes:
+            label: Expected behavior
+            description: Explain what you expected to happen.
+            placeholder: "An exact name plus same birth year should classify at least as 'probable'."
+        validations:
+            required: true
+
+    -   type: textarea
+        id: steps
+        attributes:
+            label: Steps to reproduce
+            description: |
+                List all steps necessary to reproduce the error. A minimal, self-contained PHP snippet that builds the
+                `PersonCandidate` and `ObituaryRecord` and calls the engine helps the most.
+            placeholder: |
+                1. Build a PersonCandidate with name "…" and birth year 1940
+                2. Build an ObituaryRecord parsed from "…"
+                3. Call MatchEngine::score(...)
+                4. Observe the unexpected total / band
+        validations:
+            required: true
+
+    -   type: textarea
+        id: errors
+        attributes:
+            label: Error messages or stack traces
+            description: If an error or exception appears, copy the full text including the stack trace.
+            render: shell
+        validations:
+            required: false
+
+    -   type: input
+        id: library-version
+        attributes:
+            label: Library version
+            description: Which version of the library are you using? (A tag, or the commit SHA if you track a branch.)
+            placeholder: "1.0.0"
+        validations:
+            required: true
+
+    -   type: dropdown
+        id: installation-method
+        attributes:
+            label: Installation method
+            description: How did you obtain the library?
+            options:
+                - Composer
+                - Git clone
+                - Other
+        validations:
+            required: true
+
+    -   type: input
+        id: php-version
+        attributes:
+            label: PHP version
+            placeholder: "8.3"
+        validations:
+            required: true
+
+    -   type: textarea
+        id: additional
+        attributes:
+            label: Additional information
+            description: Any special circumstances? Was it working before a change or update?
+        validations:
+            required: false

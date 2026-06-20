@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+    -   name: Documentation
+        url: https://github.com/magicsunday/webtrees-obituary-matcher#readme
+        about: "How the scoring engine works, the scoring model, and a usage example. Please read this before filing."
+    -   name: Webtrees Forum
+        url: https://www.webtrees.net/index.php/forum
+        about: For general questions about webtrees, please use the forum.

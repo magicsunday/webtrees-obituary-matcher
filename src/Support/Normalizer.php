@@ -1,0 +1,217 @@
+<?php
+
+/**
+ * This file is part of the package magicsunday/webtrees-obituary-matcher.
+ *
+ * For the full copyright and license information, please read the
+ * LICENSE file that was distributed with this source code.
+ */
+
+declare(strict_types=1);
+
+namespace MagicSunday\ObituaryMatcher\Support;
+
+use function implode;
+use function in_array;
+use function mb_strlen;
+use function mb_strtolower;
+use function mb_substr;
+use function preg_split;
+use function str_contains;
+use function str_starts_with;
+use function strtr;
+use function trim;
+
+use const PREG_SPLIT_NO_EMPTY;
+
+/**
+ * Pure name/text normalisation: diacritic folding is byte-safe strtr; lowercasing is
+ * multibyte-safe (mb_strtolower) and the input-length cap is multibyte-safe (mb_substr) so
+ * a truncation never splits a UTF-8 character.
+ *
+ * @author  Rico Sonntag <mail@ricosonntag.de>
+ * @license https://opensource.org/licenses/GPL-3.0 GNU General Public License v3.0
+ * @link    https://github.com/magicsunday/webtrees-obituary-matcher/
+ */
+final readonly class Normalizer
+{
+    /**
+     * @var array<string, string> Accented letters (both cases) folded to their base ASCII
+     *                            letter, shared by both fold maps.
+     *
+     * Uppercase accented letters map directly to the lowercase base letter so the folded
+     * key is already lowercase before clean() applies its multibyte-safe mb_strtolower().
+     */
+    private const array FOLD_ACCENTS = [
+        'á' => 'a', 'à' => 'a', 'â' => 'a', 'ã' => 'a', 'å' => 'a',
+        'é' => 'e', 'è' => 'e', 'ê' => 'e', 'ë' => 'e',
+        'í' => 'i', 'ì' => 'i', 'î' => 'i', 'ï' => 'i',
+        'ó' => 'o', 'ò' => 'o', 'ô' => 'o', 'õ' => 'o',
+        'ú' => 'u', 'ù' => 'u', 'û' => 'u',
+        'ç' => 'c', 'ñ' => 'n',
+        'Á' => 'a', 'À' => 'a', 'Â' => 'a', 'Ã' => 'a', 'Å' => 'a',
+        'É' => 'e', 'È' => 'e', 'Ê' => 'e', 'Ë' => 'e',
+        'Í' => 'i', 'Ì' => 'i', 'Î' => 'i', 'Ï' => 'i',
+        'Ó' => 'o', 'Ò' => 'o', 'Ô' => 'o', 'Õ' => 'o',
+        'Ú' => 'u', 'Ù' => 'u', 'Û' => 'u',
+        'Ç' => 'c', 'Ñ' => 'n',
+    ];
+
+    /**
+     * @var array<string, string> Diacritics folded to their canonical ASCII digraphs;
+     *                            umlauts become ae/oe/ue, other accents drop to the base letter.
+     */
+    private const array FOLD_CANONICAL = [
+        'ä' => 'ae', 'ö' => 'oe', 'ü' => 'ue', 'ß' => 'ss',
+        'Ä' => 'Ae', 'Ö' => 'Oe', 'Ü' => 'Ue',
+        ...self::FOLD_ACCENTS,
+    ];
+
+    /**
+     * @var array<string, string> Diacritics reduced to their base ASCII letter;
+     *                            umlauts drop to the single base letter, ß to ss.
+     */
+    private const array FOLD_STRIP = [
+        'ä' => 'a', 'ö' => 'o', 'ü' => 'u', 'ß' => 'ss',
+        'Ä' => 'a', 'Ö' => 'o', 'Ü' => 'u',
+        ...self::FOLD_ACCENTS,
+    ];
+
+    /**
+     * @var list<string> Academic titles removed during cleaning. Both the dotted and the
+     *                   dotless forms are listed because obituaries write either ("Dr." or "dr").
+     */
+    private const array TITLES = ['dr.', 'dr', 'prof.', 'prof', 'ing.', 'ing', 'pfarrer', 'dipl.', 'dipl'];
+
+    /**
+     * @var list<string> Name affixes (born/widow/known-as markers) removed during cleaning.
+     *                   Both the dotted and the dotless forms are listed ("geb." or "geb").
+     */
+    private const array AFFIXES = [
+        'geb.', 'geb', 'geborene', 'gebuertige', 'geburtige',
+        'verw.', 'verw', 'verh.', 'verh', 'genannt', 'gen.', 'gen',
+    ];
+
+    /**
+     * @var list<string> Combined titles and affixes, precomputed to avoid a per-call array_merge.
+     */
+    private const array STRIP_WORDS = [...self::TITLES, ...self::AFFIXES];
+
+    /**
+     * Maximum number of input characters processed; untrusted input is truncated to this length.
+     */
+    private const int MAX_INPUT_LENGTH = 512;
+
+    /**
+     * Constructor.
+     */
+    private function __construct()
+    {
+    }
+
+    /**
+     * Returns the canonical lowercase key with diacritics folded to ae/oe/ue.
+     *
+     * @param string $value The raw value.
+     *
+     * @return string The canonical lowercase key (diacritics folded to ae/oe/ue).
+     */
+    public static function normalize(string $value): string
+    {
+        $bounded = mb_substr(trim($value), 0, self::MAX_INPUT_LENGTH, 'UTF-8');
+
+        return self::clean(strtr($bounded, self::FOLD_CANONICAL));
+    }
+
+    /**
+     * Returns the lowercase key with diacritics AND their ASCII digraphs reduced
+     * to the base letter, so Müller/Mueller/Muller all collapse to "muller".
+     *
+     * @param string $value The raw value.
+     *
+     * @return string The lowercase key with diacritics AND their ASCII digraphs reduced
+     *                to the base letter, so Müller/Mueller/Muller all collapse to "muller".
+     */
+    public static function strip(string $value): string
+    {
+        $bounded = mb_substr(trim($value), 0, self::MAX_INPUT_LENGTH, 'UTF-8');
+        $cleaned = self::clean(strtr($bounded, self::FOLD_STRIP));
+
+        return strtr($cleaned, ['ae' => 'a', 'oe' => 'o', 'ue' => 'u']);
+    }
+
+    /**
+     * Returns the value lowercased, with titles/affixes removed and whitespace collapsed.
+     *
+     * @param string $value The folded value.
+     *
+     * @return string Lowercased, with titles/affixes removed and whitespace collapsed.
+     */
+    private static function clean(string $value): string
+    {
+        $lower = mb_strtolower($value, 'UTF-8');
+
+        // Tokenise on whitespace and decide per token. Substring matching (the previous
+        // strtr approach with space-padded keys) wrongly stripped a dotless strip-word from
+        // the start of a real name ("ing" out of "ingrid" → "rid"), so stripping is now
+        // strictly whole-word — with one safe exception for glued DOTTED abbreviations.
+        $tokens = preg_split('/\s+/', $lower, -1, PREG_SPLIT_NO_EMPTY);
+
+        if ($tokens === false) {
+            $tokens = [];
+        }
+
+        $kept = [];
+
+        foreach ($tokens as $token) {
+            // An exact whole-token title/affix ("dr", "dr.", "geb", "genannt", …) is dropped.
+            if (in_array($token, self::STRIP_WORDS, true)) {
+                continue;
+            }
+
+            // A DOTTED abbreviation ("dr.", "geb.") may be glued straight onto the following
+            // name ("dr.schmidt", "geb.becker"): strip only the dotted prefix and keep the
+            // remainder. This is safe because a dot cannot occur mid-name, so the prefix can
+            // never be the leading run of a real name. A DOTLESS strip-word is never removed
+            // as a prefix — that would corrupt "pedro"/"ingrid"/"general".
+            $stripped = self::stripDottedPrefix($token);
+
+            if ($stripped !== null) {
+                if ($stripped !== '') {
+                    $kept[] = $stripped;
+                }
+
+                continue;
+            }
+
+            $kept[] = $token;
+        }
+
+        return implode(' ', $kept);
+    }
+
+    /**
+     * Removes a leading DOTTED strip-word prefix from a glued token, returning the remainder.
+     *
+     * Returns null when the token does not start with any dotted strip-word, so the caller can
+     * tell "no dotted prefix" apart from "dotted prefix consumed the whole token" (empty string).
+     *
+     * @param string $token The lowercased token to inspect.
+     *
+     * @return string|null The remainder after the dotted prefix, or null if no prefix matched.
+     */
+    private static function stripDottedPrefix(string $token): ?string
+    {
+        foreach (self::STRIP_WORDS as $word) {
+            if (!str_contains($word, '.')) {
+                continue;
+            }
+
+            if (str_starts_with($token, $word)) {
+                return mb_substr($token, mb_strlen($word, 'UTF-8'), null, 'UTF-8');
+            }
+        }
+
+        return null;
+    }
+}

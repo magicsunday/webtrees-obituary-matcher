@@ -1,0 +1,57 @@
+name: Feature request
+description: Suggest a new feature or improvement
+title: "[FEATURE] "
+labels: ["enhancement"]
+assignees:
+    - magicsunday
+body:
+    -   type: markdown
+        attributes:
+            value: |
+                Thank you for suggesting an improvement! A clear description helps us understand and plan the feature.
+
+    -   type: textarea
+        id: description
+        attributes:
+            label: Description of the desired feature
+            description: Describe the feature or customization as specifically as possible.
+            placeholder: "Add a residence-place scorer that rewards a match between the obituary's funeral location and a tree residence place."
+        validations:
+            required: true
+
+    -   type: textarea
+        id: purpose
+        attributes:
+            label: Purpose
+            description: Why is this feature useful? What problem does it solve?
+            placeholder: "It would raise confidence for people who moved away from their birthplace, where the birth-place signal alone is weak."
+        validations:
+            required: true
+
+    -   type: textarea
+        id: use-cases
+        attributes:
+            label: Use cases
+            description: Describe how the feature would be used in practice. A concrete scoring scenario is welcome.
+        validations:
+            required: false
+
+    -   type: dropdown
+        id: priority
+        attributes:
+            label: Priority
+            description: How important is this feature to you?
+            options:
+                - Nice to have
+                - Important for my workflow
+                - Critical / blocking
+        validations:
+            required: true
+
+    -   type: textarea
+        id: technical
+        attributes:
+            label: Technical details
+            description: Any technical requirements, dependencies, or suggestions for implementation?
+        validations:
+            required: false
