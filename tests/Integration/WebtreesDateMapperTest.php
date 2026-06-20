@@ -1,0 +1,102 @@
+<?php
+
+/**
+ * This file is part of the package magicsunday/webtrees-obituary-matcher.
+ *
+ * For the full copyright and license information, please read the
+ * LICENSE file that was distributed with this source code.
+ */
+
+declare(strict_types=1);
+
+namespace MagicSunday\ObituaryMatcher\Test\Integration;
+
+use Fisharebest\Webtrees\Date;
+use Fisharebest\Webtrees\I18N;
+use Fisharebest\Webtrees\Webtrees;
+use MagicSunday\ObituaryMatcher\Domain\DatePrecision;
+use MagicSunday\ObituaryMatcher\Domain\DateRange;
+use MagicSunday\ObituaryMatcher\Domain\DateValue;
+use MagicSunday\ObituaryMatcher\Webtrees\WebtreesDateMapper;
+use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\DataProvider;
+use PHPUnit\Framework\Attributes\Test;
+use PHPUnit\Framework\Attributes\UsesClass;
+use PHPUnit\Framework\TestCase;
+
+/**
+ * Maps a webtrees {@see Date} (constructible without a tree, but needing the
+ * calendar-date factory the bootstrap registers) to the engine's pure
+ * {@see DateRange} and verifies the precision table against real `Date` output.
+ *
+ * @author  Rico Sonntag <mail@ricosonntag.de>
+ * @license https://opensource.org/licenses/GPL-3.0 GNU General Public License v3.0
+ * @link    https://github.com/magicsunday/webtrees-obituary-matcher/
+ */
+#[CoversClass(WebtreesDateMapper::class)]
+#[UsesClass(DateRange::class)]
+#[UsesClass(DateValue::class)]
+#[UsesClass(DatePrecision::class)]
+final class WebtreesDateMapperTest extends TestCase
+{
+    /**
+     * Boot webtrees' DI container so {@see Date} can resolve the calendar-date
+     * factory, and initialise I18N so month names format without notices.
+     *
+     * @return void
+     */
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        (new Webtrees())->bootstrap();
+        I18N::init('en-US', true);
+    }
+
+    /**
+     * GEDCOM date string mapped to the precision the engine should record.
+     *
+     * @return list<array{0:string,1:DatePrecision}>
+     */
+    public static function precisionCases(): array
+    {
+        return [
+            ['12 MAR 1938', DatePrecision::Exact],
+            ['MAR 1938', DatePrecision::Month],
+            ['1938', DatePrecision::Year],
+            ['ABT 1938', DatePrecision::Approximate],
+            ['BET 1936 AND 1940', DatePrecision::Interval],
+        ];
+    }
+
+    #[Test]
+    #[DataProvider('precisionCases')]
+    public function mapsPrecisionExactly(string $value, DatePrecision $expected): void
+    {
+        $range = WebtreesDateMapper::toRange(new Date($value));
+        self::assertTrue($range->isKnown());
+        self::assertSame($expected, $range->precision);
+    }
+
+    #[Test]
+    public function monthRangeHasTightBounds(): void
+    {
+        $range = WebtreesDateMapper::toRange(new Date('MAR 1938'));
+        self::assertTrue($range->contains(new DateValue(1938, 3, 15)));
+        self::assertFalse($range->contains(new DateValue(1938, 4, 1)));   // a Year mapper would wrongly accept this
+    }
+
+    #[Test]
+    public function intervalSpansBothYears(): void
+    {
+        $range = WebtreesDateMapper::toRange(new Date('BET 1936 AND 1940'));
+        self::assertTrue($range->contains(new DateValue(1937, 1, 1)));
+        self::assertFalse($range->contains(new DateValue(1942, 1, 1)));
+    }
+
+    #[Test]
+    public function emptyDateIsUnknown(): void
+    {
+        self::assertFalse(WebtreesDateMapper::toRange(new Date(''))->isKnown());
+    }
+}
