@@ -56,6 +56,13 @@ final class WebtreesDateMapperTest extends TestCase
     /**
      * GEDCOM date string mapped to the precision the engine should record.
      *
+     * The rows span every precision dimension {@see WebtreesDateMapper::precision()}
+     * distinguishes: the leading-qualifier table (ABT/EST/CAL → Approximate, BET/FROM →
+     * Interval) and the bounds-comparison fall-through (year-span → Interval, month-span →
+     * Month, equal exact day → Exact, year-only → Year). The qualifier-less bounds branches
+     * are reached through real qualifier-bearing ranges, since every multi-bound webtrees
+     * {@see Date} carries a qualifier the table handles first.
+     *
      * @return list<array{0:string,1:DatePrecision}>
      */
     public static function precisionCases(): array
@@ -65,7 +72,14 @@ final class WebtreesDateMapperTest extends TestCase
             ['MAR 1938', DatePrecision::Month],
             ['1938', DatePrecision::Year],
             ['ABT 1938', DatePrecision::Approximate],
+            ['EST 1938', DatePrecision::Approximate],
+            ['CAL 1938', DatePrecision::Approximate],
             ['BET 1936 AND 1940', DatePrecision::Interval],
+            ['FROM 1936 TO 1940', DatePrecision::Interval],
+            // A qualifier not in the table (BEF/AFT/INT) falls through to the bounds
+            // comparison, which sees a single-year span and records a Year precision.
+            ['BEF 1940', DatePrecision::Year],
+            ['AFT 1936', DatePrecision::Year],
         ];
     }
 
@@ -98,5 +112,18 @@ final class WebtreesDateMapperTest extends TestCase
     public function emptyDateIsUnknown(): void
     {
         self::assertFalse(WebtreesDateMapper::toRange(new Date(''))->isKnown());
+    }
+
+    #[Test]
+    public function uninterpretableValueWithSurvivingQualifierIsInvalid(): void
+    {
+        // The year token is unparseable, so webtrees reports the date as not OK; the leading
+        // ABT qualifier still survives, so the raw value reconstructs non-empty and the
+        // mapper records an Invalid range that round-trips the reconstructed value.
+        $range = WebtreesDateMapper::toRange(new Date('ABT FOOBAR'));
+
+        self::assertTrue($range->isInvalid());
+        self::assertFalse($range->isKnown());
+        self::assertSame('ABT', $range->original);
     }
 }
