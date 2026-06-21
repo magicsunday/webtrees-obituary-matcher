@@ -1,0 +1,42 @@
+<!-- Synthetic fixture — fictional portal, names, dates and outlet. The host is the RFC-2606
+     reserved `.example` domain (never a real site); the markup only mirrors the generic
+     obituary-listing structure the parser consumes, so the cross-language contract harness can
+     drive the worker against known HTML without any network access or reference to a real portal. -->
+<html><body>
+<div class="search-results">
+
+  <!-- A card WITH birth/death dates -->
+  <div class="c-blockitem text-center c-blockitem-noborder" id="erika-mustermann">
+    <div class="c-blockitem-heading">
+      <h2 class="c-blockitem-title">
+        <a href="https://obituary.example/notice/erika-mustermann"
+           title="Anzeige Erika Mustermann geb. Beispiel">Anzeige Erika Mustermann geb. Beispiel</a>
+      </h2>
+      <div class="c-blockitem-subtitle">* 22.06.1951 - &#8224; 07.08.2025</div>
+    </div>
+    <div class="mt-3 row">
+      <div class="col-12 mt-0 pt-0 mb-3">
+        <span class="text-muted"><i class="c-icon c-icon-calendar"></i> ver&ouml;ffentlicht am
+          <strong>14.09.2025</strong> in <strong>Musterstädter Tageblatt</strong></span>
+      </div>
+    </div>
+  </div>
+
+  <!-- A card WITHOUT dates (subtitle absent) -->
+  <div class="c-blockitem text-center c-blockitem-noborder" id="max-mustermann">
+    <div class="c-blockitem-heading">
+      <h2 class="c-blockitem-title">
+        <a href="https://obituary.example/notice/max-mustermann"
+           title="Anzeige Max Mustermann">Anzeige Max Mustermann</a>
+      </h2>
+    </div>
+    <div class="mt-3 row">
+      <div class="col-12 mt-0 pt-0 mb-3">
+        <span class="text-muted"><i class="c-icon c-icon-calendar"></i> ver&ouml;ffentlicht am
+          <strong>14.06.2014</strong> in <strong>Beispiel-Anzeiger</strong></span>
+      </div>
+    </div>
+  </div>
+
+</div>
+</body></html>
