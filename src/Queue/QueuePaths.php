@@ -14,6 +14,7 @@ namespace MagicSunday\ObituaryMatcher\Queue;
 use InvalidArgumentException;
 use RuntimeException;
 
+use function clearstatcache;
 use function is_dir;
 use function mkdir;
 use function preg_match;
@@ -129,17 +130,29 @@ final readonly class QueuePaths
     /**
      * Locates which of the four states a job currently lives in by probing each state directory in
      * the authoritative {@see JobState::cases()} order (queued → running → done → failed). Returns
-     * the first matching state, or null when the job exists in no state. The jobId is validated by
-     * the reused directory accessors, so a hostile jobId can never escape the queue root.
+     * the first matching state, or null when the job exists in no state. The jobId is validated once up
+     * front, so a hostile jobId can never escape the queue root.
      *
      * @param string $jobId The job identifier to locate.
      *
      * @return JobState|null The state whose directory exists for the job, or null when none does.
+     *
+     * @throws InvalidArgumentException When the jobId does not match the allowed pattern.
      */
     public function stateOf(string $jobId): ?JobState
     {
+        $this->validateJobId($jobId);
+
+        // The queue transitions jobs by RENAMING their directory between states across processes (a
+        // feeder renames running/<job> → done/<job> while this module process reads state). PHP only
+        // auto-clears its stat/realpath cache for the process that performed a rename, never for a
+        // different process that merely stat'd the path earlier in the same request. Clearing the cache
+        // here forces each is_dir() below to read fresh directory state, so a second stateOf() call in
+        // the same request cannot observe a stale state after a concurrent rename.
+        clearstatcache(true);
+
         foreach (JobState::cases() as $state) {
-            if (is_dir($this->stateRoot($state->value) . '/' . $this->validateJobId($jobId))) {
+            if (is_dir($this->stateRoot($state->value) . '/' . $jobId)) {
                 return $state;
             }
         }

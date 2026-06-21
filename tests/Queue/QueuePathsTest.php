@@ -20,6 +20,7 @@ use PHPUnit\Framework\Attributes\UsesClass;
 use RuntimeException;
 
 use function file_put_contents;
+use function is_dir;
 use function mkdir;
 use function restore_error_handler;
 use function set_error_handler;
@@ -137,5 +138,31 @@ final class QueuePathsTest extends TempDirTestCase
         self::assertSame(JobState::Running, $paths->stateOf('job-2'));
         self::assertSame(JobState::Done, $paths->stateOf('job-3'));
         self::assertSame(JobState::Failed, $paths->stateOf('job-4'));
+    }
+
+    /**
+     * stateOf reads fresh directory state on every call: a state directory that becomes present
+     * AFTER an earlier negative stat (which populated PHP's stat cache with a "does not exist"
+     * result for that path) is still observed. This guards the clearstatcache() that protects the
+     * cross-process rename-transition design — a stale cache entry would otherwise hide the new
+     * directory.
+     */
+    #[Test]
+    public function stateOfReadsFreshStateAfterAPathIsCachedAsAbsent(): void
+    {
+        $paths = new QueuePaths($this->tmp);
+        $paths->ensureLayout();
+
+        $runningDir = $paths->runningDir('job-1');
+
+        // Prime PHP's stat cache with a negative result for the not-yet-existing directory.
+        self::assertDirectoryDoesNotExist($runningDir);
+        self::assertFalse(is_dir($runningDir));
+
+        // Create the directory; without clearstatcache() the primed negative cache entry would make
+        // the subsequent is_dir() inside stateOf still report the path as absent.
+        mkdir($runningDir, 0o700, true);
+
+        self::assertSame(JobState::Running, $paths->stateOf('job-1'));
     }
 }
