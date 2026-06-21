@@ -12,6 +12,7 @@ declare(strict_types=1);
 namespace MagicSunday\ObituaryMatcher\Queue;
 
 use InvalidArgumentException;
+use RuntimeException;
 
 use function is_dir;
 use function mkdir;
@@ -147,17 +148,28 @@ final readonly class QueuePaths
     }
 
     /**
-     * Creates the four state directories under the queue root if they do not yet exist.
+     * Creates the four state directories under the queue root if they do not yet exist. The create is
+     * race-safe: a concurrent process winning the mkdir between the is_dir probe and the create leaves
+     * the directory present, which counts as success; only a genuine failure (the directory still does
+     * not exist afterwards) raises.
      *
      * @return void
+     *
+     * @throws RuntimeException When a state directory cannot be created.
      */
     public function ensureLayout(): void
     {
         foreach ([self::STATE_QUEUED, self::STATE_RUNNING, self::STATE_DONE, self::STATE_FAILED] as $state) {
             $directory = $this->stateRoot($state);
 
-            if (!is_dir($directory)) {
-                mkdir($directory, 0o700, true);
+            if (
+                !is_dir($directory)
+                && !mkdir($directory, 0o700, true)
+                && !is_dir($directory)
+            ) {
+                throw new RuntimeException(
+                    sprintf('Failed to create queue state directory: %s', $directory)
+                );
             }
         }
     }

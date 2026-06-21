@@ -17,8 +17,12 @@ use MagicSunday\ObituaryMatcher\Queue\QueuePaths;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\Attributes\UsesClass;
+use RuntimeException;
 
+use function file_put_contents;
 use function mkdir;
+use function restore_error_handler;
+use function set_error_handler;
 
 /**
  * Tests the queue path builder and layout creation, including the jobId path-traversal guard.
@@ -51,6 +55,50 @@ final class QueuePathsTest extends TempDirTestCase
         $paths->ensureLayout();
         self::assertDirectoryExists($this->tmp . '/queued');
         self::assertSame($this->tmp . '/done/job-1', $paths->doneDir('job-1'));
+    }
+
+    /**
+     * Calling ensureLayout a second time when the state directories already exist is a silent no-op:
+     * an "already exists" outcome is treated as success, never raising on the concurrent-create race
+     * where a competing process won the mkdir between the is_dir probe and the create.
+     */
+    #[Test]
+    public function ensureLayoutIsIdempotentWhenDirectoriesAlreadyExist(): void
+    {
+        $paths = new QueuePaths($this->tmp);
+        $paths->ensureLayout();
+
+        // The directories now exist; a second call must NOT throw (the race-safe "already exists is
+        // success" path), and the layout must remain intact.
+        $paths->ensureLayout();
+
+        self::assertDirectoryExists($this->tmp . '/queued');
+        self::assertDirectoryExists($this->tmp . '/running');
+        self::assertDirectoryExists($this->tmp . '/done');
+        self::assertDirectoryExists($this->tmp . '/failed');
+    }
+
+    /**
+     * A genuine creation failure (the queue root is a regular file, so no state sub-directory can be
+     * created under it) surfaces as a RuntimeException rather than being swallowed silently.
+     */
+    #[Test]
+    public function ensureLayoutThrowsWhenAStateDirectoryCannotBeCreated(): void
+    {
+        $rootFile = $this->tmp . '/not-a-directory';
+        file_put_contents($rootFile, 'x');
+
+        // The forced mkdir failure emits an expected warning; a scoped handler swallows it without the
+        // forbidden @-suppression operator, mirroring the queue client's own failure-path tests.
+        set_error_handler(static fn (): bool => true);
+
+        try {
+            $this->expectException(RuntimeException::class);
+            $this->expectExceptionMessageMatches('/Failed to create queue state directory/');
+            (new QueuePaths($rootFile))->ensureLayout();
+        } finally {
+            restore_error_handler();
+        }
     }
 
     /**
