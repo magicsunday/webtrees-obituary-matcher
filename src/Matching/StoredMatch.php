@@ -1,0 +1,178 @@
+<?php
+
+/**
+ * This file is part of the package magicsunday/webtrees-obituary-matcher.
+ *
+ * For the full copyright and license information, please read the
+ * LICENSE file that was distributed with this source code.
+ */
+
+declare(strict_types=1);
+
+namespace MagicSunday\ObituaryMatcher\Matching;
+
+use RuntimeException;
+
+use function is_array;
+use function is_string;
+use function sprintf;
+
+/**
+ * A persisted match suggestion: the candidate it belongs to, the source notice URL, its lifecycle
+ * status, the trusted scoring payload (a verbatim {@see \MagicSunday\ObituaryMatcher\Domain\ClassifiedMatch::toArray()}
+ * shape produced by the engine), an optional rejection reason and a Phase-2e write-back placeholder.
+ *
+ * @author  Rico Sonntag <mail@ricosonntag.de>
+ * @license https://opensource.org/licenses/GPL-3.0 GNU General Public License v3.0
+ * @link    https://github.com/magicsunday/webtrees-obituary-matcher/
+ */
+final readonly class StoredMatch
+{
+    /**
+     * Constructor.
+     *
+     * @param string      $personId    The candidate identifier.
+     * @param string      $obituaryUrl The source notice URL (raw, pre-normalisation).
+     * @param MatchStatus $status      The lifecycle status.
+     * @param array{
+     *     personId: string,
+     *     obituaryUrl: string,
+     *     score: int,
+     *     hardConflict: bool,
+     *     signals: array<string, array{score: int, max: int, reasons: list<string>}|array{score: int, reasons: list<array{field: string, treeValue: string, obituaryValue: string, severity: string}>}>,
+     *     extractedFacts: array<string, string>,
+     *     classification: string,
+     *     ambiguous: bool,
+     *     runnerUp: array{personId: string, score: int, classification: string, name: string, birthYear: int|null, birthPlace: string|null}|null,
+     *     review: string|null
+     * } $match The trusted scoring payload from the engine.
+     * @param string|null                                                                                           $reason    The rejection reason, if any.
+     * @param array{deatFactId?: string, buriFactId?: string, sourceXref?: string, citationIds?: list<string>}|null $writeBack The Phase-2e write-back placeholder.
+     */
+    public function __construct(
+        public string $personId,
+        public string $obituaryUrl,
+        public MatchStatus $status,
+        public array $match,
+        public ?string $reason = null,
+        public ?array $writeBack = null,
+    ) {
+    }
+
+    /**
+     * Returns the serialisable shape of this stored match for the on-disk JSON row.
+     *
+     * @return array{
+     *     personId: string,
+     *     obituaryUrl: string,
+     *     status: string,
+     *     match: array{
+     *         personId: string,
+     *         obituaryUrl: string,
+     *         score: int,
+     *         hardConflict: bool,
+     *         signals: array<string, array{score: int, max: int, reasons: list<string>}|array{score: int, reasons: list<array{field: string, treeValue: string, obituaryValue: string, severity: string}>}>,
+     *         extractedFacts: array<string, string>,
+     *         classification: string,
+     *         ambiguous: bool,
+     *         runnerUp: array{personId: string, score: int, classification: string, name: string, birthYear: int|null, birthPlace: string|null}|null,
+     *         review: string|null
+     *     },
+     *     reason: string|null,
+     *     writeBack: array{deatFactId?: string, buriFactId?: string, sourceXref?: string, citationIds?: list<string>}|null
+     * }
+     */
+    public function toArray(): array
+    {
+        return [
+            'personId'    => $this->personId,
+            'obituaryUrl' => $this->obituaryUrl,
+            'status'      => $this->status->value,
+            'match'       => $this->match,
+            'reason'      => $this->reason,
+            'writeBack'   => $this->writeBack,
+        ];
+    }
+
+    /**
+     * Reconstructs a stored match from an untrusted on-disk JSON row. Every consumed key is narrowed
+     * and the status backing value is validated, so a corrupt or hostile row is rejected rather than
+     * silently coerced.
+     *
+     * @param array<string, mixed> $row The decoded JSON row read back from disk.
+     *
+     * @return self The reconstructed stored match.
+     *
+     * @throws RuntimeException When a required key is missing, mistyped or carries an unknown status.
+     */
+    public static function fromArray(array $row): self
+    {
+        $personId    = $row['personId'] ?? null;
+        $obituaryUrl = $row['obituaryUrl'] ?? null;
+        $status      = $row['status'] ?? null;
+        $match       = $row['match'] ?? null;
+
+        if (
+            !is_string($personId)
+            || !is_string($obituaryUrl)
+            || !is_string($status)
+            || !is_array($match)
+        ) {
+            throw new RuntimeException('Stored match row is missing required keys or has invalid types.');
+        }
+
+        $matchStatus = MatchStatus::tryFrom($status);
+
+        if (!$matchStatus instanceof MatchStatus) {
+            throw new RuntimeException(
+                sprintf('Stored match row carries an unknown status: %s', $status)
+            );
+        }
+
+        $reason = $row['reason'] ?? null;
+
+        if (
+            ($reason !== null)
+            && !is_string($reason)
+        ) {
+            throw new RuntimeException('Stored match row has an invalid reason.');
+        }
+
+        $writeBack = $row['writeBack'] ?? null;
+
+        if (
+            ($writeBack !== null)
+            && !is_array($writeBack)
+        ) {
+            throw new RuntimeException('Stored match row has an invalid write-back payload.');
+        }
+
+        /**
+         * @var array{
+         *     personId: string,
+         *     obituaryUrl: string,
+         *     score: int,
+         *     hardConflict: bool,
+         *     signals: array<string, array{score: int, max: int, reasons: list<string>}|array{score: int, reasons: list<array{field: string, treeValue: string, obituaryValue: string, severity: string}>}>,
+         *     extractedFacts: array<string, string>,
+         *     classification: string,
+         *     ambiguous: bool,
+         *     runnerUp: array{personId: string, score: int, classification: string, name: string, birthYear: int|null, birthPlace: string|null}|null,
+         *     review: string|null
+         * } $match
+         */
+
+        /**
+         * @var array{deatFactId?: string, buriFactId?: string, sourceXref?: string, citationIds?: list<string>}|null $writeBack
+         */
+
+        return new self(
+            $personId,
+            $obituaryUrl,
+            $matchStatus,
+            $match,
+            $reason,
+            $writeBack,
+        );
+    }
+}
