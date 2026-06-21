@@ -59,6 +59,9 @@ interface MatchStore
      * @param string|null $reason      The rejection reason, if any.
      *
      * @return void
+     *
+     * @throws TerminalMatchTransitionException When the row is already confirmed and the explicit
+     *                                          rejection is refused.
      */
     public function markRejected(string $personId, string $obituaryUrl, ?string $reason): void;
 }
