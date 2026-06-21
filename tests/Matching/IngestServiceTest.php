@@ -111,6 +111,10 @@ use PHPUnit\Framework\Attributes\UsesClass;
 /* jscpd:ignore-end */
 final class IngestServiceTest extends TempDirTestCase
 {
+    /**
+     * Ingests a validated feeder response for a still-held candidate, scores it with the unchanged
+     * engine and persists the best result per notice as a pending suggestion.
+     */
     #[Test]
     public function ingestsAResponseIntoPendingSuggestions(): void
     {
@@ -143,6 +147,43 @@ final class IngestServiceTest extends TempDirTestCase
         self::assertSame('https://example.test/traueranzeige/erika', $match->obituaryUrl);
     }
 
+    /**
+     * Re-ingesting a job whose only stored row has since reached a terminal status writes nothing
+     * and reports zero: the count reflects rows actually persisted, not notices iterated.
+     */
+    #[Test]
+    public function reIngestOverATerminalRowStoresNothingAndReportsZero(): void
+    {
+        $this->placeResponse('job-1', 'response-valid.json');     // results for I1
+        $store   = new FileMatchStore($this->tmp . '/store');
+        $service = new IngestService(
+            new ResponseReader(new QueuePaths($this->tmp)),
+            new MatchEngine(),
+            new Classifier(),
+            $store,
+        );
+
+        // First ingest stores the single pending row and reports it.
+        self::assertSame(1, $service->ingest('job-1', ['I1'], ['I1' => $this->candidateMatchingErika()]));
+
+        // Drive that row terminal via an explicit rejection on the stored obituaryUrl.
+        $store->markRejected('I1', $store->allPending()[0]->obituaryUrl ?? '', 'reviewer rejected');
+
+        // Re-ingesting the SAME job must store nothing (the terminal row is a no-op) and therefore
+        // report zero — the count is destined for QueueClient::markDone, so it may not overstate.
+        self::assertSame(0, $service->ingest('job-1', ['I1'], ['I1' => $this->candidateMatchingErika()]));
+
+        // No duplicate pending row was resurrected; the rejected row is still the only one.
+        self::assertSame([], $store->allPending());
+        $rows = $store->findByPerson('I1');
+        self::assertCount(1, $rows);
+        self::assertSame(MatchStatus::Rejected, $rows[0]->status);
+    }
+
+    /**
+     * A person who was in the request but no longer has a held candidate is skipped without an
+     * error and contributes nothing to the stored count.
+     */
     #[Test]
     public function skipsAPersonWhoseCandidateVanishedSinceEnqueue(): void
     {

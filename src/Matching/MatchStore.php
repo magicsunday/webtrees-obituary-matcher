@@ -29,9 +29,10 @@ interface MatchStore
      *
      * @param StoredMatch $match The suggestion to store.
      *
-     * @return void
+     * @return bool True when a row was actually written, false when the existing row was already
+     *              terminal and the upsert was a silent no-op.
      */
-    public function upsertPending(StoredMatch $match): void;
+    public function upsertPending(StoredMatch $match): bool;
 
     /**
      * Returns every stored match for the given candidate.

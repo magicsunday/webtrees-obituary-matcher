@@ -80,7 +80,7 @@ final class FileMatchStoreTest extends TempDirTestCase
 
     /**
      * A confirmed row is terminal against an automated re-ingest: a later pending upsert is a
-     * silent no-op and the row stays Confirmed.
+     * silent no-op that reports false and the row stays Confirmed, while a first write reports true.
      *
      * @return void
      */
@@ -89,9 +89,17 @@ final class FileMatchStoreTest extends TempDirTestCase
     {
         $store = new FileMatchStore($this->tmp);
 
-        $store->upsertPending($this->storedMatch('I1', 'https://example.test/a', MatchStatus::Confirmed));
+        // A first write of a fresh key reports true (a row was actually written).
+        self::assertTrue(
+            $store->upsertPending($this->storedMatch('I1', 'https://example.test/a', MatchStatus::Confirmed)),
+        );
 
-        $store->upsertPending($this->storedMatch('I1', 'https://example.test/a', MatchStatus::Pending));
+        // A re-ingest over the now-terminal row reports false (no write happened) ...
+        self::assertFalse(
+            $store->upsertPending($this->storedMatch('I1', 'https://example.test/a', MatchStatus::Pending)),
+        );
+
+        // ... and the persisted row is unchanged.
         self::assertSame(MatchStatus::Confirmed, $store->findByPerson('I1')[0]->status);
     }
 

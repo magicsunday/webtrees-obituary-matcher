@@ -85,9 +85,12 @@ final readonly class IngestService
             $candidate = $candidatesById[$personId];
 
             foreach ($notices as $notice) {
-                $this->store->upsertPending($this->classify($candidate, $notice));
-
-                ++$stored;
+                // Only count a notice that produced an actual write: upsertPending is a silent
+                // no-op over a terminal (Confirmed/Rejected) row, so counting unconditionally would
+                // overstate the number persisted — and this count feeds QueueClient::markDone.
+                if ($this->store->upsertPending($this->classify($candidate, $notice))) {
+                    ++$stored;
+                }
             }
         }
 
