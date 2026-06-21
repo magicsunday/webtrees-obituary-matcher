@@ -260,8 +260,14 @@ final class FileMatchStoreTest extends TempDirTestCase
 
         $store->upsertPending($this->storedMatch('I1', 'https://example.test/a', MatchStatus::Pending));
 
-        // Drop a malformed *.json next to the valid row: it decodes but lacks the required keys.
+        // Drop a malformed *.json next to the valid row: it decodes but lacks the required keys
+        // (a wrong-SHAPE row that throws CorruptMatchRowException on reconstruction).
         file_put_contents($this->tmp . '/corrupt.json', '{"not":"a stored match"}');
+
+        // Drop a TRUNCATED / non-JSON row too: AtomicFile is explicitly not crash-durable, so a
+        // half-written file is the most likely real corruption. It throws a raw JsonException on
+        // decode, which is NOT a CorruptMatchRowException — the scan must still tolerate it.
+        file_put_contents($this->tmp . '/deadbeef.json', '{ "personId": "I9", truncated');
 
         $pending = $store->allPending();
         self::assertCount(1, $pending, 'the poison row is skipped, the valid one survives');

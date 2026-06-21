@@ -11,6 +11,7 @@ declare(strict_types=1);
 
 namespace MagicSunday\ObituaryMatcher\Queue;
 
+use JsonException;
 use RuntimeException;
 
 use function file_get_contents;
@@ -102,7 +103,9 @@ final class AtomicFile
      * @return array<string, mixed>
      *
      * @throws RuntimeException When the path is a symlink, not a regular file, unreadable, its size
-     *                          cannot be determined or it exceeds the byte cap, or on decode error.
+     *                          cannot be determined or it exceeds the byte cap.
+     * @throws JsonException    When the file contents are not valid JSON (for example a truncated,
+     *                          half-written row, as the atomic write is not crash-durable).
      */
     public static function readJsonCapped(string $path, int $maxBytes): array
     {
