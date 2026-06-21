@@ -65,6 +65,36 @@ final class UrlNormalizerTest extends TestCase
     }
 
     /**
+     * Provides parseable-but-scheme-less or host-less inputs that have no canonical absolute-URL
+     * identity. Each must round-trip as the trimmed, lower-cased input rather than yielding a
+     * malformed "://..." key.
+     *
+     * @return array<string, array{0:string, 1:string}>
+     */
+    public static function schemelessOrHostlessInputs(): array
+    {
+        return [
+            'host-less relative path'   => ['/relative', '/relative'],
+            'scheme-less host and path' => ['Example.test/x', 'example.test/x'],
+            'urn without authority'     => ['urn:isbn:123', 'urn:isbn:123'],
+        ];
+    }
+
+    /**
+     * A scheme-less or host-less URL has no canonical absolute-URL identity, so it normalises to the
+     * trimmed, lower-cased input (a stable self-key) and NEVER to a malformed "://..." value.
+     */
+    #[Test]
+    #[DataProvider('schemelessOrHostlessInputs')]
+    public function schemelessOrHostlessInputRoundTripsToItself(string $url, string $expected): void
+    {
+        $result = UrlNormalizer::normalizeForIdentity($url);
+
+        self::assertSame($expected, $result);
+        self::assertStringStartsNotWith('://', $result);
+    }
+
+    /**
      * Two URLs differing only in the case of their scheme normalise to the same lower-cased identity
      * key, so a scheme-case variant cannot leak past the de-dup (ResponseReader lower-cases the
      * scheme only for its allow-list check, not for the identity key).

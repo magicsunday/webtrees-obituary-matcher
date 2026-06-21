@@ -27,7 +27,8 @@ use function trim;
  * Normalises a source URL so that two links pointing at the same notice collapse onto one key:
  * the scheme and host are lower-cased, the fragment is dropped, tracking query parameters (utm_*, fbclid,
  * gclid, mc_eid) are stripped, and the remaining path plus the sorted residual query are kept.
- * A non-parseable URL yields the trimmed, lower-cased input without throwing.
+ * A non-parseable URL, or a parseable one lacking a scheme or host (a relative path, a bare
+ * "host/path", a URN), yields the trimmed, lower-cased input without throwing.
  *
  * @author  Rico Sonntag <mail@ricosonntag.de>
  * @license https://opensource.org/licenses/GPL-3.0 GNU General Public License v3.0
@@ -72,6 +73,16 @@ final class UrlNormalizer
         $host   = $parts['host'] ?? '';
         $path   = $parts['path'] ?? '';
         $query  = $parts['query'] ?? '';
+
+        // A scheme-less or host-less input (a relative path, a bare "host/path", a URN) has no
+        // canonical absolute-URL identity: rebuilding "scheme://host" would yield a malformed
+        // "://..." key. Fall back to the documented no-throw self-key instead.
+        if (
+            ($scheme === '')
+            || ($host === '')
+        ) {
+            return strtolower(trim($url));
+        }
 
         $result = strtolower($scheme) . '://' . strtolower($host) . $path;
 
