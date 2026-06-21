@@ -39,6 +39,7 @@ use function chmod;
 use function file_put_contents;
 use function glob;
 use function mkdir;
+use function rename;
 use function restore_error_handler;
 use function set_error_handler;
 
@@ -83,15 +84,20 @@ final class QueueClientTest extends TempDirTestCase
         $jobId = $client->enqueue($request);
         self::assertSame('job-1', $jobId);
         self::assertFileExists($this->tmp . '/queued/job-1/request.json');
-        self::assertSame(JobState::Queued, $client->status('job-1')->state);
+
+        $queued = $client->status('job-1');
+        self::assertSame(JobState::Queued, $queued->state);
+        // A pre-terminal job carries the empty collections, never null.
+        self::assertSame([], $queued->counts);
+        self::assertSame([], $queued->warnings);
 
         self::assertTrue($client->claim('job-1'));            // first rename wins
         self::assertFalse($client->claim('job-1'));           // already claimed → fails
         self::assertSame(JobState::Running, $client->status('job-1')->state);
 
-        $client->markDone('job-1', 3);
+        $client->markDone('job-1', ['notices' => 3]);
         self::assertSame(JobState::Done, $client->status('job-1')->state);
-        self::assertSame(3, $client->status('job-1')->counts);
+        self::assertSame(['notices' => 3], $client->status('job-1')->counts);
     }
 
     /**
@@ -108,7 +114,7 @@ final class QueueClientTest extends TempDirTestCase
         $client->enqueue($this->request('job-1'));
         self::assertTrue($client->claim('job-1'));
 
-        $client->markDone('job-1', 7);
+        $client->markDone('job-1', ['notices' => 7], ['obituary.example: one portal timed out']);
 
         // The terminal directory is observable; its status.json must already be present.
         self::assertFileExists($this->tmp . '/done/job-1/status.json');
@@ -117,7 +123,9 @@ final class QueueClientTest extends TempDirTestCase
 
         $status = $client->status('job-1');
         self::assertSame(JobState::Done, $status->state);
-        self::assertSame(7, $status->counts);
+        self::assertSame(['notices' => 7], $status->counts);
+        // The warnings written through markDone's optional argument round-trip back out of status().
+        self::assertSame(['obituary.example: one portal timed out'], $status->warnings);
     }
 
     /**
@@ -140,6 +148,10 @@ final class QueueClientTest extends TempDirTestCase
         $status = $client->status('job-1');
         self::assertSame(JobState::Failed, $status->state);
         self::assertSame('feeder rejected the request', $status->error);
+        // markFailed writes no counts/warnings keys; readStatus must surface the empty collections
+        // (the null-to-empty path) for a real terminal failed status.json, never null.
+        self::assertSame([], $status->counts);
+        self::assertSame([], $status->warnings);
     }
 
     /**
@@ -168,7 +180,7 @@ final class QueueClientTest extends TempDirTestCase
 
         try {
             $this->expectException(RuntimeException::class);
-            $client->markDone('job-1', 1);
+            $client->markDone('job-1', ['notices' => 1]);
         } finally {
             restore_error_handler();
             chmod($doneRoot, 0o700);
@@ -194,7 +206,7 @@ final class QueueClientTest extends TempDirTestCase
         set_error_handler(static fn (): bool => true);
 
         try {
-            $client->markDone('job-1', 1);
+            $client->markDone('job-1', ['notices' => 1]);
             self::fail('Expected the publish rename to fail with an unwritable done state root.');
         } catch (RuntimeException) {
             // The pre-written status file stays in running/, never escaping into the done state.
@@ -207,9 +219,9 @@ final class QueueClientTest extends TempDirTestCase
         }
 
         // The retry overwrites the leftover status file and publishes the up-to-date counts.
-        $client->markDone('job-1', 5);
+        $client->markDone('job-1', ['notices' => 5]);
         self::assertSame(JobState::Done, $client->status('job-1')->state);
-        self::assertSame(5, $client->status('job-1')->counts);
+        self::assertSame(['notices' => 5], $client->status('job-1')->counts);
     }
 
     /**
@@ -257,7 +269,7 @@ final class QueueClientTest extends TempDirTestCase
         $client = new QueueClient(new QueuePaths($this->tmp));
         $client->enqueue($this->request('job-1'));
         self::assertTrue($client->claim('job-1'));
-        $client->markDone('job-1', 1);                         // queued → running → done
+        $client->markDone('job-1', ['notices' => 1]);          // queued → running → done
 
         $this->expectException(RuntimeException::class);
         $client->enqueue($this->request('job-1'));             // job-1 is done
@@ -348,6 +360,108 @@ final class QueueClientTest extends TempDirTestCase
             // Restore write permission so the test harness can tear the tree down.
             chmod($blocked, 0o700);
         }
+    }
+
+    /**
+     * The Python worker writes `counts` as a per-metric MAP (candidates/queries/notices/
+     * skippedNotices/portalErrors) and `warnings` as a list of strings — not the scalar the matcher
+     * first modelled. status() must surface both verbatim, alongside the worker-written timestamps.
+     * The status.json is published exactly as the worker does it: written into running/ first, then
+     * the whole directory atomically renamed into done/.
+     */
+    #[Test]
+    public function statusSurfacesTheWorkerCountsMapAndWarnings(): void
+    {
+        $client = new QueueClient(new QueuePaths($this->tmp));
+        $client->enqueue($this->request('job-1'));
+        self::assertTrue($client->claim('job-1'));
+
+        $counts = [
+            'candidates'     => 1,
+            'queries'        => 2,
+            'notices'        => 3,
+            'skippedNotices' => 0,
+            'portalErrors'   => 1,
+        ];
+        $warnings = ['obituary.example: portal request timed out'];
+
+        AtomicFile::writeJson(
+            $this->tmp . '/running/job-1/status.json',
+            [
+                'jobId'      => 'job-1',
+                'state'      => JobState::Done->value,
+                'startedAt'  => '2026-06-21T10:00:00+00:00',
+                'finishedAt' => '2026-06-21T10:00:05+00:00',
+                'counts'     => $counts,
+                'warnings'   => $warnings,
+            ]
+        );
+        self::assertTrue(rename($this->tmp . '/running/job-1', $this->tmp . '/done/job-1'));
+
+        $status = $client->status('job-1');
+        self::assertSame(JobState::Done, $status->state);
+        self::assertSame($counts, $status->counts);
+        self::assertSame($warnings, $status->warnings);
+        self::assertSame('2026-06-21T10:00:00+00:00', $status->startedAt);
+        self::assertSame('2026-06-21T10:00:05+00:00', $status->finishedAt);
+    }
+
+    /**
+     * The decoded counts/warnings are narrowed defensively: an untrusted status.json whose counts map
+     * carries a non-int value and whose warnings list carries non-string entries must have those
+     * entries dropped, so only `array<string, int>` / `list<string>` data reaches the value object.
+     */
+    #[Test]
+    public function statusNarrowsMalformedCountsAndWarnings(): void
+    {
+        $client = new QueueClient(new QueuePaths($this->tmp));
+        $client->enqueue($this->request('job-1'));
+        self::assertTrue($client->claim('job-1'));
+
+        AtomicFile::writeJson(
+            $this->tmp . '/running/job-1/status.json',
+            [
+                'state' => JobState::Done->value,
+                // 'ratio' => 1.5 decodes to a PHP float — the realistic non-integer-number case the
+                // is_int() guard exists to drop (a weaker is_numeric()/is_scalar() guard would admit
+                // it), distinct from the trivially-rejected 'NaN' string.
+                'counts'   => ['notices' => 3, 'bogus' => 'NaN', 'ratio' => 1.5, 'portalErrors' => 1],
+                'warnings' => ['a real warning', 42, ['nested']],
+            ]
+        );
+        self::assertTrue(rename($this->tmp . '/running/job-1', $this->tmp . '/done/job-1'));
+
+        $status = $client->status('job-1');
+        // The 'NaN' string and the 1.5 float are both dropped (non-int values); only int-valued keys survive.
+        self::assertSame(['notices' => 3, 'portalErrors' => 1], $status->counts);
+        // The integer and the nested array are dropped; only the string warning survives.
+        self::assertSame(['a real warning'], $status->warnings);
+    }
+
+    /**
+     * A `counts` value that decodes to a JSON array rather than an object (integer keys after
+     * json_decode) carries no string-keyed metric, so every entry is dropped and the narrowed map is
+     * empty — proving the `is_string($key)` guard, not just the `is_int($value)` one. This is the
+     * "counts is the wrong shape entirely" case an untrusted producer could emit.
+     */
+    #[Test]
+    public function statusNarrowsListShapedCountsToAnEmptyMap(): void
+    {
+        $client = new QueueClient(new QueuePaths($this->tmp));
+        $client->enqueue($this->request('job-1'));
+        self::assertTrue($client->claim('job-1'));
+
+        AtomicFile::writeJson(
+            $this->tmp . '/running/job-1/status.json',
+            [
+                'state'  => JobState::Done->value,
+                'counts' => [1, 2, 3],
+            ]
+        );
+        self::assertTrue(rename($this->tmp . '/running/job-1', $this->tmp . '/done/job-1'));
+
+        $status = $client->status('job-1');
+        self::assertSame([], $status->counts);
     }
 
     /**
