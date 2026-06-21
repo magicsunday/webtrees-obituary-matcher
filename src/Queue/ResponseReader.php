@@ -27,6 +27,7 @@ use function is_float;
 use function is_int;
 use function is_string;
 use function parse_url;
+use function preg_match;
 use function sprintf;
 use function strtolower;
 
@@ -227,12 +228,23 @@ final readonly class ResponseReader
      *
      * @return DateTimeImmutable The parsed timestamp.
      *
-     * @throws ResponseValidationException When the value is absent, not a string or unparseable.
+     * @throws ResponseValidationException When the value is absent, not a string, not an anchored
+     *                                     ISO-8601 date-time or otherwise unparseable.
      */
     private function parseFetchedAt(mixed $raw): DateTimeImmutable
     {
         if (!is_string($raw)) {
             throw new ResponseValidationException('Notice fetchedAt is missing or not a string.');
+        }
+
+        // Require an anchored ISO-8601 date-time prefix before parsing so a relative string the
+        // DateTimeImmutable constructor accepts leniently ("now", "yesterday", "+1 week", "noon")
+        // is rejected at the untrusted boundary, while every real ISO-8601 form (with optional
+        // fractional seconds and a Z/offset suffix) still passes through.
+        if (preg_match('/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/', $raw) !== 1) {
+            throw new ResponseValidationException(
+                sprintf('Notice fetchedAt is not a parseable timestamp: %s', $raw)
+            );
         }
 
         try {

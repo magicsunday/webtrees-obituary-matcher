@@ -86,6 +86,36 @@ final class ResponseReaderTest extends TempDirTestCase
     }
 
     /**
+     * Provides the ISO-8601 fetchedAt variants the reader must still accept after the relative-string
+     * forms ("now", "yesterday", "+1 week") are rejected: a "Z" zulu suffix and a fractional-second
+     * value. Both are real ISO-8601 timestamp forms and must parse into a record.
+     *
+     * @return array<string, array{0:string}>
+     */
+    public static function acceptingFetchedAtFixtures(): array
+    {
+        return [
+            'zulu suffix'       => ['response-fetchedat-zulu.json'],
+            'fractional second' => ['response-fetchedat-fractional.json'],
+        ];
+    }
+
+    /**
+     * An ISO-8601 fetchedAt with a "Z" suffix or fractional seconds is accepted and mapped into a
+     * record, proving the anchored shape guard does not over-reject valid ISO-8601 variants.
+     */
+    #[Test]
+    #[DataProvider('acceptingFetchedAtFixtures')]
+    public function acceptsIsoFetchedAtVariants(string $fixture): void
+    {
+        $this->placeResponse('job-1', $fixture);
+        $byPerson = (new ResponseReader(new QueuePaths($this->tmp)))->read('job-1', ['I1']);
+
+        $notice = self::firstNotice($byPerson, 'I1');
+        self::assertInstanceOf(DeathNoticeRecord::class, $notice);
+    }
+
+    /**
      * Provides the reject fixtures, each paired with a fragment of the message the INTENDED check
      * raises. The cases span the distinct hard-validation gates — unknown schema version,
      * job-ownership boundary, URL scheme allow-list (with a protocol-relative "//evil.host/x" URL
@@ -103,6 +133,9 @@ final class ResponseReaderTest extends TempDirTestCase
             'foreign job owner'     => ['response-foreign-job.json', 'person not in the request'],
             'unknown schema'        => ['response-bad-schema.json', 'schema version'],
             'unparseable date'      => ['response-bad-fetchedat.json', 'not a parseable timestamp'],
+            'relative now'          => ['response-fetchedat-now.json', 'not a parseable timestamp'],
+            'relative yesterday'    => ['response-fetchedat-yesterday.json', 'not a parseable timestamp'],
+            'relative offset'       => ['response-fetchedat-relative.json', 'not a parseable timestamp'],
         ];
     }
 
