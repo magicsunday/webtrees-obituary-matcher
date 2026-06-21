@@ -14,9 +14,9 @@ namespace MagicSunday\ObituaryMatcher\Queue;
 use JsonException;
 use RuntimeException;
 
-use function file_get_contents;
+use function fclose;
 use function file_put_contents;
-use function filesize;
+use function fopen;
 use function is_file;
 use function is_link;
 use function is_readable;
@@ -24,6 +24,8 @@ use function json_decode;
 use function json_encode;
 use function rename;
 use function sprintf;
+use function stream_get_contents;
+use function strlen;
 use function uniqid;
 use function unlink;
 
@@ -102,13 +104,14 @@ final class AtomicFile
      *
      * @return array<string, mixed>
      *
-     * @throws RuntimeException When the path is a symlink, not a regular file, unreadable, its size
-     *                          cannot be determined or it exceeds the byte cap.
+     * @throws RuntimeException When the path is a symlink, not a regular file, unreadable, cannot be
+     *                          opened or read, or it exceeds the byte cap.
      * @throws JsonException    When the file contents are not valid JSON (for example a truncated,
      *                          half-written row, as the atomic write is not crash-durable).
      */
     public static function readJsonCapped(string $path, int $maxBytes): array
     {
+        // Reject a symlink before any open so a hostile link is never followed.
         if (
             is_link($path)
             || !is_file($path)
@@ -119,22 +122,33 @@ final class AtomicFile
             );
         }
 
-        $size = filesize($path);
+        // Read through a stream capped at one byte beyond the limit, rather than stat-then-read: a
+        // filesize() value comes from the stat cache (it can be stale) and leaves a size TOCTOU
+        // between the stat and the read. Reading $maxBytes + 1 bytes lets the cap be enforced on the
+        // bytes actually read.
+        $handle = fopen($path, 'rb');
 
-        if (
-            ($size === false)
-            || ($size > $maxBytes)
-        ) {
+        if ($handle === false) {
             throw new RuntimeException(
-                sprintf('Queue file size is invalid or exceeds the cap: %s', $path)
+                sprintf('Failed to open queue file: %s', $path)
             );
         }
 
-        $contents = file_get_contents($path);
+        try {
+            $contents = stream_get_contents($handle, $maxBytes + 1);
+        } finally {
+            fclose($handle);
+        }
 
         if ($contents === false) {
             throw new RuntimeException(
                 sprintf('Failed to read queue file: %s', $path)
+            );
+        }
+
+        if (strlen($contents) > $maxBytes) {
+            throw new RuntimeException(
+                sprintf('Queue file exceeds the size cap: %s', $path)
             );
         }
 
