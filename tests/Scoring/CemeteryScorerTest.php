@@ -103,6 +103,21 @@ final class CemeteryScorerTest extends TestCase
     }
 
     /**
+     * A short candidate place name that IS a whole token of the cemetery is still suppressed by the
+     * minimum-token-length guard (removing the guard would let "au" match and score 10).
+     */
+    #[Test]
+    public function shortWholeTokenIsSuppressedByTheLengthGuard(): void
+    {
+        $signal = (new CemeteryScorer(ScoreConfig::enriched()))->score(
+            $this->candidate([new Place('Au')]),
+            new Place('Friedhof Au'),
+        );
+
+        self::assertSame(0, $signal->score);
+    }
+
+    /**
      * A null cemetery and a non-matching cemetery both score zero.
      */
     #[Test]
