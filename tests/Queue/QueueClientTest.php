@@ -224,6 +224,39 @@ final class QueueClientTest extends TempDirTestCase
     }
 
     /**
+     * A jobId already present in the running state is refused: claiming it out of queued leaves no
+     * queued directory, so a re-enqueue that only checked the queued state would silently create a
+     * duplicate that strands. The clobber guard must cover every state.
+     */
+    #[Test]
+    public function enqueueRefusesToClobberAJobAlreadyRunning(): void
+    {
+        $client = new QueueClient(new QueuePaths($this->tmp));
+        $client->enqueue($this->request('job-1'));
+        self::assertTrue($client->claim('job-1'));             // queued → running, no queued dir left
+
+        $this->expectException(RuntimeException::class);
+        $client->enqueue($this->request('job-1'));             // job-1 is running
+    }
+
+    /**
+     * A jobId already present in a terminal (done) state is refused: a re-enqueue followed by a
+     * claim and markDone would rename onto the existing done directory and throw. The clobber guard
+     * must cover the terminal states too.
+     */
+    #[Test]
+    public function enqueueRefusesToClobberAJobAlreadyDone(): void
+    {
+        $client = new QueueClient(new QueuePaths($this->tmp));
+        $client->enqueue($this->request('job-1'));
+        self::assertTrue($client->claim('job-1'));
+        $client->markDone('job-1', 1);                         // queued → running → done
+
+        $this->expectException(RuntimeException::class);
+        $client->enqueue($this->request('job-1'));             // job-1 is done
+    }
+
+    /**
      * Builds a minimal feeder request for the given job identifier.
      *
      * @param string $jobId The job identifier the request is built for.

@@ -78,8 +78,10 @@ final readonly class QueueClient
      * Atomically enqueues a feeder request as a new job directory. The job is fully populated in a
      * temporary directory (a reserved {@see self::TEMP_DIR_PREFIX} name that any future queued-dir
      * scan must exclude) and only then renamed into the queued state, so a worker never observes a
-     * half-written job. Refuses to clobber an existing job of the same identifier; the clobber guard
-     * only checks the queued state, so jobIds are assumed globally unique per request.
+     * half-written job. Refuses to clobber a jobId that already exists in ANY of the four states
+     * (queued/running/done/failed): a duplicate would otherwise strand in queued (a claim onto an
+     * existing running dir returns false) or make markDone/markFailed throw (a rename onto an
+     * existing terminal dir fails). jobIds are therefore assumed globally unique per request.
      *
      * @param FeederRequest $request The request to enqueue; its jobId becomes the job directory name.
      *
@@ -96,9 +98,16 @@ final readonly class QueueClient
         $jobId     = $payload['jobId'];
         $targetDir = $this->paths->queuedDir($jobId);
 
-        if (is_dir($targetDir)) {
+        // The guard covers every state, not just queued: a jobId already in running/done/failed
+        // would otherwise create a duplicate that strands or makes a later terminal rename throw.
+        if (
+            is_dir($targetDir)
+            || is_dir($this->paths->runningDir($jobId))
+            || is_dir($this->paths->doneDir($jobId))
+            || is_dir($this->paths->failedDir($jobId))
+        ) {
             throw new RuntimeException(
-                sprintf('Refusing to clobber an existing queued job: %s', $jobId)
+                sprintf('Refusing to clobber an existing job: %s', $jobId)
             );
         }
 
