@@ -29,7 +29,7 @@ use PHPUnit\Framework\Attributes\CoversNothing;
  *
  *   - Domain    (immutable value objects + domain vocabulary; depends on nothing internal)
  *   - Parsing   (turns raw obituary text into Domain value objects)
- *   - Support   (pure helpers: normalisation, configuration, math)
+ *   - Support   (pure helpers: normalisation, name/text heuristics, configuration, math)
  *   - Scoring   (explainable feature scorers over Domain values)
  *   - Queue     (candidate-selection + work-item plumbing over Domain/Parsing/Support)
  *   - Matching  (composition of Scoring/Queue into a match decision)

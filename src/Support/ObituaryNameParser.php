@@ -9,7 +9,7 @@
 
 declare(strict_types=1);
 
-namespace MagicSunday\ObituaryMatcher\Parsing;
+namespace MagicSunday\ObituaryMatcher\Support;
 
 use MagicSunday\ObituaryMatcher\Domain\PersonName;
 

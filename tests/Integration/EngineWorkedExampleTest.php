@@ -31,7 +31,6 @@ use MagicSunday\ObituaryMatcher\Domain\RunnerUp;
 use MagicSunday\ObituaryMatcher\Domain\ScoreConfig;
 use MagicSunday\ObituaryMatcher\Domain\SignalScore;
 use MagicSunday\ObituaryMatcher\Parsing\ObituaryDateParser;
-use MagicSunday\ObituaryMatcher\Parsing\ObituaryNameParser;
 use MagicSunday\ObituaryMatcher\Scoring\Classifier;
 use MagicSunday\ObituaryMatcher\Scoring\ConflictDetector;
 use MagicSunday\ObituaryMatcher\Scoring\MatchEngine;
@@ -41,6 +40,7 @@ use MagicSunday\ObituaryMatcher\Scoring\PlausibilityScorer;
 use MagicSunday\ObituaryMatcher\Support\ColognePhonetic;
 use MagicSunday\ObituaryMatcher\Support\GivenNameVariants;
 use MagicSunday\ObituaryMatcher\Support\Normalizer;
+use MagicSunday\ObituaryMatcher\Support\ObituaryNameParser;
 /* jscpd:ignore-end */
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\Attributes\UsesClass;

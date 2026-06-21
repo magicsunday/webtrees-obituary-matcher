@@ -19,7 +19,7 @@ use MagicSunday\ObituaryMatcher\Domain\NoticeType;
 use MagicSunday\ObituaryMatcher\Domain\PersonName;
 use MagicSunday\ObituaryMatcher\Domain\Place;
 use MagicSunday\ObituaryMatcher\Parsing\ObituaryDateParser;
-use MagicSunday\ObituaryMatcher\Parsing\ObituaryNameParser;
+use MagicSunday\ObituaryMatcher\Support\ObituaryNameParser;
 
 use function in_array;
 use function is_array;
