@@ -100,8 +100,9 @@ final readonly class IngestService
                 // Only count a notice that produced an actual NEW row: upsertPending is a silent
                 // no-op over a terminal (Confirmed/Rejected) row, and two within-response notices
                 // that collapse onto one key write twice but persist one row — counting either case
-                // unconditionally would overstate the number persisted, and this count feeds
-                // QueueClient::markDone.
+                // unconditionally would overstate the number persisted. This count is destined for a
+                // single named entry of the per-metric counts map that QueueClient::markDone records
+                // (not a bare scalar), so it must stay an exact persisted-row tally.
                 if (
                     $this->store->upsertPending($match)
                     && !isset($seenKeys[$key])
