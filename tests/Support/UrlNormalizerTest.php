@@ -95,6 +95,25 @@ final class UrlNormalizerTest extends TestCase
     }
 
     /**
+     * The URL port is part of the identity: a notice served on an explicit non-default port is a
+     * distinct resource from the same path on the default port, so the port is kept in the key and
+     * the two must NOT collapse onto one identity.
+     */
+    #[Test]
+    public function preservesThePortInTheIdentityKey(): void
+    {
+        self::assertSame(
+            'https://example.test:8080/a',
+            UrlNormalizer::normalizeForIdentity('https://example.test:8080/a'),
+        );
+
+        self::assertNotSame(
+            UrlNormalizer::normalizeForIdentity('https://example.test/a'),
+            UrlNormalizer::normalizeForIdentity('https://example.test:8080/a'),
+        );
+    }
+
+    /**
      * Two URLs differing only in the case of their scheme normalise to the same lower-cased identity
      * key, so a scheme-case variant cannot leak past the de-dup (ResponseReader lower-cases the
      * scheme only for its allow-list check, not for the identity key).

@@ -74,6 +74,11 @@ final class UrlNormalizer
         $path   = $parts['path'] ?? '';
         $query  = $parts['query'] ?? '';
 
+        // Keep an explicit port in the key: a notice served on a non-default port is a distinct
+        // resource from the same path on the default port, so the two must not collapse. The port
+        // rides on the host (so it only appears alongside a present scheme+host).
+        $port = isset($parts['port']) ? ':' . $parts['port'] : '';
+
         // A scheme-less or host-less input (a relative path, a bare "host/path", a URN) has no
         // canonical absolute-URL identity: rebuilding "scheme://host" would yield a malformed
         // "://..." key. Fall back to the documented no-throw self-key instead.
@@ -84,7 +89,7 @@ final class UrlNormalizer
             return strtolower(trim($url));
         }
 
-        $result = strtolower($scheme) . '://' . strtolower($host) . $path;
+        $result = strtolower($scheme) . '://' . strtolower($host) . $port . $path;
 
         if ($query !== '') {
             $residual = self::residualQuery($query);
