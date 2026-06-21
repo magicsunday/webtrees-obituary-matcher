@@ -72,6 +72,23 @@ final class ResponseReaderTest extends TempDirTestCase
     }
 
     /**
+     * A notice whose name is missing/empty-after-trim is dropped (not coerced to an empty name and
+     * not aborting the whole response), while a sibling valid notice for the same person is kept: the
+     * person ends up with exactly the one usable notice.
+     */
+    #[Test]
+    public function skipsANoticeWithoutAUsableName(): void
+    {
+        $this->placeResponse('job-1', 'response-namelessnotice.json');
+        $byPerson = (new ResponseReader(new QueuePaths($this->tmp)))->read('job-1', ['I1']);
+
+        self::assertCount(1, $byPerson['I1']);
+        $notice = self::firstNotice($byPerson, 'I1');
+        self::assertInstanceOf(DeathNoticeRecord::class, $notice);
+        self::assertSame('Erika Mustermann geb. Mueller', $notice->name);
+    }
+
+    /**
      * Returns the first decoded notice for a person as a mixed value, so the calling test asserts
      * the concrete record type itself rather than trusting the reader's declared return type.
      *

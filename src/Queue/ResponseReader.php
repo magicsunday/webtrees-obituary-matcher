@@ -30,6 +30,7 @@ use function parse_url;
 use function preg_match;
 use function sprintf;
 use function strtolower;
+use function trim;
 
 use const PHP_URL_SCHEME;
 
@@ -153,7 +154,13 @@ final readonly class ResponseReader
                     throw new ResponseValidationException('Response notice is not an object.');
                 }
 
-                $records[] = $this->decodeNotice($notice);
+                $record = $this->decodeNotice($notice);
+
+                // A notice with no usable name is dropped, not coerced or thrown: a single bad
+                // notice must not abort the whole response (consistent with the relatives skip).
+                if ($record instanceof DeathNoticeRecord) {
+                    $records[] = $record;
+                }
             }
 
             $byPerson[$personId] = $records;
@@ -164,15 +171,17 @@ final readonly class ResponseReader
 
     /**
      * Validates a single untrusted notice and decodes it into a death-notice record. Every field is
-     * narrowed with an is_* guard before it reaches a value object.
+     * narrowed with an is_* guard before it reaches a value object. A notice with no usable name
+     * (missing, non-string or empty after trimming) yields null so the caller can drop it, since an
+     * empty-name record is useless to the scorer.
      *
      * @param array<int|string, mixed> $notice The untrusted notice payload.
      *
-     * @return DeathNoticeRecord The decoded record.
+     * @return DeathNoticeRecord|null The decoded record, or null when the notice has no usable name.
      *
      * @throws ResponseValidationException When the notice fails any validation check.
      */
-    private function decodeNotice(array $notice): DeathNoticeRecord
+    private function decodeNotice(array $notice): ?DeathNoticeRecord
     {
         $url = $notice['url'] ?? null;
 
@@ -198,7 +207,16 @@ final readonly class ResponseReader
             ? NoticeType::fromStringOrDefault($noticeTypeRaw)
             : NoticeType::Obituary;
 
-        $name = is_string($notice['name'] ?? null) ? $notice['name'] : '';
+        $rawName = $notice['name'] ?? null;
+
+        if (
+            !is_string($rawName)
+            || (trim($rawName) === '')
+        ) {
+            return null;
+        }
+
+        $name = $rawName;
 
         $source = is_string($notice['source'] ?? null) ? $notice['source'] : '';
 
