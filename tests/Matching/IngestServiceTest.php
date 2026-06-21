@@ -148,6 +148,32 @@ final class IngestServiceTest extends TempDirTestCase
     }
 
     /**
+     * Two notices in the same response whose URLs collapse onto one identity key (here two
+     * utm-variant links for the same person) overwrite the same stored row. The count must reflect
+     * the single distinct row actually persisted, not the two writes iterated — the count feeds
+     * QueueClient::markDone and may not overstate.
+     */
+    #[Test]
+    public function countsDistinctStoredSuggestionsWhenWithinResponseDuplicatesCollapse(): void
+    {
+        $this->placeResponse('job-1', 'response-duplicate-identity.json'); // two I1 notices, one identity
+        $store   = new FileMatchStore($this->tmp . '/store');
+        $service = new IngestService(
+            new ResponseReader(new QueuePaths($this->tmp)),
+            new MatchEngine(),
+            new Classifier(),
+            $store,
+        );
+
+        $stored = $service->ingest('job-1', ['I1'], ['I1' => $this->candidateMatchingErika()]);
+
+        // Both notices score and both writes succeed (last-write-wins de-dup is correct), but only
+        // ONE distinct identity key was persisted, so the count must be 1.
+        self::assertSame(1, $stored);
+        self::assertCount(1, $store->allPending());
+    }
+
+    /**
      * Re-ingesting a job whose only stored row has since reached a terminal status writes nothing
      * and reports zero: the count reflects rows actually persisted, not notices iterated.
      */

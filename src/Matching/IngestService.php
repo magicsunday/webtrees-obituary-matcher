@@ -19,6 +19,7 @@ use MagicSunday\ObituaryMatcher\Queue\ResponseReader;
 use MagicSunday\ObituaryMatcher\Scoring\Classifier;
 use MagicSunday\ObituaryMatcher\Scoring\MatchEngine;
 use MagicSunday\ObituaryMatcher\Support\NoticeMapper;
+use MagicSunday\ObituaryMatcher\Support\UrlNormalizer;
 
 use function array_intersect_key;
 use function array_map;
@@ -75,6 +76,11 @@ final readonly class IngestService
 
         $stored = 0;
 
+        // Tracks the identity keys persisted this run so two notices whose URLs collapse onto one
+        // key (e.g. utm-variant links for the same person) count once, matching the single row that
+        // last-write-wins de-dup actually leaves on disk.
+        $seenKeys = [];
+
         // Iterating the intersection makes the skip-vanished-candidate behaviour structural: a
         // requested person whose candidate is no longer held simply never enters this loop.
         foreach (array_intersect_key($byPerson, $candidatesById) as $personId => $notices) {
@@ -85,10 +91,22 @@ final readonly class IngestService
             $candidate = $candidatesById[$personId];
 
             foreach ($notices as $notice) {
-                // Only count a notice that produced an actual write: upsertPending is a silent
-                // no-op over a terminal (Confirmed/Rejected) row, so counting unconditionally would
-                // overstate the number persisted — and this count feeds QueueClient::markDone.
-                if ($this->store->upsertPending($this->buildPendingMatch($candidate, $notice))) {
+                $match = $this->buildPendingMatch($candidate, $notice);
+
+                // The identity key mirrors FileMatchStore's keying so the count tracks distinct
+                // rows on disk, not notices iterated.
+                $key = $match->personId . '|' . UrlNormalizer::normalizeForIdentity($match->obituaryUrl);
+
+                // Only count a notice that produced an actual NEW row: upsertPending is a silent
+                // no-op over a terminal (Confirmed/Rejected) row, and two within-response notices
+                // that collapse onto one key write twice but persist one row — counting either case
+                // unconditionally would overstate the number persisted, and this count feeds
+                // QueueClient::markDone.
+                if (
+                    $this->store->upsertPending($match)
+                    && !isset($seenKeys[$key])
+                ) {
+                    $seenKeys[$key] = true;
                     ++$stored;
                 }
             }
