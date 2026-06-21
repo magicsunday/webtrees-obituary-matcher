@@ -20,6 +20,7 @@ use MagicSunday\ObituaryMatcher\Domain\ObituaryRecord;
 use MagicSunday\ObituaryMatcher\Domain\PersonCandidate;
 use MagicSunday\ObituaryMatcher\Domain\PersonName;
 use MagicSunday\ObituaryMatcher\Domain\Place;
+use MagicSunday\ObituaryMatcher\Matching\CorruptMatchRowException;
 use MagicSunday\ObituaryMatcher\Matching\FileMatchStore;
 use MagicSunday\ObituaryMatcher\Matching\MatchStatus;
 use MagicSunday\ObituaryMatcher\Matching\StoredMatch;
@@ -33,6 +34,9 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\Attributes\UsesClass;
 
+use function file_put_contents;
+use function glob;
+
 /**
  * Behavioural tests for the file-based match store: per-key idempotency through the URL
  * normaliser and the terminal-row guard that prevents a rejected row from being resurrected.
@@ -42,6 +46,7 @@ use PHPUnit\Framework\Attributes\UsesClass;
  * @link    https://github.com/magicsunday/webtrees-obituary-matcher/
  */
 #[CoversClass(FileMatchStore::class)]
+#[CoversClass(CorruptMatchRowException::class)]
 #[CoversClass(MatchStatus::class)]
 #[CoversClass(StoredMatch::class)]
 #[CoversClass(TerminalMatchTransitionException::class)]
@@ -240,6 +245,57 @@ final class FileMatchStoreTest extends TempDirTestCase
         self::assertSame($original->personId, $reconstructed->personId);
         self::assertSame($original->obituaryUrl, $reconstructed->obituaryUrl);
         self::assertSame($original->status, $reconstructed->status);
+    }
+
+    /**
+     * A single corrupt row in the store directory must not hide the valid rows: a directory scan
+     * (allPending / findByPerson) skips the poison row and still surfaces every well-formed row.
+     *
+     * @return void
+     */
+    #[Test]
+    public function aCorruptRowIsSkippedAndDoesNotHideValidRows(): void
+    {
+        $store = new FileMatchStore($this->tmp);
+
+        $store->upsertPending($this->storedMatch('I1', 'https://example.test/a', MatchStatus::Pending));
+
+        // Drop a malformed *.json next to the valid row: it decodes but lacks the required keys.
+        file_put_contents($this->tmp . '/corrupt.json', '{"not":"a stored match"}');
+
+        $pending = $store->allPending();
+        self::assertCount(1, $pending, 'the poison row is skipped, the valid one survives');
+        self::assertSame('I1', $pending[0]->personId);
+
+        $found = $store->findByPerson('I1');
+        self::assertCount(1, $found);
+        self::assertSame('I1', $found[0]->personId);
+    }
+
+    /**
+     * A single-key read of a corrupt row stays fail-loud: it throws CorruptMatchRowException rather
+     * than being silently skipped, so an upsert/reject against a poisoned key surfaces the problem.
+     *
+     * @return void
+     */
+    #[Test]
+    public function aSingleKeyReadOfACorruptRowThrows(): void
+    {
+        $store = new FileMatchStore($this->tmp);
+
+        // Plant a corrupt row exactly where the key for (I1, url) would resolve, then upsert that key.
+        $match = $this->storedMatch('I1', 'https://example.test/a', MatchStatus::Pending);
+        $store->upsertPending($match);
+
+        // Overwrite the stored row with a malformed payload so the next read of the SAME key fails.
+        $paths = glob($this->tmp . '/*.json');
+
+        foreach (($paths === false) ? [] : $paths as $path) {
+            file_put_contents($path, '{"broken":true}');
+        }
+
+        $this->expectException(CorruptMatchRowException::class);
+        $store->upsertPending($match);
     }
 
     /**

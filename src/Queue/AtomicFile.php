@@ -24,16 +24,19 @@ use function json_encode;
 use function rename;
 use function sprintf;
 use function uniqid;
+use function unlink;
 
 use const JSON_THROW_ON_ERROR;
 use const JSON_UNESCAPED_SLASHES;
 use const JSON_UNESCAPED_UNICODE;
 
 /**
- * Static-only helper for crash-safe JSON file I/O on the file-drop queue. Writes go through a
+ * Static-only helper for tear-free JSON file I/O on the file-drop queue. Writes go through a
  * uniquely-named temporary file in the same directory followed by an atomic rename, so a reader
- * never observes a half-written file. Reads are guarded against symlinks and oversized files so a
- * hostile or corrupt queue entry cannot exhaust memory or escape the queue via a link.
+ * never observes a half-written file: the replacement is tear-free (the temp name is excluded from
+ * the *.json scans). It is not crash-durable — there is no fsync, so durability is deferred to a
+ * later phase. Reads are guarded against symlinks and oversized files so a hostile or corrupt queue
+ * entry cannot exhaust memory or escape the queue via a link.
  *
  * @author  Rico Sonntag <mail@ricosonntag.de>
  * @license https://opensource.org/licenses/GPL-3.0 GNU General Public License v3.0
@@ -49,9 +52,10 @@ final class AtomicFile
     }
 
     /**
-     * Atomically writes the given data as JSON to the target path. The payload is encoded, written
-     * to a unique temporary file in the same directory and then renamed onto the target path so the
-     * replacement is atomic. The caller guarantees the parent directory already exists.
+     * Writes the given data as JSON to the target path tear-free. The payload is encoded, written to
+     * a unique temporary file in the same directory and then renamed onto the target path so a reader
+     * never observes a half-written file (the replacement is tear-free; it is not crash-durable, as
+     * no fsync is issued). The caller guarantees the parent directory already exists.
      *
      * @param string               $path The absolute target path.
      * @param array<string, mixed> $data The data to encode and store.
@@ -76,6 +80,11 @@ final class AtomicFile
         }
 
         if (!rename($tmpPath, $path)) {
+            // Remove the orphaned temp file so a failed rename does not leak a *.tmp.* file.
+            if (is_file($tmpPath)) {
+                unlink($tmpPath);
+            }
+
             throw new RuntimeException(
                 sprintf('Failed to atomically rename %s to %s', $tmpPath, $path)
             );

@@ -12,7 +12,6 @@ declare(strict_types=1);
 namespace MagicSunday\ObituaryMatcher\Matching;
 
 use MagicSunday\ObituaryMatcher\Domain\ClassifiedMatch;
-use RuntimeException;
 
 use function is_array;
 use function is_string;
@@ -84,7 +83,8 @@ final readonly class StoredMatch
      *
      * @return self The reconstructed stored match.
      *
-     * @throws RuntimeException When a required key is missing, mistyped or carries an unknown status.
+     * @throws CorruptMatchRowException When a required key is missing, mistyped or carries an
+     *                                  unknown status.
      */
     public static function fromArray(array $row): self
     {
@@ -99,13 +99,13 @@ final readonly class StoredMatch
             || !is_string($status)
             || !is_array($match)
         ) {
-            throw new RuntimeException('Stored match row is missing required keys or has invalid types.');
+            throw new CorruptMatchRowException('Stored match row is missing required keys or has invalid types.');
         }
 
         $matchStatus = MatchStatus::tryFrom($status);
 
         if (!$matchStatus instanceof MatchStatus) {
-            throw new RuntimeException(
+            throw new CorruptMatchRowException(
                 sprintf('Stored match row carries an unknown status: %s', $status)
             );
         }
@@ -116,7 +116,7 @@ final readonly class StoredMatch
             ($reason !== null)
             && !is_string($reason)
         ) {
-            throw new RuntimeException('Stored match row has an invalid reason.');
+            throw new CorruptMatchRowException('Stored match row has an invalid reason.');
         }
 
         $writeBack = $row['writeBack'] ?? null;
@@ -125,7 +125,7 @@ final readonly class StoredMatch
             ($writeBack !== null)
             && !is_array($writeBack)
         ) {
-            throw new RuntimeException('Stored match row has an invalid write-back payload.');
+            throw new CorruptMatchRowException('Stored match row has an invalid write-back payload.');
         }
 
         /**

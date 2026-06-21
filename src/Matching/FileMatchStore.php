@@ -210,7 +210,9 @@ final readonly class FileMatchStore implements MatchStore
     }
 
     /**
-     * Reconstructs every stored row in the directory.
+     * Reconstructs every stored row in the directory, skipping any single poison row that fails to
+     * reconstruct so one corrupt file cannot hide every valid row. The single-key read paths
+     * ({@see readRow()}) deliberately stay fail-loud; only this directory scan tolerates a poison row.
      *
      * @return list<StoredMatch> The stored rows, in no guaranteed order.
      */
@@ -229,7 +231,13 @@ final readonly class FileMatchStore implements MatchStore
         $rows = [];
 
         foreach ($paths as $path) {
-            $rows[] = StoredMatch::fromArray(AtomicFile::readJsonCapped($path, self::MAX_BYTES));
+            try {
+                $rows[] = StoredMatch::fromArray(AtomicFile::readJsonCapped($path, self::MAX_BYTES));
+            } catch (CorruptMatchRowException) {
+                // A single malformed row is skipped, not fatal: the remaining valid rows still
+                // surface. A single-key read of the same row stays fail-loud (see readRow).
+                continue;
+            }
         }
 
         return $rows;

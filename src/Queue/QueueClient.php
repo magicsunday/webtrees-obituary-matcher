@@ -11,16 +11,24 @@ declare(strict_types=1);
 
 namespace MagicSunday\ObituaryMatcher\Queue;
 
+use FilesystemIterator;
 use MagicSunday\ObituaryMatcher\Support\FeederRequest;
+use RecursiveDirectoryIterator;
+use RecursiveIteratorIterator;
 use RuntimeException;
+use SplFileInfo;
 
 use function is_dir;
 use function is_int;
 use function is_string;
 use function mkdir;
 use function rename;
+use function restore_error_handler;
+use function rmdir;
+use function set_error_handler;
 use function sprintf;
 use function uniqid;
+use function unlink;
 
 /**
  * Drives the file-drop queue state machine on top of {@see QueuePaths} and {@see AtomicFile}. A job
@@ -51,6 +59,12 @@ final readonly class QueueClient
     private const int STATUS_MAX_BYTES = 65536;
 
     /**
+     * @var string Reserved name prefix for an in-flight job's temporary directory. A future scan of
+     *             the queued state must exclude any directory carrying this prefix.
+     */
+    private const string TEMP_DIR_PREFIX = '.tmp-';
+
+    /**
      * Constructor.
      *
      * @param QueuePaths $paths The path builder for the queue this client operates on.
@@ -62,8 +76,10 @@ final readonly class QueueClient
 
     /**
      * Atomically enqueues a feeder request as a new job directory. The job is fully populated in a
-     * temporary directory and only then renamed into the queued state, so a worker never observes a
-     * half-written job. Refuses to clobber an existing job of the same identifier.
+     * temporary directory (a reserved {@see self::TEMP_DIR_PREFIX} name that any future queued-dir
+     * scan must exclude) and only then renamed into the queued state, so a worker never observes a
+     * half-written job. Refuses to clobber an existing job of the same identifier; the clobber guard
+     * only checks the queued state, so jobIds are assumed globally unique per request.
      *
      * @param FeederRequest $request The request to enqueue; its jobId becomes the job directory name.
      *
@@ -87,7 +103,7 @@ final readonly class QueueClient
         }
 
         $tempDir = $this->paths->stateRoot('queued')
-            . '/.tmp-' . $jobId . '-' . uniqid('', true);
+            . '/' . self::TEMP_DIR_PREFIX . $jobId . '-' . uniqid('', true);
 
         if (!mkdir($tempDir, 0o700, true)) {
             throw new RuntimeException(
@@ -98,6 +114,10 @@ final readonly class QueueClient
         AtomicFile::writeJson($tempDir . self::REQUEST_FILE, $payload);
 
         if (!rename($tempDir, $targetDir)) {
+            // The atomic move failed: remove the fully populated temp dir so a failed enqueue does
+            // not leak an orphan .tmp- directory in the queued state.
+            $this->removeDirectory($tempDir);
+
             throw new RuntimeException(
                 sprintf('Failed to atomically move job %s into the queued state', $jobId)
             );
@@ -123,7 +143,16 @@ final readonly class QueueClient
             return false;
         }
 
-        return @rename($queuedDir, $this->paths->runningDir($jobId));
+        // The rename is the synchronisation point: a losing or racing claim is an expected outcome,
+        // not a warning. A scoped handler swallows the rename's warning (the boolean return already
+        // carries the lost/racing-claim signal) without the forbidden @-suppression operator.
+        set_error_handler(static fn (): bool => true);
+
+        try {
+            return rename($queuedDir, $this->paths->runningDir($jobId));
+        } finally {
+            restore_error_handler();
+        }
     }
 
     /**
@@ -256,5 +285,37 @@ final readonly class QueueClient
             is_string($error) ? $error : null,
             is_int($counts) ? $counts : null,
         );
+    }
+
+    /**
+     * Recursively removes a populated directory and everything below it. Used only to clean up a
+     * partially-built temporary job directory after a failed enqueue rename, so a failure does not
+     * leak an orphan directory.
+     *
+     * @param string $directory The absolute path to remove.
+     *
+     * @return void
+     */
+    private function removeDirectory(string $directory): void
+    {
+        if (!is_dir($directory)) {
+            return;
+        }
+
+        $iterator = new RecursiveIteratorIterator(
+            new RecursiveDirectoryIterator($directory, FilesystemIterator::SKIP_DOTS),
+            RecursiveIteratorIterator::CHILD_FIRST
+        );
+
+        /** @var SplFileInfo $entry */
+        foreach ($iterator as $entry) {
+            if ($entry->isDir() && !$entry->isLink()) {
+                rmdir($entry->getPathname());
+            } else {
+                unlink($entry->getPathname());
+            }
+        }
+
+        rmdir($directory);
     }
 }
