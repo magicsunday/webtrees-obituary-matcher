@@ -199,6 +199,48 @@ final class AtomicFileTest extends TempDirTestCase
     }
 
     /**
+     * A partial write — fewer bytes than intended, as happens on a full filesystem or an exceeded
+     * quota — must NOT be treated as success: file_put_contents reports the bytes actually written
+     * rather than throwing, so a byte-count comparison against the intended length is the only thing
+     * that catches the truncation. writeJson must reject it with a RuntimeException AND clean up the
+     * truncated temp file, so a short write never renames a corrupt file into place nor leaks a
+     * *.tmp.* file. A non-throwing error handler is installed so file_put_contents returns its short
+     * count (the byte-count branch under test) instead of throwing on the write warning.
+     */
+    #[Test]
+    public function writeJsonRejectsAndCleansUpAPartialWrite(): void
+    {
+        FailingWriteStreamWrapper::register();
+        FailingWriteStreamWrapper::enableShortWrite();
+
+        // Swallow the file_put_contents "bytes written" warning without throwing, so the write step
+        // returns its short byte count and the byte-count comparison — not an error-handler throw —
+        // is what rejects the partial write.
+        set_error_handler(static fn (): bool => true);
+
+        $message   = '';
+        $leftovers = [];
+
+        try {
+            AtomicFile::writeJson(FailingWriteStreamWrapper::SCHEME . '://r.json', ['a' => 1]);
+            self::fail('writeJson must reject a partial write.');
+        } catch (AssertionFailedError $assertionFailure) {
+            throw $assertionFailure;
+        } catch (RuntimeException $runtimeException) {
+            $message   = $runtimeException->getMessage();
+            $glob      = glob(FailingWriteStreamWrapper::backingDirectory() . '/*.tmp.*');
+            $leftovers = ($glob === false) ? [] : $glob;
+        } finally {
+            restore_error_handler();
+            FailingWriteStreamWrapper::unregister();
+        }
+
+        // The rejection is the partial-write guard, and no truncated temp file is left behind.
+        self::assertStringContainsStringIgnoringCase('completely', $message);
+        self::assertSame([], $leftovers);
+    }
+
+    /**
      * @return array<string, array{0:string}>
      */
     public static function topLevelNonArrayPayloads(): array

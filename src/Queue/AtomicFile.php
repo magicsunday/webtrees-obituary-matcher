@@ -85,9 +85,16 @@ final class AtomicFile
         // a full filesystem creates the temp file, then fails); catching every Throwable and removing
         // the temp file in the catch closes both leaks.
         try {
-            if (file_put_contents($tmpPath, $json) === false) {
+            // file_put_contents returns the NUMBER OF BYTES written, not a boolean: on a full disk or
+            // an exceeded quota it can write FEWER bytes than intended (a partial write) WITHOUT
+            // returning false. Comparing the byte count against the intended length catches BOTH the
+            // false return AND a short write, so a truncated temp file is never renamed into place.
+            // strlen() is the byte length of the JSON string, which is the correct unit here.
+            $bytesWritten = file_put_contents($tmpPath, $json);
+
+            if ($bytesWritten !== strlen($json)) {
                 throw new RuntimeException(
-                    sprintf('Failed to write temporary queue file: %s', $tmpPath)
+                    sprintf('Failed to write queue file completely: %s', $path)
                 );
             }
 

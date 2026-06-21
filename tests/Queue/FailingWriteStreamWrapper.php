@@ -15,6 +15,7 @@ use RuntimeException;
 
 use function fclose;
 use function fopen;
+use function fwrite;
 use function in_array;
 use function is_dir;
 use function is_file;
@@ -78,6 +79,15 @@ final class FailingWriteStreamWrapper
     private static bool $failUnlink = false;
 
     /**
+     * @var bool When true, {@see self::stream_write()} reports a SHORT write — one byte fewer than it
+     *           was given — instead of a zero-byte write. This reproduces a partial write on a full
+     *           filesystem so a test can prove that {@see \MagicSunday\ObituaryMatcher\Queue\AtomicFile}
+     *           detects the truncated temp file via its byte-count comparison and never renames it into
+     *           place.
+     */
+    private static bool $shortWrite = false;
+
+    /**
      * @var resource|null The open backing file handle for this stream instance.
      */
     private $handle;
@@ -90,6 +100,7 @@ final class FailingWriteStreamWrapper
     public static function register(): void
     {
         self::$failUnlink = false;
+        self::$shortWrite = false;
         self::$directory  = sys_get_temp_dir() . '/obituary-failwrite-' . uniqid('', true);
         mkdir(self::$directory, 0o700, true);
 
@@ -110,6 +121,7 @@ final class FailingWriteStreamWrapper
         // Reset the unlink-failure flag first so the teardown's own unlink() calls below are not
         // sabotaged by a test that asked the wrapper's unlink to fail.
         self::$failUnlink = false;
+        self::$shortWrite = false;
 
         if (in_array(self::SCHEME, stream_get_wrappers(), true)) {
             stream_wrapper_unregister(self::SCHEME);
@@ -161,6 +173,17 @@ final class FailingWriteStreamWrapper
     }
 
     /**
+     * Arms the wrapper so its {@see self::stream_write()} reports a SHORT write (one byte fewer than
+     * requested) instead of a zero-byte write, reproducing a partial write on a full filesystem.
+     *
+     * @return void
+     */
+    public static function enableShortWrite(): void
+    {
+        self::$shortWrite = true;
+    }
+
+    /**
      * Creates the backing file on open so a leftover would exist if cleanup were skipped.
      *
      * @param string $path    The stream path (scheme://name).
@@ -184,15 +207,30 @@ final class FailingWriteStreamWrapper
     }
 
     /**
-     * Fails the write so file_put_contents reports failure AFTER the backing file already exists.
+     * Fails the write AFTER the backing file already exists. In the default mode it reports a
+     * zero-byte write so file_put_contents fails outright; in short-write mode it writes one byte
+     * fewer than requested to the backing file and reports that short count, reproducing a partial
+     * write on a full filesystem so the helper's byte-count comparison catches the truncation.
      *
-     * @param string $data The bytes that would be written (discarded).
+     * @param string $data The bytes that would be written.
      *
-     * @return int Always 0: zero bytes written signals a short/failed write to file_put_contents.
+     * @return int The number of bytes "written": 0 in the default mode, or one fewer than requested
+     *             in short-write mode (zero for a single-byte chunk).
      */
     public function stream_write(string $data): int
     {
-        return 0;
+        if (!self::$shortWrite) {
+            return 0;
+        }
+
+        $length = strlen($data);
+        $short  = ($length > 0) ? ($length - 1) : 0;
+
+        if (($short > 0) && ($this->handle !== null)) {
+            fwrite($this->handle, substr($data, 0, $short));
+        }
+
+        return $short;
     }
 
     /**
