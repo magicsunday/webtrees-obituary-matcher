@@ -221,6 +221,13 @@ final class ResponseReaderTest extends TempDirTestCase
             'trailing modifier' => ['response-fetchedat-trailing-modifier.json', 'not a parseable timestamp'],
             'trailing word'     => ['response-fetchedat-trailing-word.json', 'not a parseable timestamp'],
             'trailing garbage'  => ['response-fetchedat-trailing-garbage.json', 'not a parseable timestamp'],
+            // An out-of-range component (a "00" month and/or day) passes the digit-count regex but the
+            // DateTimeImmutable constructor SILENTLY ROLLS IT BACKWARD ("2024-00-00" → 2023-11-30)
+            // instead of throwing, so it must be rejected by the post-parse date-part reproduction check
+            // — the exact silent timestamp shift the anchored regex was meant to prevent.
+            'zero month and day' => ['response-fetchedat-zeromonthday.json', 'out-of-range date component'],
+            'zero day'           => ['response-fetchedat-zeroday.json', 'out-of-range date component'],
+            'zero month'         => ['response-fetchedat-zeromonth.json', 'out-of-range date component'],
         ];
     }
 

@@ -30,6 +30,7 @@ use function parse_url;
 use function preg_match;
 use function sprintf;
 use function strtolower;
+use function substr;
 use function trim;
 
 use const PHP_URL_SCHEME;
@@ -249,7 +250,9 @@ final readonly class ResponseReader
      * @return DateTimeImmutable The parsed timestamp.
      *
      * @throws ResponseValidationException When the value is absent, not a string, not an anchored
-     *                                     ISO-8601 date-time or otherwise unparseable.
+     *                                     ISO-8601 date-time, carries an out-of-range date component
+     *                                     (a silently rolled-over "00" month/day) or is otherwise
+     *                                     unparseable.
      */
     private function parseFetchedAt(mixed $raw): DateTimeImmutable
     {
@@ -273,12 +276,25 @@ final readonly class ResponseReader
         }
 
         try {
-            return new DateTimeImmutable($raw);
+            $parsed = new DateTimeImmutable($raw);
         } catch (Exception) {
             throw new ResponseValidationException(
                 sprintf('Notice fetchedAt is not a parseable timestamp: %s', $raw)
             );
         }
+
+        // Reject a silent roll-over: the digit-count regex permits an out-of-range component (a "00"
+        // month or day), which DateTimeImmutable rolls BACKWARD instead of rejecting ("2024-00-00" →
+        // 2023-11-30). The parsed value must reproduce the input's date part; if it does not, an
+        // out-of-range component was silently shifted. The substr is safe because the regex already
+        // guaranteed "\d{4}-\d{2}-\d{2}" as the first ten characters.
+        if ($parsed->format('Y-m-d') !== substr($raw, 0, 10)) {
+            throw new ResponseValidationException(
+                sprintf('Notice fetchedAt has an out-of-range date component: %s', $raw)
+            );
+        }
+
+        return $parsed;
     }
 
     /**
