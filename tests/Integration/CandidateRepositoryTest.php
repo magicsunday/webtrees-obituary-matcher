@@ -55,7 +55,7 @@ use function sort;
 #[UsesClass(CandidateCriteria::class)]
 #[UsesClass(PersonCandidateAdapter::class)]
 #[UsesClass(WebtreesDateMapper::class)]
-#[UsesClass(\MagicSunday\ObituaryMatcher\Support\RufnameParser::class)]
+#[UsesClass(\MagicSunday\ObituaryMatcher\Support\CallNameParser::class)]
 #[UsesClass(PersonCandidate::class)]
 #[UsesClass(\MagicSunday\ObituaryMatcher\Domain\PersonName::class)]
 #[UsesClass(\MagicSunday\ObituaryMatcher\Domain\DateRange::class)]

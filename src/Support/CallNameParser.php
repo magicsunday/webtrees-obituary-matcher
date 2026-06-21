@@ -15,15 +15,14 @@ use function preg_match;
 use function trim;
 
 /**
- * Pure GEDCOM helper that extracts the German call name (the _RUFNAME tag value) from a raw
- * GEDCOM record. When several _RUFNAME lines are present the first one wins; an absent tag
- * yields null.
+ * Parses the preferred/call name from a GEDCOM `_RUFNAME` tag in a raw GEDCOM record. When
+ * several _RUFNAME lines are present the first one wins; an absent tag yields null.
  *
  * @author  Rico Sonntag <mail@ricosonntag.de>
  * @license https://opensource.org/licenses/GPL-3.0 GNU General Public License v3.0
  * @link    https://github.com/magicsunday/webtrees-obituary-matcher/
  */
-final class RufnameParser
+final class CallNameParser
 {
     /**
      * Constructor.

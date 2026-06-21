@@ -19,7 +19,7 @@ use MagicSunday\ObituaryMatcher\Domain\PersonCandidate;
 use MagicSunday\ObituaryMatcher\Domain\PersonName;
 use MagicSunday\ObituaryMatcher\Domain\Place;
 use MagicSunday\ObituaryMatcher\Domain\RelatedPerson;
-use MagicSunday\ObituaryMatcher\Support\RufnameParser;
+use MagicSunday\ObituaryMatcher\Support\CallNameParser;
 
 use function preg_split;
 use function trim;
@@ -129,7 +129,7 @@ final class PersonCandidateAdapter
 
         return new PersonName(
             $givenNames,
-            RufnameParser::parse($i->gedcom()),
+            CallNameParser::parse($i->gedcom()),
             $surname,
             $birthSurname === '' ? null : $birthSurname,
             $marriedSurnames,

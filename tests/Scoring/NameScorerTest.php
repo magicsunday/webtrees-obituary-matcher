@@ -15,8 +15,8 @@ use MagicSunday\ObituaryMatcher\Domain\PersonName;
 use MagicSunday\ObituaryMatcher\Domain\ScoreConfig;
 use MagicSunday\ObituaryMatcher\Domain\SignalScore;
 use MagicSunday\ObituaryMatcher\Scoring\NameScorer;
+use MagicSunday\ObituaryMatcher\Support\ColognePhonetic;
 use MagicSunday\ObituaryMatcher\Support\GivenNameVariants;
-use MagicSunday\ObituaryMatcher\Support\KoelnerPhonetik;
 use MagicSunday\ObituaryMatcher\Support\Normalizer;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\Test;
@@ -31,8 +31,8 @@ use PHPUnit\Framework\TestCase;
  * @link    https://github.com/magicsunday/webtrees-obituary-matcher/
  */
 #[CoversClass(NameScorer::class)]
+#[UsesClass(ColognePhonetic::class)]
 #[UsesClass(GivenNameVariants::class)]
-#[UsesClass(KoelnerPhonetik::class)]
 #[UsesClass(Normalizer::class)]
 #[UsesClass(PersonName::class)]
 #[UsesClass(ScoreConfig::class)]
@@ -40,13 +40,13 @@ use PHPUnit\Framework\TestCase;
 final class NameScorerTest extends TestCase
 {
     /**
-     * Creates a name scorer wired with the Kölner phonetic encoder and default configuration.
+     * Creates a name scorer wired with the Cologne phonetic encoder and default configuration.
      *
      * @return NameScorer
      */
     private function scorer(): NameScorer
     {
-        return new NameScorer(new KoelnerPhonetik(), new ScoreConfig());
+        return new NameScorer(new ColognePhonetic(), new ScoreConfig());
     }
 
     /**
@@ -130,7 +130,7 @@ final class NameScorerTest extends TestCase
 
     /**
      * Two different non-codeable tokens that both reduce to an empty phonetic key must not
-     * award a phonetic surname role: the Kölner encoder maps any non-codeable input (a bare
+     * award a phonetic surname role: the Cologne encoder maps any non-codeable input (a bare
      * consonant, digits, punctuation) to '', so an untrusted scraped notice surname like "H"
      * would otherwise collide with an unrelated candidate birth surname like "123".
      */
@@ -150,13 +150,13 @@ final class NameScorerTest extends TestCase
     }
 
     /**
-     * A genuine phonetic surname match between Kölner-equivalent spellings still earns the
+     * A genuine phonetic surname match between Cologne-equivalent spellings still earns the
      * soft phonetic bonus of 8 points (over and above the given-name contribution).
      */
     #[Test]
     public function genuinePhoneticSurnameMatchStillEarnsBonus(): void
     {
-        // Meyer/Maier reduce to the same Kölner key; no exact role matches.
+        // Meyer/Maier reduce to the same Cologne key; no exact role matches.
         $candidate = new PersonName(['Hans'], null, 'Meyer', 'Meyer');
         $notice    = new PersonName(['Hans'], null, 'Maier', null);
         $signal    = $this->scorer()->score($candidate, $notice);

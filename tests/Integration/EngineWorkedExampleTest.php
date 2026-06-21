@@ -38,8 +38,8 @@ use MagicSunday\ObituaryMatcher\Scoring\MatchEngine;
 use MagicSunday\ObituaryMatcher\Scoring\NameScorer;
 use MagicSunday\ObituaryMatcher\Scoring\PlaceScorer;
 use MagicSunday\ObituaryMatcher\Scoring\PlausibilityScorer;
+use MagicSunday\ObituaryMatcher\Support\ColognePhonetic;
 use MagicSunday\ObituaryMatcher\Support\GivenNameVariants;
-use MagicSunday\ObituaryMatcher\Support\KoelnerPhonetik;
 use MagicSunday\ObituaryMatcher\Support\Normalizer;
 /* jscpd:ignore-end */
 use PHPUnit\Framework\Attributes\Test;
@@ -67,7 +67,7 @@ use function usort;
 #[UsesClass(DateRange::class)]
 #[UsesClass(DateValue::class)]
 #[UsesClass(GivenNameVariants::class)]
-#[UsesClass(KoelnerPhonetik::class)]
+#[UsesClass(ColognePhonetic::class)]
 #[UsesClass(MatchEngine::class)]
 #[UsesClass(MatchExplanation::class)]
 #[UsesClass(NameScorer::class)]

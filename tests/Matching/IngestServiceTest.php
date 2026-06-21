@@ -48,8 +48,8 @@ use MagicSunday\ObituaryMatcher\Scoring\MatchEngine;
 use MagicSunday\ObituaryMatcher\Scoring\NameScorer;
 use MagicSunday\ObituaryMatcher\Scoring\PlaceScorer;
 use MagicSunday\ObituaryMatcher\Scoring\PlausibilityScorer;
+use MagicSunday\ObituaryMatcher\Support\ColognePhonetic;
 use MagicSunday\ObituaryMatcher\Support\GivenNameVariants;
-use MagicSunday\ObituaryMatcher\Support\KoelnerPhonetik;
 use MagicSunday\ObituaryMatcher\Support\Normalizer;
 use MagicSunday\ObituaryMatcher\Support\NoticeMapper;
 use MagicSunday\ObituaryMatcher\Support\UrlNormalizer;
@@ -81,7 +81,7 @@ use PHPUnit\Framework\Attributes\UsesClass;
 #[UsesClass(DateValue::class)]
 #[UsesClass(DeathNoticeRecord::class)]
 #[UsesClass(GivenNameVariants::class)]
-#[UsesClass(KoelnerPhonetik::class)]
+#[UsesClass(ColognePhonetic::class)]
 #[UsesClass(MatchEngine::class)]
 #[UsesClass(MatchExplanation::class)]
 #[UsesClass(NameScorer::class)]

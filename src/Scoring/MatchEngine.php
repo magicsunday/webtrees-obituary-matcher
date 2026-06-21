@@ -16,7 +16,7 @@ use MagicSunday\ObituaryMatcher\Domain\MatchExplanation;
 use MagicSunday\ObituaryMatcher\Domain\ObituaryRecord;
 use MagicSunday\ObituaryMatcher\Domain\PersonCandidate;
 use MagicSunday\ObituaryMatcher\Domain\ScoreConfig;
-use MagicSunday\ObituaryMatcher\Support\KoelnerPhonetik;
+use MagicSunday\ObituaryMatcher\Support\ColognePhonetic;
 use MagicSunday\ObituaryMatcher\Support\PhoneticEncoder;
 
 use function max;
@@ -72,12 +72,12 @@ final readonly class MatchEngine
      * Constructor.
      *
      * @param ScoreConfig|null     $config   The scoring configuration, defaulting to the standard weights.
-     * @param PhoneticEncoder|null $phonetic The phonetic encoder, defaulting to the Kölner Phonetik.
+     * @param PhoneticEncoder|null $phonetic The phonetic encoder, defaulting to Cologne phonetics.
      */
     public function __construct(?ScoreConfig $config = null, ?PhoneticEncoder $phonetic = null)
     {
         $config   ??= new ScoreConfig();
-        $phonetic ??= new KoelnerPhonetik();
+        $phonetic ??= new ColognePhonetic();
 
         $this->nameScorer         = new NameScorer($phonetic, $config);
         $this->birthScorer        = new BirthScorer($config);

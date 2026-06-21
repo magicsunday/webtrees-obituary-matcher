@@ -11,7 +11,7 @@ declare(strict_types=1);
 
 namespace MagicSunday\ObituaryMatcher\Test\Support;
 
-use MagicSunday\ObituaryMatcher\Support\RufnameParser;
+use MagicSunday\ObituaryMatcher\Support\CallNameParser;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
@@ -24,8 +24,8 @@ use PHPUnit\Framework\TestCase;
  * @license https://opensource.org/licenses/GPL-3.0 GNU General Public License v3.0
  * @link    https://github.com/magicsunday/webtrees-obituary-matcher/
  */
-#[CoversClass(RufnameParser::class)]
-final class RufnameParserTest extends TestCase
+#[CoversClass(CallNameParser::class)]
+final class CallNameParserTest extends TestCase
 {
     /**
      * Provides GEDCOM fragments paired with the expected call name (or null when absent).
@@ -49,6 +49,6 @@ final class RufnameParserTest extends TestCase
     #[DataProvider('cases')]
     public function parsesRufname(string $gedcom, ?string $expected): void
     {
-        self::assertSame($expected, RufnameParser::parse($gedcom));
+        self::assertSame($expected, CallNameParser::parse($gedcom));
     }
 }
