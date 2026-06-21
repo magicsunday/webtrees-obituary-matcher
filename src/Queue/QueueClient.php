@@ -100,12 +100,7 @@ final readonly class QueueClient
 
         // The guard covers every state, not just queued: a jobId already in running/done/failed
         // would otherwise create a duplicate that strands or makes a later terminal rename throw.
-        if (
-            is_dir($targetDir)
-            || is_dir($this->paths->runningDir($jobId))
-            || is_dir($this->paths->doneDir($jobId))
-            || is_dir($this->paths->failedDir($jobId))
-        ) {
+        if ($this->paths->stateOf($jobId) instanceof JobState) {
             throw new RuntimeException(
                 sprintf('Refusing to clobber an existing job: %s', $jobId)
             );
@@ -248,31 +243,21 @@ final readonly class QueueClient
      */
     public function status(string $jobId): JobStatus
     {
-        if (is_dir($this->paths->queuedDir($jobId))) {
-            return new JobStatus(JobState::Queued, null, null, null, null);
-        }
+        $state = $this->paths->stateOf($jobId);
 
-        if (is_dir($this->paths->runningDir($jobId))) {
-            return new JobStatus(JobState::Running, null, null, null, null);
-        }
-
-        if (is_dir($this->paths->doneDir($jobId))) {
-            return $this->readStatus(
+        return match ($state) {
+            null              => throw new RuntimeException(sprintf('Unknown job: %s', $jobId)),
+            JobState::Queued  => new JobStatus(JobState::Queued, null, null, null, null),
+            JobState::Running => new JobStatus(JobState::Running, null, null, null, null),
+            JobState::Done    => $this->readStatus(
                 JobState::Done,
                 $this->paths->doneDir($jobId) . self::STATUS_FILE
-            );
-        }
-
-        if (is_dir($this->paths->failedDir($jobId))) {
-            return $this->readStatus(
+            ),
+            JobState::Failed => $this->readStatus(
                 JobState::Failed,
                 $this->paths->failedDir($jobId) . self::STATUS_FILE
-            );
-        }
-
-        throw new RuntimeException(
-            sprintf('Unknown job: %s', $jobId)
-        );
+            ),
+        };
     }
 
     /**

@@ -126,6 +126,27 @@ final readonly class QueuePaths
     }
 
     /**
+     * Locates which of the four states a job currently lives in by probing each state directory in
+     * the authoritative {@see JobState::cases()} order (queued → running → done → failed). Returns
+     * the first matching state, or null when the job exists in no state. The jobId is validated by
+     * the reused directory accessors, so a hostile jobId can never escape the queue root.
+     *
+     * @param string $jobId The job identifier to locate.
+     *
+     * @return JobState|null The state whose directory exists for the job, or null when none does.
+     */
+    public function stateOf(string $jobId): ?JobState
+    {
+        foreach (JobState::cases() as $state) {
+            if (is_dir($this->stateRoot($state->value) . '/' . $this->validateJobId($jobId))) {
+                return $state;
+            }
+        }
+
+        return null;
+    }
+
+    /**
      * Creates the four state directories under the queue root if they do not yet exist.
      *
      * @return void
