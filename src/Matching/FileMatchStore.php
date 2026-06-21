@@ -124,6 +124,10 @@ final readonly class FileMatchStore implements MatchStore
      * @param string|null $reason      The rejection reason, if any.
      *
      * @return void
+     *
+     * @throws TerminalMatchTransitionException When the existing row is already Confirmed: an
+     *                                          explicit rejection of a confirmed match must be
+     *                                          surfaced, not silently dropped.
      */
     public function markRejected(string $personId, string $obituaryUrl, ?string $reason): void
     {
@@ -131,8 +135,20 @@ final readonly class FileMatchStore implements MatchStore
         $existing = $this->readRow($path);
 
         if ($existing instanceof StoredMatch) {
-            if ($existing->status->isTerminal()) {
-                // A Confirmed or already-Rejected row is terminal and immutable.
+            if ($existing->status === MatchStatus::Confirmed) {
+                // A Confirmed row stays terminal, but an EXPLICIT rejection (unlike an automated
+                // re-ingest) must not vanish silently: surface the refusal so the caller can react
+                // (for example, prompt the user to un-confirm first).
+                throw new TerminalMatchTransitionException(
+                    sprintf(
+                        'Cannot reject match for person %s: it is already confirmed (un-confirm first).',
+                        $personId
+                    )
+                );
+            }
+
+            if ($existing->status === MatchStatus::Rejected) {
+                // Already rejected: re-rejecting is a harmless, idempotent no-op.
                 return;
             }
 

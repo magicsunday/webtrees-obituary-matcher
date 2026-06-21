@@ -23,6 +23,7 @@ use MagicSunday\ObituaryMatcher\Domain\Place;
 use MagicSunday\ObituaryMatcher\Matching\FileMatchStore;
 use MagicSunday\ObituaryMatcher\Matching\MatchStatus;
 use MagicSunday\ObituaryMatcher\Matching\StoredMatch;
+use MagicSunday\ObituaryMatcher\Matching\TerminalMatchTransitionException;
 use MagicSunday\ObituaryMatcher\Parsing\ObituaryDateParser;
 use MagicSunday\ObituaryMatcher\Parsing\ObituaryNameParser;
 use MagicSunday\ObituaryMatcher\Scoring\Classifier;
@@ -43,6 +44,7 @@ use PHPUnit\Framework\Attributes\UsesClass;
 #[CoversClass(FileMatchStore::class)]
 #[CoversClass(MatchStatus::class)]
 #[CoversClass(StoredMatch::class)]
+#[CoversClass(TerminalMatchTransitionException::class)]
 #[UsesClass(ClassifiedMatch::class)]
 #[UsesClass(Classification::class)]
 #[UsesClass(MatchEngine::class)]
@@ -77,12 +79,13 @@ final class FileMatchStoreTest extends TempDirTestCase
     }
 
     /**
-     * A confirmed row is terminal: neither a later pending upsert nor a rejection may overwrite it.
+     * A confirmed row is terminal against an automated re-ingest: a later pending upsert is a
+     * silent no-op and the row stays Confirmed.
      *
      * @return void
      */
     #[Test]
-    public function confirmedRowIsTerminalAndImmutable(): void
+    public function confirmedRowIsImmutableAgainstReingest(): void
     {
         $store = new FileMatchStore($this->tmp);
 
@@ -90,9 +93,50 @@ final class FileMatchStoreTest extends TempDirTestCase
 
         $store->upsertPending($this->storedMatch('I1', 'https://example.test/a', MatchStatus::Pending));
         self::assertSame(MatchStatus::Confirmed, $store->findByPerson('I1')[0]->status);
+    }
 
-        $store->markRejected('I1', 'https://example.test/a', 'changed my mind');
+    /**
+     * An EXPLICIT rejection of a Confirmed row is refused observably: it throws
+     * TerminalMatchTransitionException rather than silently dropping the operation, and the row
+     * stays Confirmed after the throw.
+     *
+     * @return void
+     */
+    #[Test]
+    public function explicitRejectionOfConfirmedRowThrowsAndLeavesItConfirmed(): void
+    {
+        $store = new FileMatchStore($this->tmp);
+
+        $store->upsertPending($this->storedMatch('I1', 'https://example.test/a', MatchStatus::Confirmed));
+
+        try {
+            $store->markRejected('I1', 'https://example.test/a', 'changed my mind');
+            self::fail('Rejecting a confirmed row must throw TerminalMatchTransitionException.');
+        } catch (TerminalMatchTransitionException $exception) {
+            self::assertStringContainsString('already confirmed', $exception->getMessage());
+        }
+
         self::assertSame(MatchStatus::Confirmed, $store->findByPerson('I1')[0]->status);
+    }
+
+    /**
+     * Re-rejecting an already-Rejected row is an idempotent no-op: it neither throws nor changes the
+     * stored row.
+     *
+     * @return void
+     */
+    #[Test]
+    public function reRejectingARejectedRowIsAnIdempotentNoOp(): void
+    {
+        $store = new FileMatchStore($this->tmp);
+
+        $store->markRejected('I1', 'https://example.test/a', 'not a match');
+        $store->markRejected('I1', 'https://example.test/a', 'still not a match');
+
+        $rows = $store->findByPerson('I1');
+        self::assertCount(1, $rows);
+        self::assertSame(MatchStatus::Rejected, $rows[0]->status);
+        self::assertSame('not a match', $rows[0]->reason);
     }
 
     /**
