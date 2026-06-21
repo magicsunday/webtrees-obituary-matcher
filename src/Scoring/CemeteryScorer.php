@@ -83,6 +83,9 @@ final readonly class CemeteryScorer
             return new SignalScore(0, $max, []);
         }
 
+        // NOTE: matches the candidate place name as a single whole token; a real adapter place name
+        // can be a comma-separated GEDCOM hierarchy ("Town, Region, Country") that this does not yet
+        // split — see issue #16.
         foreach ($candidate->places as $residence) {
             if ($this->isWholeTokenMatch($residence->name, $tokens)) {
                 return new SignalScore(min(self::CEMETERY_PLACE, $max), $max, ['cemetery names a known place']);

@@ -78,4 +78,51 @@ trait EnrichedWorkedExampleFixtureTrait
             new DateTimeImmutable('2026-06-21T10:00:00+00:00'),
         );
     }
+
+    /**
+     * A leaner curated candidate for the non-clamping example: the same person, but WITHOUT a
+     * recorded residence place, so the place signal cannot fire and the total stays below 100.
+     *
+     * @return PersonCandidate
+     */
+    private function probableExampleCandidate(): PersonCandidate
+    {
+        return new PersonCandidate(
+            'I2',
+            Gender::Female,
+            new PersonName(['Erika'], null, 'Mustermann', 'Beispiel'),
+            DateRange::exact(new DateValue(1951, 6, 22)),
+            null,
+            [],
+            DateRange::unknown(),
+            [],
+            [],
+        );
+    }
+
+    /**
+     * The matching notice for the non-clamping example: exact name + exact birth only. No place,
+     * no cemetery, no stated age, no relatives — so only name, birth and plausibility score and the
+     * un-clamped total (35 + 25 + 10 = 70) stays strictly below the 100 clamp.
+     *
+     * @return DeathNoticeRecord
+     */
+    private function probableExampleNotice(): DeathNoticeRecord
+    {
+        return new DeathNoticeRecord(
+            NoticeType::Obituary,
+            'Erika Mustermann geb. Beispiel',
+            new PersonName(['Erika'], null, 'Mustermann', 'Beispiel'),
+            DateRange::exact(new DateValue(1951, 6, 22)),
+            DateRange::exact(new DateValue(2024, 3, 1)),
+            null,
+            null,
+            null,
+            DateRange::unknown(),
+            [],
+            'https://obituary.example/notice/erika-probable',
+            'portal',
+            new DateTimeImmutable('2026-06-21T10:00:00+00:00'),
+        );
+    }
 }

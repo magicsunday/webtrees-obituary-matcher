@@ -26,7 +26,7 @@ final readonly class MatchExplanation
      * @param string                    $personId       Candidate identifier.
      * @param string                    $obituaryUrl    Source URL.
      * @param int                       $total          Clamped 0..100 total score.
-     * @param array<string,SignalScore> $signals        The four positive signals, keyed by name.
+     * @param array<string,SignalScore> $signals        The positive signals, keyed by name.
      * @param ConflictResult            $conflicts      The negative evidence.
      * @param array<string,string>      $extractedFacts Facts to harvest (e.g. deathDate).
      */

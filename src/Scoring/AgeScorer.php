@@ -78,6 +78,8 @@ final readonly class AgeScorer
             return new SignalScore(0, $max, []);
         }
 
+        // Uses the death range's earliest year as the reference; a wide death range collapses to its
+        // lower bound here, which is acceptable for this positive-only signal.
         $deathYear = $death->earliest->year;
         $impliedLo = $deathYear - $age - 1;
         $impliedHi = $deathYear - $age;

@@ -74,6 +74,15 @@ final class AgeScorerTest extends TestCase
     }
 
     /**
+     * A near miss on the OLDER side (candidate born before the window, gap 1) also scores 10.
+     */
+    #[Test]
+    public function olderDirectionNearMissScoresTen(): void
+    {
+        self::assertSame(10, $this->scorer()->score(DateRange::year(1936), 86, DateRange::year(2024))->score);
+    }
+
+    /**
      * A three-year gap (candidate 1934) is out of range → 0 (NOT a conflict in 2b).
      */
     #[Test]

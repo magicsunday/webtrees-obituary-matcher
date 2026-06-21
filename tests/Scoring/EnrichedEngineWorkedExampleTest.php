@@ -109,4 +109,39 @@ final class EnrichedEngineWorkedExampleTest extends TestCase
         $classification = (new Classifier())->classify($explanation, [$explanation]);
         self::assertSame(Band::Strong, $classification->band);
     }
+
+    /**
+     * A non-clamping enriched match: exact name + exact birth + plausibility only, with NO place,
+     * relatives, age or cemetery. The summed signals (35 + 25 + 10 = 70) stay strictly below the
+     * 100 clamp, so the total equals the raw sum and the band is Probable — exercising the
+     * un-clamped `total === sum` path and a non-Strong band the strong example never reaches.
+     */
+    #[Test]
+    public function nonClampingProbableMatch(): void
+    {
+        $explanation = (new EnrichedMatchEngine())->score(
+            $this->probableExampleCandidate(),
+            $this->probableExampleNotice(),
+        );
+
+        // The three contributing signals (clamped to their enriched caps):
+        // name 40 -> cap 35, birth 30 -> cap 25, plausibility 3+2+5=10 -> cap 10.
+        self::assertSame(35, $explanation->signals['name']->score);
+        self::assertSame(25, $explanation->signals['birth']->score);
+        self::assertSame(10, $explanation->signals['plausibility']->score);
+
+        // The four signals with no matching evidence score zero:
+        self::assertSame(0, $explanation->signals['place']->score);
+        self::assertSame(0, $explanation->signals['relatives']->score);
+        self::assertSame(0, $explanation->signals['age']->score);
+        self::assertSame(0, $explanation->signals['cemetery']->score);
+
+        // Sum = 35+25+10 = 70 < 100, no penalty: the total is the UN-clamped sum.
+        self::assertSame(0, $explanation->conflicts->penalty);
+        self::assertSame(70, $explanation->total);
+
+        // 70 sits in the Probable band [70, 85): a non-Strong band the clamped example never reaches.
+        $classification = (new Classifier())->classify($explanation, [$explanation]);
+        self::assertSame(Band::Probable, $classification->band);
+    }
 }
