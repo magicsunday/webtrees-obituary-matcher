@@ -257,11 +257,13 @@ final readonly class ResponseReader
             throw new ResponseValidationException('Notice fetchedAt is missing or not a string.');
         }
 
-        // Require an anchored ISO-8601 date-time prefix before parsing so a relative string the
+        // Require a FULLY end-anchored ISO-8601 date-time before parsing so a relative string the
         // DateTimeImmutable constructor accepts leniently ("now", "yesterday", "+1 week", "noon")
-        // is rejected at the untrusted boundary, while every real ISO-8601 form (with optional
-        // fractional seconds and a Z/offset suffix) still passes through.
-        if (preg_match('/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/', $raw) !== 1) {
+        // is rejected at the untrusted boundary. The end anchor is essential: an unanchored prefix
+        // would let trailing content ("...T10:00:00 +1 week") through, and DateTimeImmutable would
+        // then APPLY the relative modifier, silently shifting the timestamp. Every real ISO-8601 form
+        // (with optional fractional seconds and a Z/offset suffix) still passes through.
+        if (preg_match('/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?$/', $raw) !== 1) {
             throw new ResponseValidationException(
                 sprintf('Notice fetchedAt is not a parseable timestamp: %s', $raw)
             );

@@ -192,6 +192,12 @@ final class ResponseReaderTest extends TempDirTestCase
             'relative now'          => ['response-fetchedat-now.json', 'not a parseable timestamp'],
             'relative yesterday'    => ['response-fetchedat-yesterday.json', 'not a parseable timestamp'],
             'relative offset'       => ['response-fetchedat-relative.json', 'not a parseable timestamp'],
+            // An ISO-8601 prefix followed by a trailing relative modifier or garbage must be rejected:
+            // an unanchored prefix check would let "...T10:00:00 +1 week" through and DateTimeImmutable
+            // would then APPLY the modifier, silently shifting the timestamp.
+            'trailing modifier' => ['response-fetchedat-trailing-modifier.json', 'not a parseable timestamp'],
+            'trailing word'     => ['response-fetchedat-trailing-word.json', 'not a parseable timestamp'],
+            'trailing garbage'  => ['response-fetchedat-trailing-garbage.json', 'not a parseable timestamp'],
         ];
     }
 
