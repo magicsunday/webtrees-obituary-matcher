@@ -33,6 +33,9 @@ final readonly class ScoreConfig
      *                             below it the age is flagged as a conflict instead of rewarded.
      * @param int $maxPlausibleAge Highest age at death (in years) that is treated as plausible;
      *                             above it the age is flagged as a conflict instead of rewarded.
+     * @param int $maxRelatives    Maximum points for the relatives signal (0 = off, list level).
+     * @param int $maxAge          Maximum points for the age signal (0 = off, list level).
+     * @param int $maxCemetery     Maximum points for the cemetery signal (0 = off, list level).
      */
     public function __construct(
         public int $maxName = 45,
@@ -43,6 +46,44 @@ final readonly class ScoreConfig
         public int $ambiguityGap = 10,
         public int $minPlausibleAge = 10,
         public int $maxPlausibleAge = 120,
+        public int $maxRelatives = 0,
+        public int $maxAge = 0,
+        public int $maxCemetery = 0,
     ) {
+    }
+
+    /**
+     * The frozen Phase-1 list-level profile (identical to the default constructor): the enrichment
+     * caps are 0 so the base engine never awards enriched points.
+     *
+     * @return self
+     */
+    public static function listLevel(): self
+    {
+        return new self();
+    }
+
+    /**
+     * The conservative, provisional enriched-detail profile: the base caps are rebalanced to make
+     * room for the relatives/age/cemetery signals. These weights are NOT tuned against real data
+     * yet — they hold until feeder-detail produces detail-page enrichment to evaluate against.
+     *
+     * @return self
+     */
+    public static function enriched(): self
+    {
+        return new self(
+            maxName: 35,
+            maxBirth: 25,
+            maxPlace: 10,
+            maxPlausibility: 10,
+            maxPenalty: 50,
+            ambiguityGap: 10,
+            minPlausibleAge: 10,
+            maxPlausibleAge: 120,
+            maxRelatives: 35,
+            maxAge: 20,
+            maxCemetery: 10,
+        );
     }
 }
