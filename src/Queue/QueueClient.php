@@ -313,6 +313,14 @@ final readonly class QueueClient
      * partially-built temporary job directory after a failed enqueue rename, so a failure does not
      * leak an orphan directory.
      *
+     * This is a best-effort cleanup invoked from a failure handler that already swallows its own
+     * throw, so a single entry's deletion must never abort the rest. A scoped error handler swallows
+     * each unlink/rmdir warning (mirroring {@see self::claim()} and {@see AtomicFile::ensureDirectory()})
+     * so that under a custom error handler that converts an E_WARNING into a thrown ErrorException
+     * (webtrees installs one) one entry's failure does not abort the loop and strand the rest: the
+     * boolean returns carry the per-entry outcome and the loop continues regardless, removing as much
+     * of the tree as it can.
+     *
      * @param string $directory The absolute path to remove.
      *
      * @return void
@@ -328,15 +336,24 @@ final readonly class QueueClient
             RecursiveIteratorIterator::CHILD_FIRST
         );
 
-        /** @var SplFileInfo $entry */
-        foreach ($iterator as $entry) {
-            if ($entry->isDir() && !$entry->isLink()) {
-                rmdir($entry->getPathname());
-            } else {
-                unlink($entry->getPathname());
-            }
-        }
+        // Swallow each unlink/rmdir warning so a single entry's deletion failure (a converted
+        // E_WARNING) does not abort the loop and strand the remaining entries. The boolean returns are
+        // intentionally ignored: this is a best-effort cleanup whose caller already swallows its throw.
+        set_error_handler(static fn (): bool => true);
 
-        rmdir($directory);
+        try {
+            /** @var SplFileInfo $entry */
+            foreach ($iterator as $entry) {
+                if ($entry->isDir() && !$entry->isLink()) {
+                    rmdir($entry->getPathname());
+                } else {
+                    unlink($entry->getPathname());
+                }
+            }
+
+            rmdir($directory);
+        } finally {
+            restore_error_handler();
+        }
     }
 }

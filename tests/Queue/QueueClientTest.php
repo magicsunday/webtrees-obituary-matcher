@@ -31,12 +31,14 @@ use PHPUnit\Framework\AssertionFailedError;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\Attributes\UsesClass;
+use ReflectionMethod;
 use RuntimeException;
 use Throwable;
 
 use function chmod;
 use function file_put_contents;
 use function glob;
+use function mkdir;
 use function restore_error_handler;
 use function set_error_handler;
 
@@ -299,6 +301,53 @@ final class QueueClientTest extends TempDirTestCase
         // "if (!rename(...))" branch.
         $leftovers = glob($this->tmp . '/queued/.tmp-job-1-*');
         self::assertSame([], ($leftovers === false) ? [] : $leftovers);
+    }
+
+    /**
+     * The temp-directory cleanup is best-effort: a single entry whose deletion fails — here a file in
+     * a permission-locked subdirectory whose unlink raises an EACCES E_WARNING that the installed
+     * webtrees-style error handler converts into a thrown ErrorException — must NOT abort the loop and
+     * strand the remaining entries, and must NOT propagate out of the cleanup. The scoped error handler
+     * inside removeDirectory swallows the per-entry warning so the loop continues and removes what it
+     * can. Without it the converted exception would propagate and the sibling entry would be left behind.
+     */
+    #[Test]
+    public function removeDirectoryToleratesAPerEntryFailureUnderAThrowingErrorHandler(): void
+    {
+        $target = $this->tmp . '/cleanup-target';
+        mkdir($target, 0o700, true);
+
+        // A removable sibling that the cleanup must still delete despite the blocked entry.
+        file_put_contents($target . '/removable', 'x');
+
+        // A subdirectory whose child cannot be unlinked once the directory is permission-locked: its
+        // unlink raises an EACCES warning the throwing handler converts into an exception.
+        $blocked = $target . '/blocked';
+        mkdir($blocked, 0o700, true);
+        file_put_contents($blocked . '/inner', 'x');
+        chmod($blocked, 0o500);
+
+        $client = new QueueClient(new QueuePaths($this->tmp));
+
+        $invoke = new ReflectionMethod($client, 'removeDirectory');
+
+        set_error_handler(static function (int $severity, string $message): bool {
+            throw new ErrorException($message, 0, $severity);
+        });
+
+        try {
+            // Must return without propagating the converted EACCES exception.
+            $invoke->invoke($client, $target);
+
+            // The removable sibling was deleted even though the blocked entry's deletion failed,
+            // proving the loop continued past the per-entry failure rather than aborting.
+            self::assertFileDoesNotExist($target . '/removable');
+        } finally {
+            restore_error_handler();
+
+            // Restore write permission so the test harness can tear the tree down.
+            chmod($blocked, 0o700);
+        }
     }
 
     /**
