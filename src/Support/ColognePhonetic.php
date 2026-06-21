@@ -18,16 +18,16 @@ use function str_split;
 use function substr;
 
 /**
- * Kölner Phonetik (Postel, 1969) — phonetic coding tuned for German names.
+ * Cologne phonetics (Kölner Phonetik, Postel 1969) — phonetic coding tuned for German names.
  *
  * @author  Rico Sonntag <mail@ricosonntag.de>
  * @license https://opensource.org/licenses/GPL-3.0 GNU General Public License v3.0
  * @link    https://github.com/magicsunday/webtrees-obituary-matcher/
  */
-final class KoelnerPhonetik implements PhoneticEncoder
+final class ColognePhonetic implements PhoneticEncoder
 {
     /**
-     * Encodes the given word using Kölner Phonetik rules.
+     * Encodes the given word using Cologne phonetics rules.
      *
      * @param string $value The word to encode.
      *

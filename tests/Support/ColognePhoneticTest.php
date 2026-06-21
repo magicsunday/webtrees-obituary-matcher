@@ -11,7 +11,7 @@ declare(strict_types=1);
 
 namespace MagicSunday\ObituaryMatcher\Test\Support;
 
-use MagicSunday\ObituaryMatcher\Support\KoelnerPhonetik;
+use MagicSunday\ObituaryMatcher\Support\ColognePhonetic;
 use MagicSunday\ObituaryMatcher\Support\Normalizer;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -20,23 +20,23 @@ use PHPUnit\Framework\Attributes\UsesClass;
 use PHPUnit\Framework\TestCase;
 
 /**
- * Tests the Kölner Phonetik encoder that maps German names to phonetic codes.
+ * Tests the Cologne phonetics (Kölner Phonetik) encoder that maps German names to phonetic codes.
  *
  * @author  Rico Sonntag <mail@ricosonntag.de>
  * @license https://opensource.org/licenses/GPL-3.0 GNU General Public License v3.0
  * @link    https://github.com/magicsunday/webtrees-obituary-matcher/
  */
-#[CoversClass(KoelnerPhonetik::class)]
+#[CoversClass(ColognePhonetic::class)]
 #[UsesClass(Normalizer::class)]
-final class KoelnerPhonetikTest extends TestCase
+final class ColognePhoneticTest extends TestCase
 {
     /**
-     * Verifies that a common German name is encoded to the correct Kölner code.
+     * Verifies that a common German name is encoded to the correct Cologne code.
      */
     #[Test]
     public function smokeCodeForMueller(): void
     {
-        self::assertSame('657', (new KoelnerPhonetik())->encode('Müller'));
+        self::assertSame('657', (new ColognePhonetic())->encode('Müller'));
     }
 
     /**
@@ -45,7 +45,7 @@ final class KoelnerPhonetikTest extends TestCase
     #[Test]
     public function variantsShareACode(): void
     {
-        $encoder = new KoelnerPhonetik();
+        $encoder = new ColognePhonetic();
         self::assertSame('67', $encoder->encode('Meyer'));
         self::assertSame('67', $encoder->encode('Maier'));
         self::assertSame('67', $encoder->encode('Mayer'));
@@ -59,7 +59,7 @@ final class KoelnerPhonetikTest extends TestCase
     #[Test]
     public function differentNamesDifferentCodes(): void
     {
-        $encoder = new KoelnerPhonetik();
+        $encoder = new ColognePhonetic();
         self::assertNotSame($encoder->encode('Mueller'), $encoder->encode('Schmidt'));
     }
 
@@ -69,7 +69,7 @@ final class KoelnerPhonetikTest extends TestCase
     #[Test]
     public function emptyInputEncodesToEmptyString(): void
     {
-        self::assertSame('', (new KoelnerPhonetik())->encode(''));
+        self::assertSame('', (new ColognePhonetic())->encode(''));
     }
 
     /**
@@ -90,14 +90,14 @@ final class KoelnerPhonetikTest extends TestCase
     }
 
     /**
-     * Verifies that J and Y are coded as vowels ('0') per the Kölner Phonetik spec,
+     * Verifies that J and Y are coded as vowels ('0') per the Cologne phonetics spec,
      * rather than being dropped like a default consonant.
      */
     #[Test]
     #[DataProvider('vowelCodedJAndYCases')]
     public function codesJAndYAsVowels(string $input, string $expected): void
     {
-        self::assertSame($expected, (new KoelnerPhonetik())->encode($input));
+        self::assertSame($expected, (new ColognePhonetic())->encode($input));
     }
 
     /**
@@ -107,7 +107,7 @@ final class KoelnerPhonetikTest extends TestCase
     #[Test]
     public function jAndYAreEquivalentVowels(): void
     {
-        $encoder = new KoelnerPhonetik();
+        $encoder = new ColognePhonetic();
 
         self::assertNotSame('', $encoder->encode('Johann'));
         self::assertSame($encoder->encode('Johann'), $encoder->encode('Yohann'));
@@ -136,6 +136,6 @@ final class KoelnerPhonetikTest extends TestCase
     #[DataProvider('boundaryConditionCases')]
     public function terminalConsonantIsNotMiscoded(string $input, string $expected): void
     {
-        self::assertSame($expected, (new KoelnerPhonetik())->encode($input));
+        self::assertSame($expected, (new ColognePhonetic())->encode($input));
     }
 }

@@ -19,7 +19,7 @@ use MagicSunday\ObituaryMatcher\Domain\DateValue;
 use MagicSunday\ObituaryMatcher\Domain\Gender;
 use MagicSunday\ObituaryMatcher\Domain\Place;
 use MagicSunday\ObituaryMatcher\Domain\RelatedPerson;
-use MagicSunday\ObituaryMatcher\Support\RufnameParser;
+use MagicSunday\ObituaryMatcher\Support\CallNameParser;
 use MagicSunday\ObituaryMatcher\Webtrees\PersonCandidateAdapter;
 use MagicSunday\ObituaryMatcher\Webtrees\WebtreesDateMapper;
 use PHPUnit\Framework\Attributes\CoversClass;
@@ -42,7 +42,7 @@ use function file_get_contents;
  */
 #[CoversClass(PersonCandidateAdapter::class)]
 #[UsesClass(WebtreesDateMapper::class)]
-#[UsesClass(RufnameParser::class)]
+#[UsesClass(CallNameParser::class)]
 #[UsesClass(DateRange::class)]
 #[UsesClass(Gender::class)]
 #[UsesClass(Place::class)]
