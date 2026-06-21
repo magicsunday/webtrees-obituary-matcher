@@ -11,6 +11,7 @@ declare(strict_types=1);
 
 namespace MagicSunday\ObituaryMatcher\Test\Architecture;
 
+use Fisharebest\Webtrees\DB;
 use PHPat\Selector\Selector;
 use PHPat\Test\Attributes\TestRule;
 use PHPat\Test\Builder\Rule;
@@ -229,5 +230,43 @@ final class ArchitectureTest
                 Selector::inNamespace(self::NAMESPACE_ROOT . '\\Queue'),
             )
             ->because('The Webtrees adapter/composition layer may drive the Matching apex but must not reach directly into the inner parsing, scoring, or queue layers');
+    }
+
+    /**
+     * Database access is the exclusive responsibility of repositories. The marker
+     * covers both the entry point — webtrees' `DB` query-builder facade
+     * (`DB::table(...)`) — and the underlying `Illuminate\Database` query layer it
+     * returns (`Builder`, `Expression`, `Capsule\Manager`, `ConnectionInterface`),
+     * so a class cannot escape the rule by taking a query builder directly instead
+     * of through the facade. The six pure layers already cannot touch the framework
+     * at all (see {@see self::pureLayersDoNotDependOnWebtrees()}), so the net effect
+     * of this rule lands inside the `Webtrees` adapter: only a `*Repository` may
+     * issue SQL, never the value-object adapter, the date mapper, or a future
+     * module/controller/review-UI. Scattering `DB::table(...)` across the adapter
+     * would spread query-shape decisions over every class and make it impossible to
+     * reason about which class touches which table.
+     *
+     * Repositories are selected by the `*Repository` class-name suffix rather than
+     * a dedicated namespace because the single repository lives in the `Webtrees`
+     * adapter alongside the non-querying adapter classes; the suffix keeps any
+     * future repository automatically exempt without a namespace move.
+     */
+    #[TestRule]
+    public function databaseAccessIsConfinedToRepositories(): Rule
+    {
+        return PHPat::rule()
+            ->classes(
+                Selector::AllOf(
+                    Selector::inNamespace(self::NAMESPACE_ROOT),
+                    Selector::Not(Selector::classname('#Repository$#', true)),
+                    Selector::Not(Selector::inNamespace(self::NAMESPACE_ROOT . '\\Test')),
+                ),
+            )
+            ->shouldNot()->dependOn()
+            ->classes(
+                Selector::classname(DB::class),
+                Selector::inNamespace('Illuminate\\Database'),
+            )
+            ->because('Raw database access is confined to repositories; no other class may issue SQL through the webtrees DB facade or the Illuminate query layer');
     }
 }
