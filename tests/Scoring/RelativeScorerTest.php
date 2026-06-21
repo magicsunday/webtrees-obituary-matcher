@@ -162,6 +162,37 @@ final class RelativeScorerTest extends TestCase
     }
 
     /**
+     * A NaN confidence from a faulty feeder is treated as zero-confidence, scoring 0 (not full points).
+     */
+    #[Test]
+    public function nanConfidenceScoresZero(): void
+    {
+        $candidate = $this->candidate([$this->relative('S1', 'Karl', 'Mustermann')], []);
+        $signal    = (new RelativeScorer(ScoreConfig::enriched()))->score(
+            $candidate,
+            [new NoticeRelative('Karl Mustermann', 'spouse', NAN)],
+        );
+
+        self::assertSame(0, $signal->score);
+        self::assertSame([], $signal->reasons);
+    }
+
+    /**
+     * An infinite confidence is likewise treated as zero-confidence, scoring 0.
+     */
+    #[Test]
+    public function infiniteConfidenceScoresZero(): void
+    {
+        $candidate = $this->candidate([$this->relative('S1', 'Karl', 'Mustermann')], []);
+        $signal    = (new RelativeScorer(ScoreConfig::enriched()))->score(
+            $candidate,
+            [new NoticeRelative('Karl Mustermann', 'spouse', INF)],
+        );
+
+        self::assertSame(0, $signal->score);
+    }
+
+    /**
      * The same candidate relative named twice in the notice is scored only once (dedup by id).
      */
     #[Test]

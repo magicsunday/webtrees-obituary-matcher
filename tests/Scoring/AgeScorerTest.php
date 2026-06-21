@@ -92,6 +92,24 @@ final class AgeScorerTest extends TestCase
     }
 
     /**
+     * A gap of two on the OLDER side (candidate 1935 before the window) is still a near miss → 10.
+     */
+    #[Test]
+    public function olderDirectionGapTwoScoresTen(): void
+    {
+        self::assertSame(10, $this->scorer()->score(DateRange::year(1935), 86, DateRange::year(2024))->score);
+    }
+
+    /**
+     * A gap of four on the OLDER side (candidate 1933) is out of range → 0, pinning the older cutoff.
+     */
+    #[Test]
+    public function olderDirectionOutOfRangeScoresZero(): void
+    {
+        self::assertSame(0, $this->scorer()->score(DateRange::year(1933), 86, DateRange::year(2024))->score);
+    }
+
+    /**
      * Missing age, missing death year, or unknown candidate birth all score zero.
      */
     #[Test]

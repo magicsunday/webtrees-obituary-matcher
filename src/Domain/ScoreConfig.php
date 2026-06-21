@@ -12,7 +12,8 @@ declare(strict_types=1);
 namespace MagicSunday\ObituaryMatcher\Domain;
 
 /**
- * Scoring weights and thresholds for the Phase-1 matching engine.
+ * Scoring weights and thresholds for the matching engines: the frozen Phase-1 `listLevel()` profile
+ * and the `enriched()` profile.
  *
  * @author  Rico Sonntag <mail@ricosonntag.de>
  * @license https://opensource.org/licenses/GPL-3.0 GNU General Public License v3.0
