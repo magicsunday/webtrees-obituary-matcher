@@ -89,6 +89,15 @@ final class UrlNormalizer
             return strtolower(trim($url));
         }
 
+        // parse_url() yields no path for "https://example.test" (no trailing slash), which would not
+        // collapse onto "https://example.test/" — two identity keys for the same root resource.
+        // Default an empty path to the root slash so the two root forms share one key. The scheme and
+        // host are already guaranteed non-empty by the guard above. Only the root collapses: a
+        // non-root trailing slash ("/a" vs "/a/") stays distinct (they can be different resources).
+        if ($path === '') {
+            $path = '/';
+        }
+
         $result = strtolower($scheme) . '://' . strtolower($host) . $port . $path;
 
         if ($query !== '') {

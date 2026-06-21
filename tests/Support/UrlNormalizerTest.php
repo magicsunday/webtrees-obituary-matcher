@@ -52,6 +52,24 @@ final class UrlNormalizerTest extends TestCase
     }
 
     /**
+     * A scheme+host URL without a path (no trailing slash) collapses onto the root slash, so the
+     * bare-host and trailing-slash forms of the same root resource share one identity key. Only the
+     * root case collapses: a non-root path keeps its distinct trailing-slash variant.
+     */
+    #[Test]
+    public function emptyPathCollapsesOntoTheRootSlash(): void
+    {
+        self::assertSame(
+            'https://example.test/',
+            UrlNormalizer::normalizeForIdentity('https://example.test'),
+        );
+        self::assertSame(
+            UrlNormalizer::normalizeForIdentity('https://example.test'),
+            UrlNormalizer::normalizeForIdentity('https://example.test/'),
+        );
+    }
+
+    /**
      * Two URLs differing only in their tracking parameters and fragment normalise to the same
      * identity key.
      */
