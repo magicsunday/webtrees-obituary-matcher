@@ -308,7 +308,16 @@ final readonly class ResponseReader
                 ? $structured['birthSurname']
                 : null;
 
-            return new PersonName($given, null, $surname, $birthSurname);
+            // Only use the structured name when it actually carries content: a present-but-empty
+            // parsedName (empty surname AND no given names) would otherwise yield a useless empty
+            // PersonName even though the validated raw display name is non-empty. Fall through to
+            // parsing the raw name in that case, exactly as for an absent structured key.
+            if (
+                ($surname !== '')
+                || ($given !== [])
+            ) {
+                return new PersonName($given, null, $surname, $birthSurname);
+            }
         }
 
         return ObituaryNameParser::parse($name);

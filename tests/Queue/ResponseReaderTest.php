@@ -90,6 +90,25 @@ final class ResponseReaderTest extends TempDirTestCase
     }
 
     /**
+     * A notice carrying a structured "parsedName" that is PRESENT but empty (an empty surname and no
+     * given names) must not yield a useless empty PersonName: the reader falls back to parsing the
+     * non-empty raw display name, exactly as it would for an absent structured key. So the resulting
+     * record's parsedName carries the surname and given name parsed from "Erika Mustermann", not an
+     * empty name.
+     */
+    #[Test]
+    public function fallsBackToTheRawNameWhenTheStructuredNameIsEmpty(): void
+    {
+        $this->placeResponse('job-1', 'response-empty-parsedname.json');
+        $byPerson = (new ResponseReader(new QueuePaths($this->tmp)))->read('job-1', ['I1']);
+
+        $notice = self::firstNotice($byPerson, 'I1');
+        self::assertInstanceOf(DeathNoticeRecord::class, $notice);
+        self::assertSame('Mustermann', $notice->parsedName->surname);
+        self::assertSame(['Erika'], $notice->parsedName->givenNames);
+    }
+
+    /**
      * A purely-numeric JSON person key (which json_decode casts to an int) is coerced to string for
      * the ownership check, so a requested numeric XREF is read into a record rather than wrongly
      * rejected. PHP canonicalises a numeric-string array key back to an int, so the returned key is
