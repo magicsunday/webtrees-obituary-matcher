@@ -88,7 +88,7 @@ final readonly class IngestService
                 // Only count a notice that produced an actual write: upsertPending is a silent
                 // no-op over a terminal (Confirmed/Rejected) row, so counting unconditionally would
                 // overstate the number persisted — and this count feeds QueueClient::markDone.
-                if ($this->store->upsertPending($this->classify($candidate, $notice))) {
+                if ($this->store->upsertPending($this->buildPendingMatch($candidate, $notice))) {
                     ++$stored;
                 }
             }
@@ -98,14 +98,17 @@ final readonly class IngestService
     }
 
     /**
-     * Scores one notice against the candidate and wraps the best result into a stored pending match.
+     * Orchestrates the per-notice pipeline: maps the notice onto an obituary record, scores it with
+     * the unchanged engine, sorts the best-of-set result, classifies it against the per-notice set
+     * and wraps the outcome into a pending stored match. The name avoids colliding with the injected
+     * {@see Classifier::classify()}, which is only one step of this orchestration.
      *
      * @param PersonCandidate   $candidate The held candidate for this person.
      * @param DeathNoticeRecord $notice    The scraped notice to score.
      *
      * @return StoredMatch The pending suggestion to persist.
      */
-    private function classify(PersonCandidate $candidate, DeathNoticeRecord $notice): StoredMatch
+    private function buildPendingMatch(PersonCandidate $candidate, DeathNoticeRecord $notice): StoredMatch
     {
         $obituary = NoticeMapper::toObituaryRecord($notice);
 

@@ -26,6 +26,9 @@ use PHPUnit\Framework\Attributes\Test;
 #[CoversClass(QueuePaths::class)]
 final class QueuePathsTest extends TempDirTestCase
 {
+    /**
+     * A jobId containing a path-traversal sequence is rejected before any path is built.
+     */
     #[Test]
     public function rejectsAJobIdWithPathTraversal(): void
     {
@@ -33,6 +36,9 @@ final class QueuePathsTest extends TempDirTestCase
         (new QueuePaths($this->tmp))->queuedDir('../escape');
     }
 
+    /**
+     * ensureLayout creates the state directories and the path builder returns the expected job path.
+     */
     #[Test]
     public function buildsStateDirsAndCreatesLayout(): void
     {

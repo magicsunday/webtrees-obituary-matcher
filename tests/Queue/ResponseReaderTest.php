@@ -53,6 +53,10 @@ use function preg_quote;
 #[UsesClass(ObituaryDateParser::class)]
 final class ResponseReaderTest extends TempDirTestCase
 {
+    /**
+     * A valid response is mapped into death-notice records, preserving the cemetery, notice type and
+     * the exact harvested death date.
+     */
     #[Test]
     public function readsAndMapsAValidResponse(): void
     {
@@ -83,9 +87,10 @@ final class ResponseReaderTest extends TempDirTestCase
 
     /**
      * Provides the reject fixtures, each paired with a fragment of the message the INTENDED check
-     * raises. The four cases span the four distinct hard-validation gates — unknown schema version,
-     * job-ownership boundary, URL scheme allow-list and the required parseable timestamp — one
-     * fixture per gate, so the message assertion proves the right check fired (not just "some
+     * raises. The cases span the distinct hard-validation gates — unknown schema version,
+     * job-ownership boundary, URL scheme allow-list (with a protocol-relative "//evil.host/x" URL
+     * that yields a null scheme, strengthening the scheme allow-list boundary) and the required
+     * parseable timestamp — so the message assertion proves the right check fired (not just "some
      * validation failed", which a wrong-field reject could satisfy).
      *
      * @return array<string, array{0:string, 1:string}>
@@ -93,13 +98,18 @@ final class ResponseReaderTest extends TempDirTestCase
     public static function rejectingFixtures(): array
     {
         return [
-            'bad url scheme'    => ['response-bad-url.json', 'scheme is not allowed'],
-            'foreign job owner' => ['response-foreign-job.json', 'person not in the request'],
-            'unknown schema'    => ['response-bad-schema.json', 'schema version'],
-            'unparseable date'  => ['response-bad-fetchedat.json', 'not a parseable timestamp'],
+            'bad url scheme'        => ['response-bad-url.json', 'scheme is not allowed'],
+            'protocol-relative url' => ['response-protocol-relative-url.json', 'scheme is not allowed'],
+            'foreign job owner'     => ['response-foreign-job.json', 'person not in the request'],
+            'unknown schema'        => ['response-bad-schema.json', 'schema version'],
+            'unparseable date'      => ['response-bad-fetchedat.json', 'not a parseable timestamp'],
         ];
     }
 
+    /**
+     * Each malformed response is rejected with a ResponseValidationException whose message proves the
+     * intended hard-validation gate fired.
+     */
     #[Test]
     #[DataProvider('rejectingFixtures')]
     public function rejectsAnInvalidResponse(string $fixture, string $expectedMessageFragment): void

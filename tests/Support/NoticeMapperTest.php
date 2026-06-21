@@ -41,6 +41,10 @@ use PHPUnit\Framework\TestCase;
 #[UsesClass(Place::class)]
 final class NoticeMapperTest extends TestCase
 {
+    /**
+     * Mapping a death notice copies the engine-relevant subset onto an obituary record and drops the
+     * enrichment fields (cemetery, age, funeral date, relatives).
+     */
     #[Test]
     public function mapsTheEngineSubsetDroppingEnrichmentFields(): void
     {

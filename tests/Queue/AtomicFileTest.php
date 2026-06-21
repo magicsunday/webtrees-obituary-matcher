@@ -29,6 +29,9 @@ use function symlink;
 #[CoversClass(AtomicFile::class)]
 final class AtomicFileTest extends TempDirTestCase
 {
+    /**
+     * Data written with writeJson reads back identically through readJsonCapped.
+     */
     #[Test]
     public function writeJsonThenReadJsonRoundTrips(): void
     {
@@ -37,6 +40,9 @@ final class AtomicFileTest extends TempDirTestCase
         self::assertSame(['a' => 1], AtomicFile::readJsonCapped($path, 1024));
     }
 
+    /**
+     * A file larger than the supplied byte cap is rejected rather than read into memory.
+     */
     #[Test]
     public function readJsonCappedRejectsAnOversizeFile(): void
     {
@@ -46,6 +52,9 @@ final class AtomicFileTest extends TempDirTestCase
         AtomicFile::readJsonCapped($path, 50);
     }
 
+    /**
+     * A symlinked path is refused so a hostile queue entry cannot escape the queue via a link.
+     */
     #[Test]
     public function readJsonCappedRejectsASymlink(): void
     {

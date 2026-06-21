@@ -54,6 +54,10 @@ use RuntimeException;
 #[UsesClass(DateRange::class)]
 final class QueueClientTest extends TempDirTestCase
 {
+    /**
+     * A job is driven through the full state machine: enqueue, a winning claim that the second
+     * caller loses, and the done transition that records its counts.
+     */
     #[Test]
     public function enqueueClaimAndTransitionsDriveTheStateMachine(): void
     {
@@ -79,6 +83,9 @@ final class QueueClientTest extends TempDirTestCase
         self::assertSame(3, $client->status('job-1')->counts);
     }
 
+    /**
+     * Enqueuing a second job with an identifier already present in the queued state is refused.
+     */
     #[Test]
     public function enqueueRefusesToClobberAnExistingJob(): void
     {

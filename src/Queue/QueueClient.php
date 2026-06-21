@@ -273,6 +273,8 @@ final readonly class QueueClient
     {
         $data = AtomicFile::readJsonCapped($path, self::STATUS_MAX_BYTES);
 
+        // startedAt has no producer in this feeder-minimal slice: it is written by the worker on
+        // claim (a deliberate forward seam), so reading it here is intentional, not dead plumbing.
         $startedAt  = ($data['startedAt'] ?? null);
         $finishedAt = ($data['finishedAt'] ?? null);
         $error      = ($data['error'] ?? null);

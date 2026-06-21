@@ -25,7 +25,7 @@ use PHPUnit\Framework\TestCase;
  * @link    https://github.com/magicsunday/webtrees-obituary-matcher/
  */
 #[CoversClass(UrlNormalizer::class)]
-class UrlNormalizerTest extends TestCase
+final class UrlNormalizerTest extends TestCase
 {
     /**
      * @return list<array{0:string,1:string,2:string}>
@@ -39,6 +39,10 @@ class UrlNormalizerTest extends TestCase
         ];
     }
 
+    /**
+     * Normalising a URL strips host case, tracking parameters and the fragment down to the stable
+     * identity key, while leaving a clean URL unchanged.
+     */
     #[Test]
     #[DataProvider('pairs')]
     public function normalizesForIdentity(string $url, string $expected, string $_message): void
@@ -46,6 +50,10 @@ class UrlNormalizerTest extends TestCase
         self::assertSame($expected, UrlNormalizer::normalizeForIdentity($url));
     }
 
+    /**
+     * Two URLs differing only in their tracking parameters and fragment normalise to the same
+     * identity key.
+     */
     #[Test]
     public function twoTrackingVariantsCollapseToTheSameKey(): void
     {
