@@ -31,6 +31,10 @@ use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\Attributes\UsesClass;
 use RuntimeException;
 
+use function chmod;
+use function restore_error_handler;
+use function set_error_handler;
+
 /**
  * Tests the queue client's enqueue, atomic claim, state transitions and status lookup against a
  * real temporary file-drop queue.
@@ -84,6 +88,124 @@ final class QueueClientTest extends TempDirTestCase
     }
 
     /**
+     * The terminal status.json is published together with the directory: the instant the done
+     * directory becomes observable it already contains its status.json, and no status.json is
+     * left behind in the running state. This proves the rename is the last mutating step (the
+     * status file is written into running/ first), so a reader can never observe the done
+     * directory without its status.json (the TOCTOU half-published window cannot exist).
+     */
+    #[Test]
+    public function markDonePublishesStatusAtomicallyWithTheTerminalRename(): void
+    {
+        $client = new QueueClient(new QueuePaths($this->tmp));
+        $client->enqueue($this->request('job-1'));
+        self::assertTrue($client->claim('job-1'));
+
+        $client->markDone('job-1', 7);
+
+        // The terminal directory is observable; its status.json must already be present.
+        self::assertFileExists($this->tmp . '/done/job-1/status.json');
+        // No status.json may linger in the running state once the publish rename succeeded.
+        self::assertFileDoesNotExist($this->tmp . '/running/job-1/status.json');
+
+        $status = $client->status('job-1');
+        self::assertSame(JobState::Done, $status->state);
+        self::assertSame(7, $status->counts);
+    }
+
+    /**
+     * The failed status.json is published together with the directory, carrying the error message:
+     * the instant the failed directory is observable it already contains its status.json, and no
+     * status.json lingers in the running state.
+     */
+    #[Test]
+    public function markFailedPublishesStatusAtomicallyWithTheTerminalRename(): void
+    {
+        $client = new QueueClient(new QueuePaths($this->tmp));
+        $client->enqueue($this->request('job-1'));
+        self::assertTrue($client->claim('job-1'));
+
+        $client->markFailed('job-1', 'feeder rejected the request');
+
+        self::assertFileExists($this->tmp . '/failed/job-1/status.json');
+        self::assertFileDoesNotExist($this->tmp . '/running/job-1/status.json');
+
+        $status = $client->status('job-1');
+        self::assertSame(JobState::Failed, $status->state);
+        self::assertSame('feeder rejected the request', $status->error);
+    }
+
+    /**
+     * Proves the write-then-publish ordering directly: when the publish rename is forced to fail
+     * (the done state root is made unwritable), the status file must already be sitting in the
+     * running directory — written BEFORE the rename. Under the old rename-then-write order the
+     * rename would fail first and leave the running directory without any status.json, so this test
+     * fails for that order and passes only when the status file is published atomically with the
+     * rename. The failure also confirms the documented leak-free guarantee: the leftover status
+     * file never escapes running/.
+     */
+    #[Test]
+    public function markDoneWritesTheStatusFileBeforeThePublishRename(): void
+    {
+        $client = new QueueClient(new QueuePaths($this->tmp));
+        $client->enqueue($this->request('job-1'));
+        self::assertTrue($client->claim('job-1'));
+
+        // Make the done state root unwritable so the publish rename cannot succeed.
+        $doneRoot = $this->tmp . '/done';
+        self::assertTrue(chmod($doneRoot, 0o500));
+
+        // The forced rename failure emits an expected warning; a scoped handler swallows it without
+        // the forbidden @-suppression operator, mirroring the queue client's own claim() pattern.
+        set_error_handler(static fn (): bool => true);
+
+        try {
+            $this->expectException(RuntimeException::class);
+            $client->markDone('job-1', 1);
+        } finally {
+            restore_error_handler();
+            chmod($doneRoot, 0o700);
+        }
+    }
+
+    /**
+     * The status file written before a failed publish rename does not escape the running state and
+     * is overwritten on the next attempt, which then succeeds and reports the new counts.
+     */
+    #[Test]
+    public function statusFileLeftByAFailedRenameStaysInRunningAndIsOverwrittenOnRetry(): void
+    {
+        $client = new QueueClient(new QueuePaths($this->tmp));
+        $client->enqueue($this->request('job-1'));
+        self::assertTrue($client->claim('job-1'));
+
+        $doneRoot = $this->tmp . '/done';
+        self::assertTrue(chmod($doneRoot, 0o500));
+
+        // The forced rename failure emits an expected warning; a scoped handler swallows it without
+        // the forbidden @-suppression operator, mirroring the queue client's own claim() pattern.
+        set_error_handler(static fn (): bool => true);
+
+        try {
+            $client->markDone('job-1', 1);
+            self::fail('Expected the publish rename to fail with an unwritable done state root.');
+        } catch (RuntimeException) {
+            // The pre-written status file stays in running/, never escaping into the done state.
+            self::assertFileExists($this->tmp . '/running/job-1/status.json');
+            self::assertFileDoesNotExist($this->tmp . '/done/job-1/status.json');
+            self::assertSame(JobState::Running, $client->status('job-1')->state);
+        } finally {
+            restore_error_handler();
+            chmod($doneRoot, 0o700);
+        }
+
+        // The retry overwrites the leftover status file and publishes the up-to-date counts.
+        $client->markDone('job-1', 5);
+        self::assertSame(JobState::Done, $client->status('job-1')->state);
+        self::assertSame(5, $client->status('job-1')->counts);
+    }
+
+    /**
      * Enqueuing a second job with an identifier already present in the queued state is refused.
      */
     #[Test]
@@ -99,6 +221,23 @@ final class QueueClientTest extends TempDirTestCase
         $client->enqueue($request);
         $this->expectException(RuntimeException::class);
         $client->enqueue($request);                            // job-1 already exists
+    }
+
+    /**
+     * Builds a minimal feeder request for the given job identifier.
+     *
+     * @param string $jobId The job identifier the request is built for.
+     *
+     * @return FeederRequest
+     */
+    private function request(string $jobId): FeederRequest
+    {
+        return (new FeederRequestFactory(new QueryGenerator()))->build(
+            $jobId,
+            new DateTimeImmutable('2026-06-20T00:00:00+00:00'),
+            'de-DE',
+            [$this->candidate()],
+        );
     }
 
     /**

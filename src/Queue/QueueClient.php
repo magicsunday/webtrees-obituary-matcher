@@ -156,9 +156,13 @@ final readonly class QueueClient
     }
 
     /**
-     * Marks a running job as done: atomically renames it into the done state, then writes its
-     * status file. No wall-clock timestamp is fabricated here; finishedAt is left null because the
-     * deterministic transition carries none.
+     * Marks a running job as done. Mirroring {@see enqueue}, the status file is written into the
+     * running directory FIRST and a single atomic rename then publishes a done directory that
+     * already contains its status.json, so a reader detecting the done state by directory existence
+     * can never observe it without the status file (no half-published window). No wall-clock
+     * timestamp is fabricated here; finishedAt is left null because the deterministic transition
+     * carries none. On a failed rename the status file is left in the running directory, which is
+     * harmless: it never escapes running/ and is overwritten on the next attempt.
      *
      * @param string   $jobId  The job identifier to complete.
      * @param int|null $counts The number of produced results, or null if unknown.
@@ -169,27 +173,31 @@ final readonly class QueueClient
      */
     public function markDone(string $jobId, ?int $counts): void
     {
-        $doneDir = $this->paths->doneDir($jobId);
-
-        if (!rename($this->paths->runningDir($jobId), $doneDir)) {
-            throw new RuntimeException(
-                sprintf('Failed to move job %s into the done state', $jobId)
-            );
-        }
+        $runningDir = $this->paths->runningDir($jobId);
 
         AtomicFile::writeJson(
-            $doneDir . self::STATUS_FILE,
+            $runningDir . self::STATUS_FILE,
             [
                 'state'      => JobState::Done->value,
                 'finishedAt' => null,
                 'counts'     => $counts,
             ]
         );
+
+        if (!rename($runningDir, $this->paths->doneDir($jobId))) {
+            throw new RuntimeException(
+                sprintf('Failed to move job %s into the done state', $jobId)
+            );
+        }
     }
 
     /**
-     * Marks a running job as failed: atomically renames it into the failed state, then writes its
-     * status file carrying the failure message.
+     * Marks a running job as failed. Mirroring {@see enqueue}, the status file carrying the failure
+     * message is written into the running directory FIRST and a single atomic rename then publishes
+     * a failed directory that already contains its status.json, so a reader detecting the failed
+     * state by directory existence can never observe it without the status file (no half-published
+     * window). On a failed rename the status file is left in the running directory, which is
+     * harmless: it never escapes running/ and is overwritten on the next attempt.
      *
      * @param string $jobId The job identifier to fail.
      * @param string $error The failure message to record.
@@ -200,21 +208,21 @@ final readonly class QueueClient
      */
     public function markFailed(string $jobId, string $error): void
     {
-        $failedDir = $this->paths->failedDir($jobId);
-
-        if (!rename($this->paths->runningDir($jobId), $failedDir)) {
-            throw new RuntimeException(
-                sprintf('Failed to move job %s into the failed state', $jobId)
-            );
-        }
+        $runningDir = $this->paths->runningDir($jobId);
 
         AtomicFile::writeJson(
-            $failedDir . self::STATUS_FILE,
+            $runningDir . self::STATUS_FILE,
             [
                 'state' => JobState::Failed->value,
                 'error' => $error,
             ]
         );
+
+        if (!rename($runningDir, $this->paths->failedDir($jobId))) {
+            throw new RuntimeException(
+                sprintf('Failed to move job %s into the failed state', $jobId)
+            );
+        }
     }
 
     /**
