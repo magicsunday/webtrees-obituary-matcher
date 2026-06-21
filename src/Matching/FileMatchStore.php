@@ -11,18 +11,23 @@ declare(strict_types=1);
 
 namespace MagicSunday\ObituaryMatcher\Matching;
 
+use FilesystemIterator;
 use JsonException;
 use MagicSunday\ObituaryMatcher\Domain\ClassifiedMatch;
 use MagicSunday\ObituaryMatcher\Queue\AtomicFile;
 use MagicSunday\ObituaryMatcher\Support\UrlNormalizer;
 use RuntimeException;
+use SplFileInfo;
+use UnexpectedValueException;
 
-use function glob;
 use function hash;
 use function is_dir;
 use function is_file;
 use function mkdir;
+use function pathinfo;
 use function sprintf;
+
+use const PATHINFO_EXTENSION;
 
 /**
  * A file-based {@see MatchStore}: one atomic JSON file per (candidate, normalised URL) key under a
@@ -219,19 +224,30 @@ final readonly class FileMatchStore implements MatchStore
      */
     private function allRows(): array
     {
-        if (!is_dir($this->dir)) {
-            return [];
-        }
-
-        $paths = glob(sprintf('%s/*.json', $this->dir));
-
-        if ($paths === false) {
+        // A FilesystemIterator (not glob) so a glob metacharacter (*, ?, [, ]) in the directory path
+        // cannot turn the whole path into a pattern and silently mis-scan or return nothing.
+        try {
+            $iterator = new FilesystemIterator($this->dir, FilesystemIterator::SKIP_DOTS);
+        } catch (UnexpectedValueException) {
+            // The directory does not exist yet: no rows, matching the previous "no dir → no rows".
             return [];
         }
 
         $rows = [];
 
-        foreach ($paths as $path) {
+        foreach ($iterator as $fileInfo) {
+            if (!$fileInfo instanceof SplFileInfo) {
+                continue;
+            }
+
+            $path = $fileInfo->getPathname();
+
+            // Keep only "*.json" rows: an in-flight atomic temp file is "<key>.json.tmp.<uniqid>",
+            // whose extension is the uniqid (not "json"), so it is excluded exactly as glob did.
+            if (pathinfo($path, PATHINFO_EXTENSION) !== 'json') {
+                continue;
+            }
+
             try {
                 $rows[] = StoredMatch::fromArray(AtomicFile::readJsonCapped($path, self::MAX_BYTES));
             } catch (JsonException|RuntimeException) {

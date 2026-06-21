@@ -36,6 +36,7 @@ use PHPUnit\Framework\Attributes\UsesClass;
 
 use function file_put_contents;
 use function glob;
+use function mkdir;
 
 /**
  * Behavioural tests for the file-based match store: per-key idempotency through the URL
@@ -276,6 +277,50 @@ final class FileMatchStoreTest extends TempDirTestCase
         $found = $store->findByPerson('I1');
         self::assertCount(1, $found);
         self::assertSame('I1', $found[0]->personId);
+    }
+
+    /**
+     * A store directory whose path contains a glob metacharacter is scanned correctly: glob() would
+     * interpret the whole path as a pattern and silently return nothing (the review queue would look
+     * empty), so the FilesystemIterator scan must still surface the stored row.
+     *
+     * @return void
+     */
+    #[Test]
+    public function scansAStoreDirectoryWhosePathContainsAGlobMetacharacter(): void
+    {
+        $dir = $this->tmp . '/store[1]';
+        mkdir($dir, 0o700, true);
+
+        $store = new FileMatchStore($dir);
+        $store->upsertPending($this->storedMatch('I1', 'https://example.test/a', MatchStatus::Pending));
+
+        $rows = $store->findByPerson('I1');
+        self::assertCount(1, $rows, 'a glob metacharacter in the dir path must not hide the row');
+        self::assertSame('I1', $rows[0]->personId);
+
+        self::assertCount(1, $store->allPending());
+    }
+
+    /**
+     * An in-flight atomic temp file (named "<key>.json.tmp.<uniqid>") sitting in the store directory
+     * is NOT scanned as a row: its extension is the uniqid, not "json", so the FilesystemIterator
+     * extension filter excludes it exactly as the old "*.json" glob did.
+     *
+     * @return void
+     */
+    #[Test]
+    public function anInFlightTempFileIsNotScanned(): void
+    {
+        $store = new FileMatchStore($this->tmp);
+        $store->upsertPending($this->storedMatch('I1', 'https://example.test/a', MatchStatus::Pending));
+
+        // A leftover atomic temp file (the shape AtomicFile writes before the rename) must be ignored.
+        file_put_contents($this->tmp . '/deadbeef.json.tmp.abc123', '{"not":"a stored match"}');
+
+        $rows = $store->allPending();
+        self::assertCount(1, $rows, 'the in-flight *.json.tmp.* file is excluded from the scan');
+        self::assertSame('I1', $rows[0]->personId);
     }
 
     /**
