@@ -62,4 +62,22 @@ final class UrlNormalizerTest extends TestCase
             UrlNormalizer::normalizeForIdentity('https://example.test/a?gclid=y'),
         );
     }
+
+    /**
+     * Two URLs differing only in the case of their scheme normalise to the same lower-cased identity
+     * key, so a scheme-case variant cannot leak past the de-dup (ResponseReader lower-cases the
+     * scheme only for its allow-list check, not for the identity key).
+     */
+    #[Test]
+    public function schemeCaseDoesNotLeakPastTheIdentityKey(): void
+    {
+        self::assertSame(
+            'http://example.test/x',
+            UrlNormalizer::normalizeForIdentity('HTTP://Example.test/x'),
+        );
+        self::assertSame(
+            UrlNormalizer::normalizeForIdentity('http://Example.test/x'),
+            UrlNormalizer::normalizeForIdentity('HTTP://Example.test/x'),
+        );
+    }
 }

@@ -26,7 +26,7 @@ use function trim;
  * Single source of truth for the SOUR/notice idempotency key.
  *
  * Normalises a source URL so that two links pointing at the same notice collapse onto one key:
- * the host is lower-cased, the fragment is dropped, tracking query parameters (utm_*, fbclid,
+ * the scheme and host are lower-cased, the fragment is dropped, tracking query parameters (utm_*, fbclid,
  * gclid, mc_eid) are stripped, and the remaining path plus the sorted residual query are kept.
  * A non-parseable URL yields the trimmed, lower-cased input without throwing.
  *
@@ -74,7 +74,7 @@ final class UrlNormalizer
         $path   = $parts['path'] ?? '';
         $query  = $parts['query'] ?? '';
 
-        $result = $scheme . '://' . strtolower($host) . $path;
+        $result = strtolower($scheme) . '://' . strtolower($host) . $path;
 
         if ($query !== '') {
             $residual = self::residualQuery($query);
