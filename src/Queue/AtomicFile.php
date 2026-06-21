@@ -98,8 +98,15 @@ final class AtomicFile
             }
         } catch (Throwable $exception) {
             // Remove the orphaned temp file so a failed write or rename does not leak a *.tmp.* file.
-            if (is_file($tmpPath)) {
-                unlink($tmpPath);
+            // The cleanup is best-effort: an unlink that itself throws (a warning the webtrees error
+            // handler converts into an exception) must never mask the original failure, so it is
+            // swallowed and the original $exception is always the one re-thrown.
+            try {
+                if (is_file($tmpPath)) {
+                    unlink($tmpPath);
+                }
+            } catch (Throwable) {
+                // Best-effort cleanup: never let a cleanup failure mask the original error.
             }
 
             throw $exception;

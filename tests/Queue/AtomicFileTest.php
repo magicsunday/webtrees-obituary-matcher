@@ -156,6 +156,49 @@ final class AtomicFileTest extends TempDirTestCase
     }
 
     /**
+     * When the write fails AND the temp-file cleanup ALSO fails, the ORIGINAL write failure must be
+     * the exception that propagates — a cleanup failure must never mask the error the caller needs to
+     * see. The wrapper fails the first write (so file_put_contents throws via the error handler) and
+     * is armed so its cleanup unlink throws a recognisable exception too. With best-effort cleanup the
+     * original write failure propagates and the cleanup exception is swallowed; without it the cleanup
+     * exception would mask the original error the caller needs.
+     */
+    #[Test]
+    public function writeJsonPropagatesTheOriginalWriteFailureWhenCleanupAlsoFails(): void
+    {
+        FailingWriteStreamWrapper::register();
+        FailingWriteStreamWrapper::failNextUnlink();
+
+        set_error_handler(static function (int $severity, string $message): bool {
+            throw new ErrorException($message, 0, $severity);
+        });
+
+        // The self::fail below proves an exception DID propagate (cleanup did not swallow it); this
+        // captures WHICH one so the assertions below can prove it was the original, not the cleanup.
+        $propagatedMessage = '';
+
+        try {
+            AtomicFile::writeJson(FailingWriteStreamWrapper::SCHEME . '://r.json', ['a' => 1]);
+            self::fail('writeJson must propagate the original write failure.');
+        } catch (AssertionFailedError $assertionFailure) {
+            throw $assertionFailure;
+        } catch (Throwable $throwable) {
+            $propagatedMessage = $throwable->getMessage();
+        } finally {
+            restore_error_handler();
+            FailingWriteStreamWrapper::unregister();
+        }
+
+        // The propagated exception is the ORIGINAL write failure, NOT the cleanup unlink exception
+        // that the best-effort catch swallowed.
+        self::assertStringNotContainsString(
+            FailingWriteStreamWrapper::CLEANUP_FAILURE_MESSAGE,
+            $propagatedMessage
+        );
+        self::assertStringContainsStringIgnoringCase('written', $propagatedMessage);
+    }
+
+    /**
      * @return array<string, array{0:string}>
      */
     public static function topLevelNonArrayPayloads(): array

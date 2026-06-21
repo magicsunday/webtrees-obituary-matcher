@@ -131,8 +131,15 @@ final readonly class QueueClient
             }
         } catch (Throwable $exception) {
             // Remove the fully populated temp dir so a failed enqueue does not leak an orphan .tmp-
-            // directory in the queued state.
-            $this->removeDirectory($tempDir);
+            // directory in the queued state. The cleanup is best-effort: removeDirectory can itself
+            // throw (a filesystem warning the webtrees error handler converts into an exception, or a
+            // RecursiveDirectoryIterator on a vanished entry), and that must never mask the original
+            // failure — so it is swallowed and the original $exception is always the one re-thrown.
+            try {
+                $this->removeDirectory($tempDir);
+            } catch (Throwable) {
+                // Best-effort cleanup: never let a cleanup failure mask the original error.
+            }
 
             throw $exception;
         }
