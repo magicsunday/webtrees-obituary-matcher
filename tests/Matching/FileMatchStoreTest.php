@@ -134,23 +134,34 @@ final class FileMatchStoreTest extends TempDirTestCase
     }
 
     /**
-     * Re-rejecting an already-Rejected row is an idempotent no-op: it neither throws nor changes the
-     * stored row.
+     * Re-rejecting an already-Rejected row with the SAME reason is an idempotent no-op (it neither
+     * throws nor changes the stored row), while re-rejecting with a DIFFERENT reason stays terminal
+     * but updates the reason in place — so a reviewer can correct their rejection rationale.
      *
      * @return void
      */
     #[Test]
-    public function reRejectingARejectedRowIsAnIdempotentNoOp(): void
+    public function reRejectingARejectedRowKeepsOneRowAndUpdatesOnlyADifferentReason(): void
     {
         $store = new FileMatchStore($this->tmp);
 
         $store->markRejected('I1', 'https://example.test/a', 'not a match');
-        $store->markRejected('I1', 'https://example.test/a', 'still not a match');
+
+        // (a) Same reason: a harmless idempotent no-op — still one Rejected row with the same reason.
+        $store->markRejected('I1', 'https://example.test/a', 'not a match');
 
         $rows = $store->findByPerson('I1');
         self::assertCount(1, $rows);
         self::assertSame(MatchStatus::Rejected, $rows[0]->status);
         self::assertSame('not a match', $rows[0]->reason);
+
+        // (b) Different reason: still one terminal Rejected row, but the reason is re-written.
+        $store->markRejected('I1', 'https://example.test/a', 'duplicate of another notice');
+
+        $rows = $store->findByPerson('I1');
+        self::assertCount(1, $rows);
+        self::assertSame(MatchStatus::Rejected, $rows[0]->status);
+        self::assertSame('duplicate of another notice', $rows[0]->reason);
     }
 
     /**

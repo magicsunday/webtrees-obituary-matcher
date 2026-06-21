@@ -157,8 +157,14 @@ final readonly class FileMatchStore implements MatchStore
                 );
             }
 
-            if ($existing->status === MatchStatus::Rejected) {
-                // Already rejected: re-rejecting is a harmless, idempotent no-op.
+            if (
+                ($existing->status === MatchStatus::Rejected)
+                && ($existing->reason === $reason)
+            ) {
+                // Already rejected with the same reason: re-rejecting is a harmless, idempotent
+                // no-op. The terminal guard only stops an AUTOMATED re-ingest (see upsertPending)
+                // from resurrecting a decision; a re-reject with a DIFFERENT reason falls through to
+                // re-write the row (still Rejected, just an updated reviewer reason).
                 return;
             }
 
