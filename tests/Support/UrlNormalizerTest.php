@@ -167,6 +167,45 @@ final class UrlNormalizerTest extends TestCase
     }
 
     /**
+     * A port equal to the scheme's default (http->80, https->443) names the very same resource as the
+     * portless URL, so it is stripped and the two collapse onto one identity key. A non-default port
+     * stays in the key and keeps the URL distinct.
+     */
+    #[Test]
+    public function stripsADefaultPortButKeepsANonDefaultPort(): void
+    {
+        // The default https port collapses onto the portless form.
+        self::assertSame(
+            'https://example.test/a',
+            UrlNormalizer::normalizeForIdentity('https://example.test:443/a'),
+        );
+        self::assertSame(
+            UrlNormalizer::normalizeForIdentity('https://example.test/a'),
+            UrlNormalizer::normalizeForIdentity('https://example.test:443/a'),
+        );
+
+        // The default http port collapses onto the portless form.
+        self::assertSame(
+            'http://example.test/a',
+            UrlNormalizer::normalizeForIdentity('http://example.test:80/a'),
+        );
+        self::assertSame(
+            UrlNormalizer::normalizeForIdentity('http://example.test/a'),
+            UrlNormalizer::normalizeForIdentity('http://example.test:80/a'),
+        );
+
+        // A non-default port is kept and stays distinct from the portless form.
+        self::assertSame(
+            'https://example.test:8443/a',
+            UrlNormalizer::normalizeForIdentity('https://example.test:8443/a'),
+        );
+        self::assertNotSame(
+            UrlNormalizer::normalizeForIdentity('https://example.test/a'),
+            UrlNormalizer::normalizeForIdentity('https://example.test:8443/a'),
+        );
+    }
+
+    /**
      * Two URLs differing only in the case of their scheme normalise to the same lower-cased identity
      * key, so a scheme-case variant cannot leak past the de-dup (ResponseReader lower-cases the
      * scheme only for its allow-list check, not for the identity key).
