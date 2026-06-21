@@ -11,13 +11,12 @@ declare(strict_types=1);
 
 namespace MagicSunday\ObituaryMatcher\Support;
 
-use function array_keys;
-use function http_build_query;
+use function explode;
+use function implode;
 use function in_array;
 use function is_array;
-use function ksort;
-use function parse_str;
 use function parse_url;
+use function sort;
 use function str_starts_with;
 use function strtolower;
 use function trim;
@@ -90,29 +89,39 @@ final class UrlNormalizer
     /**
      * Strips the tracking parameters from a raw query string and rebuilds the sorted remainder.
      *
+     * The raw "name=value" pairs are handled byte-faithfully (no urldecode of the name) so a dot or
+     * space in a parameter name survives — parse_str() would mangle those to an underscore and so
+     * collapse distinct URLs onto one identity key. Sorting the surviving raw pair strings keeps the
+     * result order-deterministic.
+     *
      * @param string $query The raw query string (without the leading question mark).
      *
      * @return string The rebuilt query string, or an empty string when nothing remains.
      */
     private static function residualQuery(string $query): string
     {
-        /** @var array<string, mixed> $params */
-        $params = [];
-        parse_str($query, $params);
+        $kept = [];
 
-        foreach (array_keys($params) as $key) {
-            $name = (string) $key;
-
-            if (
-                str_starts_with($name, 'utm_')
-                || in_array($name, self::TRACKING_PARAMS, true)
-            ) {
-                unset($params[$key]);
+        foreach (explode('&', $query) as $pair) {
+            if ($pair === '') {
+                continue;
             }
+
+            [$name] = explode('=', $pair, 2);
+
+            if (str_starts_with($name, 'utm_')) {
+                continue;
+            }
+
+            if (in_array($name, self::TRACKING_PARAMS, true)) {
+                continue;
+            }
+
+            $kept[] = $pair;
         }
 
-        ksort($params);
+        sort($kept);
 
-        return http_build_query($params);
+        return implode('&', $kept);
     }
 }

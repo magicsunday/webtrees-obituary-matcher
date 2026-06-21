@@ -36,6 +36,7 @@ final class UrlNormalizerTest extends TestCase
             ['https://Example.test/a?utm_source=x&id=7#frag', 'https://example.test/a?id=7', 'tracking + fragment + host case stripped'],
             ['https://example.test/a?id=7', 'https://example.test/a?id=7', 'clean url unchanged'],
             ['https://example.test/a?fbclid=z', 'https://example.test/a', 'fbclid stripped to bare path'],
+            ['https://example.test/a?promo.code=1', 'https://example.test/a?promo.code=1', 'dotted param name preserved (not mangled to promo_code)'],
         ];
     }
 
