@@ -29,6 +29,7 @@ use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\Attributes\UsesClass;
 
 use function preg_quote;
+use function reset;
 
 /**
  * Tests the untrusted response reader: it maps a valid response into death-notice records and
@@ -89,6 +90,28 @@ final class ResponseReaderTest extends TempDirTestCase
     }
 
     /**
+     * A purely-numeric JSON person key (which json_decode casts to an int) is coerced to string for
+     * the ownership check, so a requested numeric XREF is read into a record rather than wrongly
+     * rejected. PHP canonicalises a numeric-string array key back to an int, so the returned key is
+     * read back as its string form before the lookup.
+     */
+    #[Test]
+    public function readsAResponseKeyedByANumericPersonId(): void
+    {
+        $this->placeResponse('job-1', 'response-numeric-personid.json');
+        $byPerson = (new ResponseReader(new QueuePaths($this->tmp)))->read('job-1', ['123']);
+
+        self::assertCount(1, $byPerson, 'exactly the requested numeric person is present');
+
+        // The ownership check coerces the int key json_decode produced back to '123', so the notice
+        // is read rather than dropped. (PHP canonicalises the numeric-string map key to an int at
+        // runtime, so the person is asserted through the notice value, not the array key type.)
+        $notices = self::onlyNoticeList($byPerson);
+        self::assertCount(1, $notices);
+        self::assertSame('Erika Mustermann geb. Mueller', $notices[0]->name);
+    }
+
+    /**
      * Returns the first decoded notice for a person as a mixed value, so the calling test asserts
      * the concrete record type itself rather than trusting the reader's declared return type.
      *
@@ -100,6 +123,21 @@ final class ResponseReaderTest extends TempDirTestCase
     private static function firstNotice(array $byPerson, string $personId): mixed
     {
         return $byPerson[$personId][0];
+    }
+
+    /**
+     * Returns the single person's notice list from a one-person reader output, sidestepping the
+     * map key type (PHP canonicalises a numeric-string person key to an int at runtime).
+     *
+     * @param array<string, list<DeathNoticeRecord>> $byPerson The reader output (exactly one person).
+     *
+     * @return list<DeathNoticeRecord> The notice list of the only person.
+     */
+    private static function onlyNoticeList(array $byPerson): array
+    {
+        $notices = reset($byPerson);
+
+        return ($notices === false) ? [] : $notices;
     }
 
     /**
@@ -148,6 +186,7 @@ final class ResponseReaderTest extends TempDirTestCase
             'bad url scheme'        => ['response-bad-url.json', 'scheme is not allowed'],
             'protocol-relative url' => ['response-protocol-relative-url.json', 'scheme is not allowed'],
             'foreign job owner'     => ['response-foreign-job.json', 'person not in the request'],
+            'foreign numeric owner' => ['response-numeric-foreign.json', 'person not in the request'],
             'unknown schema'        => ['response-bad-schema.json', 'schema version'],
             'unparseable date'      => ['response-bad-fetchedat.json', 'not a parseable timestamp'],
             'relative now'          => ['response-fetchedat-now.json', 'not a parseable timestamp'],

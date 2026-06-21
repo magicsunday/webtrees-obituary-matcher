@@ -1,0 +1,22 @@
+{
+  "jobId": "job-1",
+  "schemaVersion": 1,
+  "results": {
+    "123": [
+      {
+        "noticeType": "obituary",
+        "name": "Erika Mustermann geb. Mueller",
+        "birth": "1938",
+        "death": "12.03.2024",
+        "place": "Musterstadt",
+        "cemetery": "Waldfriedhof Musterstadt",
+        "age": 86,
+        "funeralDate": "20.03.2024",
+        "relatives": [{"name": "Karl Mustermann", "relationGuess": "spouse", "confidence": 0.9}],
+        "url": "https://example.test/traueranzeige/erika",
+        "source": "example.test",
+        "fetchedAt": "2024-03-22T10:00:00+00:00"
+      }
+    ]
+  }
+}

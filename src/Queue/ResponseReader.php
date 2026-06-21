@@ -134,10 +134,12 @@ final readonly class ResponseReader
         $byPerson = [];
 
         foreach ($results as $personId => $notices) {
-            if (
-                !is_string($personId)
-                || !in_array($personId, $expectedPersonIds, true)
-            ) {
+            // json_decode casts a purely-numeric JSON object key (a GEDCOM-legal numeric XREF) to an
+            // int, so coerce the key to string once: a JSON key is always int|string and the
+            // ownership in_array is the real gate, not a key type check.
+            $personIdString = (string) $personId;
+
+            if (!in_array($personIdString, $expectedPersonIds, true)) {
                 throw new ResponseValidationException(
                     'Response contains a result for a person not in the request.'
                 );
@@ -163,7 +165,7 @@ final readonly class ResponseReader
                 }
             }
 
-            $byPerson[$personId] = $records;
+            $byPerson[$personIdString] = $records;
         }
 
         return $byPerson;
