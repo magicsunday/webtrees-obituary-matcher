@@ -11,6 +11,7 @@ declare(strict_types=1);
 
 namespace MagicSunday\ObituaryMatcher\Matching;
 
+use MagicSunday\ObituaryMatcher\Domain\ClassifiedMatch;
 use MagicSunday\ObituaryMatcher\Queue\AtomicFile;
 use MagicSunday\ObituaryMatcher\Support\UrlNormalizer;
 use RuntimeException;
@@ -158,19 +159,7 @@ final readonly class FileMatchStore implements MatchStore
             $match     = $existing->match;
             $writeBack = $existing->writeBack;
         } else {
-            $match = [
-                'personId'       => $personId,
-                'obituaryUrl'    => $obituaryUrl,
-                'score'          => 0,
-                'hardConflict'   => false,
-                'signals'        => [],
-                'extractedFacts' => [],
-                'classification' => '',
-                'ambiguous'      => false,
-                'runnerUp'       => null,
-                'review'         => null,
-            ];
-
+            $match     = ClassifiedMatch::emptyArray($personId, $obituaryUrl);
             $writeBack = null;
         }
 

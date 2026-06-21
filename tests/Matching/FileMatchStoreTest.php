@@ -223,6 +223,26 @@ final class FileMatchStoreTest extends TempDirTestCase
     }
 
     /**
+     * A StoredMatch survives a toArray() -> fromArray() -> toArray() round-trip byte-for-byte, so
+     * the persisted shape is pinned independently of the file store: a future engine field that
+     * drifts the alias would break this identity.
+     *
+     * @return void
+     */
+    #[Test]
+    public function storedMatchRoundTripsThroughArray(): void
+    {
+        $original = $this->storedMatch('I1', 'https://example.test/a', MatchStatus::Pending);
+
+        $reconstructed = StoredMatch::fromArray($original->toArray());
+
+        self::assertSame($original->toArray(), $reconstructed->toArray());
+        self::assertSame($original->personId, $reconstructed->personId);
+        self::assertSame($original->obituaryUrl, $reconstructed->obituaryUrl);
+        self::assertSame($original->status, $reconstructed->status);
+    }
+
+    /**
      * Builds a StoredMatch carrying a genuine ClassifiedMatch::toArray() payload produced by the
      * pure scoring engine, so the persisted shape mirrors what the ingest pipeline will store.
      *

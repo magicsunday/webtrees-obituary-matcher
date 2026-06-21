@@ -14,6 +14,19 @@ namespace MagicSunday\ObituaryMatcher\Domain;
 /**
  * A pair result together with its set-dependent classification.
  *
+ * @phpstan-type ClassifiedMatchArray = array{
+ *     personId: string,
+ *     obituaryUrl: string,
+ *     score: int,
+ *     hardConflict: bool,
+ *     signals: array<string, array{score: int, max: int, reasons: list<string>}|array{score: int, reasons: list<array{field: string, treeValue: string, obituaryValue: string, severity: string}>}>,
+ *     extractedFacts: array<string, string>,
+ *     classification: string,
+ *     ambiguous: bool,
+ *     runnerUp: array{personId: string, score: int, classification: string, name: string, birthYear: int|null, birthPlace: string|null}|null,
+ *     review: string|null
+ * }
+ *
  * @author  Rico Sonntag <mail@ricosonntag.de>
  * @license https://opensource.org/licenses/GPL-3.0 GNU General Public License v3.0
  * @link    https://github.com/magicsunday/webtrees-obituary-matcher/
@@ -39,18 +52,7 @@ final readonly class ClassifiedMatch
     /**
      * Returns the full review JSON shape.
      *
-     * @return array{
-     *     personId: string,
-     *     obituaryUrl: string,
-     *     score: int,
-     *     hardConflict: bool,
-     *     signals: array<string, array{score: int, max: int, reasons: list<string>}|array{score: int, reasons: list<array{field: string, treeValue: string, obituaryValue: string, severity: string}>}>,
-     *     extractedFacts: array<string, string>,
-     *     classification: string,
-     *     ambiguous: bool,
-     *     runnerUp: array{personId: string, score: int, classification: string, name: string, birthYear: int|null, birthPlace: string|null}|null,
-     *     review: string|null
-     * }
+     * @return ClassifiedMatchArray
      */
     public function toArray(): array
     {
@@ -62,5 +64,32 @@ final readonly class ClassifiedMatch
         $array['review']         = $this->review;
 
         return $array;
+    }
+
+    /**
+     * Returns the zero-value classified-match shape used as a synthesised payload when no scored
+     * result exists for a key (for example, rejecting a notice that was never ingested). Keeping the
+     * empty literal next to its canonical {@see ClassifiedMatchArray} definition means a future
+     * engine field is added in exactly one place.
+     *
+     * @param string $personId    The candidate identifier the empty payload belongs to.
+     * @param string $obituaryUrl The source notice URL the empty payload belongs to.
+     *
+     * @return ClassifiedMatchArray The zero-value payload shape.
+     */
+    public static function emptyArray(string $personId, string $obituaryUrl): array
+    {
+        return [
+            'personId'       => $personId,
+            'obituaryUrl'    => $obituaryUrl,
+            'score'          => 0,
+            'hardConflict'   => false,
+            'signals'        => [],
+            'extractedFacts' => [],
+            'classification' => '',
+            'ambiguous'      => false,
+            'runnerUp'       => null,
+            'review'         => null,
+        ];
     }
 }

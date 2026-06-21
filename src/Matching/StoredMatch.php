@@ -11,6 +11,7 @@ declare(strict_types=1);
 
 namespace MagicSunday\ObituaryMatcher\Matching;
 
+use MagicSunday\ObituaryMatcher\Domain\ClassifiedMatch;
 use RuntimeException;
 
 use function is_array;
@@ -19,8 +20,10 @@ use function sprintf;
 
 /**
  * A persisted match suggestion: the candidate it belongs to, the source notice URL, its lifecycle
- * status, the trusted scoring payload (a verbatim {@see \MagicSunday\ObituaryMatcher\Domain\ClassifiedMatch::toArray()}
- * shape produced by the engine), an optional rejection reason and a Phase-2e write-back placeholder.
+ * status, the trusted scoring payload (a verbatim {@see ClassifiedMatch::toArray()} shape produced
+ * by the engine), an optional rejection reason and a Phase-2e write-back placeholder.
+ *
+ * @phpstan-import-type ClassifiedMatchArray from ClassifiedMatch
  *
  * @author  Rico Sonntag <mail@ricosonntag.de>
  * @license https://opensource.org/licenses/GPL-3.0 GNU General Public License v3.0
@@ -31,23 +34,12 @@ final readonly class StoredMatch
     /**
      * Constructor.
      *
-     * @param string      $personId    The candidate identifier.
-     * @param string      $obituaryUrl The source notice URL (raw, pre-normalisation).
-     * @param MatchStatus $status      The lifecycle status.
-     * @param array{
-     *     personId: string,
-     *     obituaryUrl: string,
-     *     score: int,
-     *     hardConflict: bool,
-     *     signals: array<string, array{score: int, max: int, reasons: list<string>}|array{score: int, reasons: list<array{field: string, treeValue: string, obituaryValue: string, severity: string}>}>,
-     *     extractedFacts: array<string, string>,
-     *     classification: string,
-     *     ambiguous: bool,
-     *     runnerUp: array{personId: string, score: int, classification: string, name: string, birthYear: int|null, birthPlace: string|null}|null,
-     *     review: string|null
-     * } $match The trusted scoring payload from the engine.
-     * @param string|null                                                                                           $reason    The rejection reason, if any.
-     * @param array{deatFactId?: string, buriFactId?: string, sourceXref?: string, citationIds?: list<string>}|null $writeBack The Phase-2e write-back placeholder.
+     * @param string                                                                                                $personId    The candidate identifier.
+     * @param string                                                                                                $obituaryUrl The source notice URL (raw, pre-normalisation).
+     * @param MatchStatus                                                                                           $status      The lifecycle status.
+     * @param ClassifiedMatchArray                                                                                  $match       The trusted scoring payload from the engine.
+     * @param string|null                                                                                           $reason      The rejection reason, if any.
+     * @param array{deatFactId?: string, buriFactId?: string, sourceXref?: string, citationIds?: list<string>}|null $writeBack   The Phase-2e write-back placeholder.
      */
     public function __construct(
         public string $personId,
@@ -66,18 +58,7 @@ final readonly class StoredMatch
      *     personId: string,
      *     obituaryUrl: string,
      *     status: string,
-     *     match: array{
-     *         personId: string,
-     *         obituaryUrl: string,
-     *         score: int,
-     *         hardConflict: bool,
-     *         signals: array<string, array{score: int, max: int, reasons: list<string>}|array{score: int, reasons: list<array{field: string, treeValue: string, obituaryValue: string, severity: string}>}>,
-     *         extractedFacts: array<string, string>,
-     *         classification: string,
-     *         ambiguous: bool,
-     *         runnerUp: array{personId: string, score: int, classification: string, name: string, birthYear: int|null, birthPlace: string|null}|null,
-     *         review: string|null
-     *     },
+     *     match: ClassifiedMatchArray,
      *     reason: string|null,
      *     writeBack: array{deatFactId?: string, buriFactId?: string, sourceXref?: string, citationIds?: list<string>}|null
      * }
@@ -148,18 +129,7 @@ final readonly class StoredMatch
         }
 
         /**
-         * @var array{
-         *     personId: string,
-         *     obituaryUrl: string,
-         *     score: int,
-         *     hardConflict: bool,
-         *     signals: array<string, array{score: int, max: int, reasons: list<string>}|array{score: int, reasons: list<array{field: string, treeValue: string, obituaryValue: string, severity: string}>}>,
-         *     extractedFacts: array<string, string>,
-         *     classification: string,
-         *     ambiguous: bool,
-         *     runnerUp: array{personId: string, score: int, classification: string, name: string, birthYear: int|null, birthPlace: string|null}|null,
-         *     review: string|null
-         * } $match
+         * @var ClassifiedMatchArray $match
          */
 
         /**
