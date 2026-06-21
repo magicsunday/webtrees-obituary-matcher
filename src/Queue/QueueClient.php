@@ -19,6 +19,7 @@ use RuntimeException;
 use SplFileInfo;
 use Throwable;
 
+use function is_array;
 use function is_dir;
 use function is_int;
 use function is_string;
@@ -185,14 +186,19 @@ final readonly class QueueClient
      * carries none. On a failed rename the status file is left in the running directory, which is
      * harmless: it never escapes running/ and is overwritten on the next attempt.
      *
-     * @param string   $jobId  The job identifier to complete.
-     * @param int|null $counts The number of produced results, or null if unknown.
+     * The counts/warnings shape mirrors the Python worker's status.json exactly: `counts` is a
+     * per-metric map (candidates/queries/notices/skippedNotices/portalErrors) and `warnings` a list
+     * of strings, so {@see status()} round-trips whichever producer wrote the file.
+     *
+     * @param string             $jobId    The job identifier to complete.
+     * @param array<string, int> $counts   The per-metric production counts to record.
+     * @param list<string>       $warnings The non-fatal warnings to record (empty when there are none).
      *
      * @return void
      *
      * @throws RuntimeException When the running-to-done rename fails.
      */
-    public function markDone(string $jobId, ?int $counts): void
+    public function markDone(string $jobId, array $counts, array $warnings = []): void
     {
         $runningDir = $this->paths->runningDir($jobId);
 
@@ -202,6 +208,7 @@ final readonly class QueueClient
                 'state'      => JobState::Done->value,
                 'finishedAt' => null,
                 'counts'     => $counts,
+                'warnings'   => $warnings,
             ]
         );
 
@@ -264,8 +271,8 @@ final readonly class QueueClient
 
         return match ($state) {
             null              => throw new RuntimeException(sprintf('Unknown job: %s', $jobId)),
-            JobState::Queued  => new JobStatus(JobState::Queued, null, null, null, null),
-            JobState::Running => new JobStatus(JobState::Running, null, null, null, null),
+            JobState::Queued  => new JobStatus(JobState::Queued, null, null, null, [], []),
+            JobState::Running => new JobStatus(JobState::Running, null, null, null, [], []),
             JobState::Done    => $this->readStatus(
                 JobState::Done,
                 $this->paths->doneDir($jobId) . self::STATUS_FILE
@@ -297,15 +304,65 @@ final readonly class QueueClient
         $startedAt  = ($data['startedAt'] ?? null);
         $finishedAt = ($data['finishedAt'] ?? null);
         $error      = ($data['error'] ?? null);
-        $counts     = ($data['counts'] ?? null);
 
         return new JobStatus(
             $state,
             is_string($startedAt) ? $startedAt : null,
             is_string($finishedAt) ? $finishedAt : null,
             is_string($error) ? $error : null,
-            is_int($counts) ? $counts : null,
+            $this->narrowCounts($data['counts'] ?? null),
+            $this->narrowWarnings($data['warnings'] ?? null),
         );
+    }
+
+    /**
+     * Narrows a decoded `counts` value into a string-keyed int map, dropping any entry whose key is
+     * not a string or whose value is not an int, so no untyped data reaches the value object.
+     *
+     * @param mixed $counts The raw decoded counts value.
+     *
+     * @return array<string, int>
+     */
+    private function narrowCounts(mixed $counts): array
+    {
+        if (!is_array($counts)) {
+            return [];
+        }
+
+        $narrowed = [];
+
+        foreach ($counts as $key => $value) {
+            if (is_string($key) && is_int($value)) {
+                $narrowed[$key] = $value;
+            }
+        }
+
+        return $narrowed;
+    }
+
+    /**
+     * Narrows a decoded `warnings` value into a list of strings, dropping any non-string entry, so no
+     * untyped data reaches the value object.
+     *
+     * @param mixed $warnings The raw decoded warnings value.
+     *
+     * @return list<string>
+     */
+    private function narrowWarnings(mixed $warnings): array
+    {
+        if (!is_array($warnings)) {
+            return [];
+        }
+
+        $narrowed = [];
+
+        foreach ($warnings as $value) {
+            if (is_string($value)) {
+                $narrowed[] = $value;
+            }
+        }
+
+        return $narrowed;
     }
 
     /**
