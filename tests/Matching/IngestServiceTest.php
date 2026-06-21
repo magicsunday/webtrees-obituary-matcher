@@ -1,0 +1,178 @@
+<?php
+
+/**
+ * This file is part of the package magicsunday/webtrees-obituary-matcher.
+ *
+ * For the full copyright and license information, please read the
+ * LICENSE file that was distributed with this source code.
+ */
+
+declare(strict_types=1);
+
+namespace MagicSunday\ObituaryMatcher\Test\Matching;
+
+/* jscpd:ignore-start - the domain import block converges with the worked-example test's by necessity */
+use MagicSunday\ObituaryMatcher\Domain\Band;
+use MagicSunday\ObituaryMatcher\Domain\Classification;
+use MagicSunday\ObituaryMatcher\Domain\ClassifiedMatch;
+use MagicSunday\ObituaryMatcher\Domain\ConflictReason;
+use MagicSunday\ObituaryMatcher\Domain\ConflictResult;
+use MagicSunday\ObituaryMatcher\Domain\ConflictSeverity;
+use MagicSunday\ObituaryMatcher\Domain\DatePrecision;
+use MagicSunday\ObituaryMatcher\Domain\DateRange;
+use MagicSunday\ObituaryMatcher\Domain\DateValue;
+use MagicSunday\ObituaryMatcher\Domain\DeathNoticeRecord;
+use MagicSunday\ObituaryMatcher\Domain\Gender;
+use MagicSunday\ObituaryMatcher\Domain\MatchExplanation;
+use MagicSunday\ObituaryMatcher\Domain\NoticeRelative;
+use MagicSunday\ObituaryMatcher\Domain\NoticeType;
+use MagicSunday\ObituaryMatcher\Domain\ObituaryRecord;
+use MagicSunday\ObituaryMatcher\Domain\PersonCandidate;
+use MagicSunday\ObituaryMatcher\Domain\PersonName;
+use MagicSunday\ObituaryMatcher\Domain\Place;
+use MagicSunday\ObituaryMatcher\Domain\RunnerUp;
+use MagicSunday\ObituaryMatcher\Domain\ScoreConfig;
+use MagicSunday\ObituaryMatcher\Domain\SignalScore;
+use MagicSunday\ObituaryMatcher\Matching\FileMatchStore;
+use MagicSunday\ObituaryMatcher\Matching\IngestService;
+use MagicSunday\ObituaryMatcher\Matching\MatchStatus;
+use MagicSunday\ObituaryMatcher\Matching\StoredMatch;
+use MagicSunday\ObituaryMatcher\Parsing\ObituaryDateParser;
+use MagicSunday\ObituaryMatcher\Parsing\ObituaryNameParser;
+use MagicSunday\ObituaryMatcher\Queue\AtomicFile;
+use MagicSunday\ObituaryMatcher\Queue\QueuePaths;
+use MagicSunday\ObituaryMatcher\Queue\ResponseReader;
+use MagicSunday\ObituaryMatcher\Scoring\Classifier;
+use MagicSunday\ObituaryMatcher\Scoring\ConflictDetector;
+use MagicSunday\ObituaryMatcher\Scoring\MatchEngine;
+use MagicSunday\ObituaryMatcher\Scoring\NameScorer;
+use MagicSunday\ObituaryMatcher\Scoring\PlaceScorer;
+use MagicSunday\ObituaryMatcher\Scoring\PlausibilityScorer;
+use MagicSunday\ObituaryMatcher\Support\GivenNameVariants;
+use MagicSunday\ObituaryMatcher\Support\KoelnerPhonetik;
+use MagicSunday\ObituaryMatcher\Support\Normalizer;
+use MagicSunday\ObituaryMatcher\Support\NoticeMapper;
+use MagicSunday\ObituaryMatcher\Support\UrlNormalizer;
+/* jscpd:ignore-end */
+use MagicSunday\ObituaryMatcher\Test\Queue\TempDirTestCase;
+use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\Test;
+use PHPUnit\Framework\Attributes\UsesClass;
+
+/**
+ * Tests the response → score → persist vertical slice: a validated feeder response is mapped,
+ * scored by the unchanged Phase-1 engine, classified and persisted as a pending suggestion — and a
+ * person who was in the request but no longer has a held candidate is skipped without an error.
+ *
+ * @author  Rico Sonntag <mail@ricosonntag.de>
+ * @license https://opensource.org/licenses/GPL-3.0 GNU General Public License v3.0
+ * @link    https://github.com/magicsunday/webtrees-obituary-matcher/
+ */
+/* jscpd:ignore-start - the UsesClass coverage block converges with the worked-example test's by necessity */
+#[CoversClass(IngestService::class)]
+#[UsesClass(Band::class)]
+#[UsesClass(Classification::class)]
+#[UsesClass(ClassifiedMatch::class)]
+#[UsesClass(ConflictDetector::class)]
+#[UsesClass(ConflictReason::class)]
+#[UsesClass(ConflictResult::class)]
+#[UsesClass(ConflictSeverity::class)]
+#[UsesClass(DateRange::class)]
+#[UsesClass(DateValue::class)]
+#[UsesClass(DeathNoticeRecord::class)]
+#[UsesClass(GivenNameVariants::class)]
+#[UsesClass(KoelnerPhonetik::class)]
+#[UsesClass(MatchEngine::class)]
+#[UsesClass(MatchExplanation::class)]
+#[UsesClass(NameScorer::class)]
+#[UsesClass(NoticeMapper::class)]
+#[UsesClass(NoticeRelative::class)]
+#[UsesClass(NoticeType::class)]
+#[UsesClass(Normalizer::class)]
+#[UsesClass(ObituaryDateParser::class)]
+#[UsesClass(ObituaryNameParser::class)]
+#[UsesClass(ObituaryRecord::class)]
+#[UsesClass(PersonCandidate::class)]
+#[UsesClass(PersonName::class)]
+#[UsesClass(Place::class)]
+#[UsesClass(PlaceScorer::class)]
+#[UsesClass(PlausibilityScorer::class)]
+#[UsesClass(RunnerUp::class)]
+#[UsesClass(ScoreConfig::class)]
+#[UsesClass(SignalScore::class)]
+#[UsesClass(Classifier::class)]
+#[UsesClass(AtomicFile::class)]
+#[UsesClass(FileMatchStore::class)]
+#[UsesClass(MatchStatus::class)]
+#[UsesClass(QueuePaths::class)]
+#[UsesClass(ResponseReader::class)]
+#[UsesClass(StoredMatch::class)]
+#[UsesClass(UrlNormalizer::class)]
+/* jscpd:ignore-end */
+final class IngestServiceTest extends TempDirTestCase
+{
+    #[Test]
+    public function ingestsAResponseIntoPendingSuggestions(): void
+    {
+        $this->placeResponse('job-1', 'response-valid.json');     // results for I1
+        $store   = new FileMatchStore($this->tmp . '/store');
+        $service = new IngestService(
+            new ResponseReader(new QueuePaths($this->tmp)),
+            new MatchEngine(),
+            new Classifier(),
+            $store,
+        );
+
+        $stored = $service->ingest('job-1', ['I1'], ['I1' => $this->candidateMatchingErika()]);
+
+        self::assertSame(1, $stored);
+        $pending = $store->allPending();
+        self::assertCount(1, $pending);
+
+        $match = $pending[0];
+        self::assertSame('I1', $match->personId);
+        self::assertSame(MatchStatus::Pending, $match->status);
+
+        // The persisted payload is the full ClassifiedMatch::toArray shape, and the Erika candidate
+        // genuinely scores a real probable-band match (not a forced value): the classification and
+        // the harvested exact death date are asserted against the authoritative engine output, so
+        // this case fails should the candidate stop scoring or the pipeline drop the harvested fact.
+        self::assertSame(Band::Probable->value(), $match->match['classification']);
+        self::assertFalse($match->match['hardConflict']);
+        self::assertSame('2024-03-12', $match->match['extractedFacts']['deathDate']);
+        self::assertSame('https://example.test/traueranzeige/erika', $match->obituaryUrl);
+    }
+
+    #[Test]
+    public function skipsAPersonWhoseCandidateVanishedSinceEnqueue(): void
+    {
+        $this->placeResponse('job-1', 'response-valid.json');     // results for I1 — I1 WAS requested (ownership ok)
+        $store  = new FileMatchStore($this->tmp . '/store');
+        $stored = (new IngestService(new ResponseReader(new QueuePaths($this->tmp)), new MatchEngine(), new Classifier(), $store))
+            ->ingest('job-1', ['I1'], []);                         // ...but no candidate held now (e.g. became private)
+
+        self::assertSame(0, $stored);
+        self::assertSame([], $store->allPending());
+    }
+
+    /**
+     * Builds a candidate that genuinely scores against the fixture "Erika Mustermann geb. Mueller"
+     * notice. The shape mirrors the Phase-1 worked example (born approximately 1938, born Mueller,
+     * married into the notice surname, resident in Musterstadt), so the classification is a real
+     * probable-band match rather than a forced value.
+     *
+     * @return PersonCandidate The scoring candidate for person I1.
+     */
+    private function candidateMatchingErika(): PersonCandidate
+    {
+        return new PersonCandidate(
+            'I1',
+            Gender::Female,
+            new PersonName(['Erika'], null, 'Mueller', 'Mueller', ['Mustermann']),
+            DateRange::known(new DateValue(1936, 1, 1), new DateValue(1940, 12, 31), DatePrecision::Approximate),
+            null,
+            [new Place('Musterstadt')],
+            DateRange::unknown(),
+        );
+    }
+}

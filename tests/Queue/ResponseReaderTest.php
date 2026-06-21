@@ -28,14 +28,7 @@ use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\Attributes\UsesClass;
 
-use function dirname;
-use function file_get_contents;
-use function is_dir;
-use function json_decode;
-use function mkdir;
 use function preg_quote;
-
-use const JSON_THROW_ON_ERROR;
 
 /**
  * Tests the untrusted response reader: it maps a valid response into death-notice records and
@@ -115,34 +108,5 @@ final class ResponseReaderTest extends TempDirTestCase
         $this->expectException(ResponseValidationException::class);
         $this->expectExceptionMessageMatches('/' . preg_quote($expectedMessageFragment, '/') . '/');
         (new ResponseReader(new QueuePaths($this->tmp)))->read('job-1', ['I1']);
-    }
-
-    /**
-     * Writes the decoded fixture bytes into done/<jobId>/response.json, simulating the feeder's
-     * final state after a successful scrape.
-     *
-     * @param string $jobId   The job identifier whose done directory receives the response.
-     * @param string $fixture The fixture file name under tests/fixtures.
-     *
-     * @return void
-     */
-    private function placeResponse(string $jobId, string $fixture): void
-    {
-        $path = (new QueuePaths($this->tmp))->doneDir($jobId) . '/response.json';
-
-        $directory = dirname($path);
-
-        if (!is_dir($directory)) {
-            mkdir($directory, 0o700, true);
-        }
-
-        /** @var array<string, mixed> $data */
-        $data = json_decode(
-            (string) file_get_contents(__DIR__ . '/../fixtures/' . $fixture),
-            true,
-            flags: JSON_THROW_ON_ERROR
-        );
-
-        AtomicFile::writeJson($path, $data);
     }
 }
