@@ -9,10 +9,10 @@
 
 declare(strict_types=1);
 
-namespace MagicSunday\ObituaryMatcher\Test\Parsing;
+namespace MagicSunday\ObituaryMatcher\Test\Support;
 
 use MagicSunday\ObituaryMatcher\Domain\PersonName;
-use MagicSunday\ObituaryMatcher\Parsing\ObituaryNameParser;
+use MagicSunday\ObituaryMatcher\Support\ObituaryNameParser;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\Attributes\UsesClass;

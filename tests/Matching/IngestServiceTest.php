@@ -38,7 +38,6 @@ use MagicSunday\ObituaryMatcher\Matching\IngestService;
 use MagicSunday\ObituaryMatcher\Matching\MatchStatus;
 use MagicSunday\ObituaryMatcher\Matching\StoredMatch;
 use MagicSunday\ObituaryMatcher\Parsing\ObituaryDateParser;
-use MagicSunday\ObituaryMatcher\Parsing\ObituaryNameParser;
 use MagicSunday\ObituaryMatcher\Queue\AtomicFile;
 use MagicSunday\ObituaryMatcher\Queue\QueuePaths;
 use MagicSunday\ObituaryMatcher\Queue\ResponseReader;
@@ -52,6 +51,7 @@ use MagicSunday\ObituaryMatcher\Support\ColognePhonetic;
 use MagicSunday\ObituaryMatcher\Support\GivenNameVariants;
 use MagicSunday\ObituaryMatcher\Support\Normalizer;
 use MagicSunday\ObituaryMatcher\Support\NoticeMapper;
+use MagicSunday\ObituaryMatcher\Support\ObituaryNameParser;
 use MagicSunday\ObituaryMatcher\Support\UrlNormalizer;
 /* jscpd:ignore-end */
 use MagicSunday\ObituaryMatcher\Test\Queue\TempDirTestCase;
