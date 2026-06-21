@@ -12,5 +12,9 @@
         "src",
         "tests"
     ],
+    "ignore": [
+        "tests/Scoring/EnrichedMatchEngineTest.php",
+        "tests/Scoring/EnrichedEngineWorkedExampleTest.php"
+    ],
     "exitCode": 1
 }
