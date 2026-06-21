@@ -161,8 +161,9 @@ final class ResponseReaderTest extends TempDirTestCase
 
     /**
      * Provides the ISO-8601 fetchedAt variants the reader must still accept after the relative-string
-     * forms ("now", "yesterday", "+1 week") are rejected: a "Z" zulu suffix and a fractional-second
-     * value. Both are real ISO-8601 timestamp forms and must parse into a record.
+     * forms ("now", "yesterday", "+1 week") are rejected: a "Z" zulu suffix, a fractional-second value
+     * and the three legal timezone-offset forms — the colon "+02:00", the compact "+0200" and the
+     * hour-only "+02". All are real ISO-8601 timestamp forms and must parse into a record.
      *
      * @return array<string, array{0:string}>
      */
@@ -171,6 +172,9 @@ final class ResponseReaderTest extends TempDirTestCase
         return [
             'zulu suffix'       => ['response-fetchedat-zulu.json'],
             'fractional second' => ['response-fetchedat-fractional.json'],
+            'colon offset'      => ['response-fetchedat-colon-offset.json'],
+            'compact offset'    => ['response-fetchedat-compact-offset.json'],
+            'hour-only offset'  => ['response-fetchedat-hour-offset.json'],
         ];
     }
 
