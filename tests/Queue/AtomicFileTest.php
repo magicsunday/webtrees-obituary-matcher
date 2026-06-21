@@ -11,13 +11,20 @@ declare(strict_types=1);
 
 namespace MagicSunday\ObituaryMatcher\Test\Queue;
 
+use ErrorException;
 use MagicSunday\ObituaryMatcher\Queue\AtomicFile;
+use PHPUnit\Framework\AssertionFailedError;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use RuntimeException;
+use Throwable;
 
 use function file_put_contents;
+use function glob;
+use function mkdir;
+use function restore_error_handler;
+use function set_error_handler;
 use function str_repeat;
 use function symlink;
 
@@ -66,6 +73,43 @@ final class AtomicFileTest extends TempDirTestCase
         symlink($real, $link);
         $this->expectException(RuntimeException::class);
         AtomicFile::readJsonCapped($link, 1024);
+    }
+
+    /**
+     * Under a custom error handler that converts the rename E_WARNING into an exception (webtrees
+     * installs such a handler), a failing atomic rename throws FROM rename() rather than returning
+     * false. The thrown exception must still propagate AND the temporary file must be cleaned up, so
+     * a failed write never leaks a *.tmp.* file into the queue directory.
+     */
+    #[Test]
+    public function writeJsonCleansUpTheTempFileWhenAnErrorHandlerThrowsOnRename(): void
+    {
+        // Point the target at an existing, non-empty directory: rename() onto a non-empty directory
+        // fails, and the installed error handler turns that warning into an ErrorException.
+        $target = $this->tmp . '/target-dir';
+        mkdir($target, 0o700, true);
+        file_put_contents($target . '/occupant', 'x');
+
+        set_error_handler(static function (int $severity, string $message): bool {
+            throw new ErrorException($message, 0, $severity);
+        });
+
+        try {
+            AtomicFile::writeJson($target, ['a' => 1]);
+            self::fail('writeJson must propagate the rename failure.');
+        } catch (AssertionFailedError $assertionFailure) {
+            // The self::fail above means no exception propagated: re-throw so the test fails loudly.
+            throw $assertionFailure;
+        } catch (Throwable) {
+            // The rename failure propagated as expected.
+        } finally {
+            restore_error_handler();
+        }
+
+        // No leftover *.tmp.* file: the cleanup ran even though the exception bypassed the
+        // "if (!rename(...))" branch.
+        $leftovers = glob($this->tmp . '/*.tmp.*');
+        self::assertSame([], ($leftovers === false) ? [] : $leftovers);
     }
 
     /**

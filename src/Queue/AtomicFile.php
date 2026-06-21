@@ -13,6 +13,7 @@ namespace MagicSunday\ObituaryMatcher\Queue;
 
 use JsonException;
 use RuntimeException;
+use Throwable;
 
 use function fclose;
 use function file_put_contents;
@@ -83,15 +84,23 @@ final class AtomicFile
             );
         }
 
-        if (!rename($tmpPath, $path)) {
+        // Wrap the rename so the temp file is always cleaned up on failure. A custom error handler
+        // (webtrees installs one) can convert the rename E_WARNING into a thrown exception FROM
+        // rename() itself, bypassing the "if (!rename(...))" branch and leaking the *.tmp.* file;
+        // catching every Throwable and removing the temp file in the catch closes that leak too.
+        try {
+            if (!rename($tmpPath, $path)) {
+                throw new RuntimeException(
+                    sprintf('Failed to atomically rename %s to %s', $tmpPath, $path)
+                );
+            }
+        } catch (Throwable $exception) {
             // Remove the orphaned temp file so a failed rename does not leak a *.tmp.* file.
             if (is_file($tmpPath)) {
                 unlink($tmpPath);
             }
 
-            throw new RuntimeException(
-                sprintf('Failed to atomically rename %s to %s', $tmpPath, $path)
-            );
+            throw $exception;
         }
     }
 
