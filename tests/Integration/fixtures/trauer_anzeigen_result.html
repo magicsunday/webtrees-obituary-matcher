@@ -1,0 +1,44 @@
+<!-- Synthetic fixture — all names and dates are fictional. Mirrors the feeder's recorded sample
+     `obituary-finder/tests/fixtures/trauer_anzeigen_result.html` so the cross-language contract
+     harness can drive the REAL Python worker against known HTML without any network access. The
+     matcher deliberately owns this copy (it is the test's controlled input); when the upstream
+     sample's card structure changes, re-mirror this file so the contract test still reflects what
+     the worker meets in production. -->
+<html><body>
+<div class="search-results">
+
+  <!-- A card WITH birth/death dates -->
+  <div class="c-blockitem text-center c-blockitem-noborder" id="erika-mustermann">
+    <div class="c-blockitem-heading">
+      <h2 class="c-blockitem-title">
+        <a href="https://trauer-anzeigen.de/traueranzeige/erika-mustermann"
+           title="Anzeige Erika Mustermann geb. Beispiel">Anzeige Erika Mustermann geb. Beispiel</a>
+      </h2>
+      <div class="c-blockitem-subtitle">* 22.06.1951 - &#8224; 07.08.2025</div>
+    </div>
+    <div class="mt-3 row">
+      <div class="col-12 mt-0 pt-0 mb-3">
+        <span class="text-muted"><i class="c-icon c-icon-calendar"></i> ver&ouml;ffentlicht am
+          <strong>14.09.2025</strong> in <strong>Torgauer Zeitung</strong></span>
+      </div>
+    </div>
+  </div>
+
+  <!-- A card WITHOUT dates (subtitle absent) -->
+  <div class="c-blockitem text-center c-blockitem-noborder" id="max-mustermann">
+    <div class="c-blockitem-heading">
+      <h2 class="c-blockitem-title">
+        <a href="https://trauer-anzeigen.de/traueranzeige/max-mustermann"
+           title="Anzeige Max Mustermann">Anzeige Max Mustermann</a>
+      </h2>
+    </div>
+    <div class="mt-3 row">
+      <div class="col-12 mt-0 pt-0 mb-3">
+        <span class="text-muted"><i class="c-icon c-icon-calendar"></i> ver&ouml;ffentlicht am
+          <strong>14.06.2014</strong> in <strong>S&auml;chsische Zeitung</strong></span>
+      </div>
+    </div>
+  </div>
+
+</div>
+</body></html>
