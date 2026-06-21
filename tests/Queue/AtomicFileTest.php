@@ -13,9 +13,11 @@ namespace MagicSunday\ObituaryMatcher\Test\Queue;
 
 use MagicSunday\ObituaryMatcher\Queue\AtomicFile;
 use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use RuntimeException;
 
+use function file_put_contents;
 use function str_repeat;
 use function symlink;
 
@@ -64,5 +66,33 @@ final class AtomicFileTest extends TempDirTestCase
         symlink($real, $link);
         $this->expectException(RuntimeException::class);
         AtomicFile::readJsonCapped($link, 1024);
+    }
+
+    /**
+     * @return array<string, array{0:string}>
+     */
+    public static function topLevelNonArrayPayloads(): array
+    {
+        return [
+            'top-level null'    => ['null'],
+            'top-level integer' => ['42'],
+            'top-level string'  => ['"x"'],
+        ];
+    }
+
+    /**
+     * A valid-JSON file whose top-level document is a scalar/null (not an object/array) is rejected
+     * with a RuntimeException, NOT an uncaught TypeError from the ": array" return type. The reader's
+     * callers only catch JsonException|RuntimeException, so a leaked TypeError would crash the whole
+     * directory scan instead of isolating the one poison row.
+     */
+    #[Test]
+    #[DataProvider('topLevelNonArrayPayloads')]
+    public function readJsonCappedRejectsATopLevelNonArrayPayload(string $payload): void
+    {
+        $path = $this->tmp . '/scalar.json';
+        file_put_contents($path, $payload);
+        $this->expectException(RuntimeException::class);
+        AtomicFile::readJsonCapped($path, 1024);
     }
 }

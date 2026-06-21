@@ -270,6 +270,12 @@ final class FileMatchStoreTest extends TempDirTestCase
         // decode, which is NOT a CorruptMatchRowException — the scan must still tolerate it.
         file_put_contents($this->tmp . '/deadbeef.json', '{ "personId": "I9", truncated');
 
+        // Drop a VALID-JSON but top-level-scalar row (a bare "null"): json_decode returns null, not
+        // an array, which would throw a TypeError from AtomicFile::readJsonCapped's ": array" return
+        // type — NOT a JsonException/RuntimeException — and so crash the whole scan unless the reader
+        // converts it into a RuntimeException the catch can isolate.
+        file_put_contents($this->tmp . '/scalar.json', 'null');
+
         $pending = $store->allPending();
         self::assertCount(1, $pending, 'the poison row is skipped, the valid one survives');
         self::assertSame('I1', $pending[0]->personId);

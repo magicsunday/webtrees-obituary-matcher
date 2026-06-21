@@ -17,6 +17,7 @@ use RuntimeException;
 use function fclose;
 use function file_put_contents;
 use function fopen;
+use function is_array;
 use function is_file;
 use function is_link;
 use function is_readable;
@@ -152,9 +153,20 @@ final class AtomicFile
             );
         }
 
-        /** @var array<string, mixed> $data */
         $data = json_decode($contents, true, flags: JSON_THROW_ON_ERROR);
 
+        // A top-level non-array JSON document (for example a bare "null", "42" or "\"x\"") decodes to
+        // a scalar/null. Returning that from this ": array" method would throw a TypeError, which is
+        // neither a JsonException nor a RuntimeException — so a caller's
+        // catch (JsonException|RuntimeException) would miss it and a directory scan would crash.
+        // Convert it into a RuntimeException so the poison-row isolation can catch it.
+        if (!is_array($data)) {
+            throw new RuntimeException(
+                sprintf('Queue file does not contain a JSON object: %s', $path)
+            );
+        }
+
+        /** @var array<string, mixed> $data */
         return $data;
     }
 }
