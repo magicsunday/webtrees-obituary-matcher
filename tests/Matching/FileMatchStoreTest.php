@@ -27,6 +27,7 @@ use MagicSunday\ObituaryMatcher\Matching\StoredMatch;
 use MagicSunday\ObituaryMatcher\Matching\TerminalMatchTransitionException;
 use MagicSunday\ObituaryMatcher\Parsing\ObituaryDateParser;
 use MagicSunday\ObituaryMatcher\Parsing\ObituaryNameParser;
+use MagicSunday\ObituaryMatcher\Queue\AtomicFile;
 use MagicSunday\ObituaryMatcher\Scoring\Classifier;
 use MagicSunday\ObituaryMatcher\Scoring\MatchEngine;
 use MagicSunday\ObituaryMatcher\Test\Queue\TempDirTestCase;
@@ -51,6 +52,7 @@ use function mkdir;
 #[CoversClass(MatchStatus::class)]
 #[CoversClass(StoredMatch::class)]
 #[CoversClass(TerminalMatchTransitionException::class)]
+#[UsesClass(AtomicFile::class)]
 #[UsesClass(ClassifiedMatch::class)]
 #[UsesClass(Classification::class)]
 #[UsesClass(MatchEngine::class)]

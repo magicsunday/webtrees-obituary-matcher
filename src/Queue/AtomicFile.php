@@ -19,12 +19,16 @@ use function fclose;
 use function file_put_contents;
 use function fopen;
 use function is_array;
+use function is_dir;
 use function is_file;
 use function is_link;
 use function is_readable;
 use function json_decode;
 use function json_encode;
+use function mkdir;
 use function rename;
+use function restore_error_handler;
+use function set_error_handler;
 use function sprintf;
 use function stream_get_contents;
 use function strlen;
@@ -54,6 +58,49 @@ final class AtomicFile
      */
     private function __construct()
     {
+    }
+
+    /**
+     * Creates the given directory (and any missing parents) if it does not yet exist. The create is
+     * race-safe even under a custom error handler: a concurrent process winning the mkdir between the
+     * is_dir probe and the create makes mkdir raise a "File exists" E_WARNING, which webtrees' error
+     * handler would otherwise convert into a thrown ErrorException BEFORE the "&& !is_dir()" recovery
+     * clause can run — aborting a benign race fatally. A scoped error handler swallows that warning so
+     * mkdir RETURNS false and the !is_dir() recovery treats the now-present directory as success; only
+     * a genuine failure (the directory still does not exist afterwards) raises.
+     *
+     * @param string $dir The absolute path of the directory to create.
+     *
+     * @return void
+     *
+     * @throws RuntimeException When the directory cannot be created.
+     */
+    public static function ensureDirectory(string $dir): void
+    {
+        if (is_dir($dir)) {
+            return;
+        }
+
+        // Swallow the mkdir warning (a concurrent winner raises "File exists") so mkdir returns false
+        // and the !is_dir() recovery below runs, rather than the warning being converted into a thrown
+        // exception that bypasses the recovery. This mirrors the scoped-handler guard QueueClient::claim
+        // already uses for its rename, without the forbidden @-suppression operator.
+        set_error_handler(static fn (): bool => true);
+
+        try {
+            $created = mkdir($dir, 0o700, true);
+        } finally {
+            restore_error_handler();
+        }
+
+        if (
+            !$created
+            && !is_dir($dir)
+        ) {
+            throw new RuntimeException(
+                sprintf('Failed to create directory: %s', $dir)
+            );
+        }
     }
 
     /**

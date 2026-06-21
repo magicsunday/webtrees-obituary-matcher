@@ -21,9 +21,7 @@ use SplFileInfo;
 use UnexpectedValueException;
 
 use function hash;
-use function is_dir;
 use function is_file;
-use function mkdir;
 use function pathinfo;
 use function sprintf;
 
@@ -277,14 +275,6 @@ final readonly class FileMatchStore implements MatchStore
      */
     private function ensureLayout(): void
     {
-        if (
-            !is_dir($this->dir)
-            && !mkdir($this->dir, 0o700, true)
-            && !is_dir($this->dir)
-        ) {
-            throw new RuntimeException(
-                sprintf('Failed to create match store directory: %s', $this->dir)
-            );
-        }
+        AtomicFile::ensureDirectory($this->dir);
     }
 }

@@ -12,6 +12,7 @@ declare(strict_types=1);
 namespace MagicSunday\ObituaryMatcher\Test\Queue;
 
 use InvalidArgumentException;
+use MagicSunday\ObituaryMatcher\Queue\AtomicFile;
 use MagicSunday\ObituaryMatcher\Queue\JobState;
 use MagicSunday\ObituaryMatcher\Queue\QueuePaths;
 use PHPUnit\Framework\Attributes\CoversClass;
@@ -33,6 +34,7 @@ use function set_error_handler;
  * @link    https://github.com/magicsunday/webtrees-obituary-matcher/
  */
 #[CoversClass(QueuePaths::class)]
+#[UsesClass(AtomicFile::class)]
 #[UsesClass(JobState::class)]
 final class QueuePathsTest extends TempDirTestCase
 {
@@ -95,7 +97,7 @@ final class QueuePathsTest extends TempDirTestCase
 
         try {
             $this->expectException(RuntimeException::class);
-            $this->expectExceptionMessageMatches('/Failed to create queue state directory/');
+            $this->expectExceptionMessageMatches('/Failed to create directory/');
             (new QueuePaths($rootFile))->ensureLayout();
         } finally {
             restore_error_handler();

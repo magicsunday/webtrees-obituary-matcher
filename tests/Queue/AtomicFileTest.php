@@ -22,6 +22,7 @@ use Throwable;
 
 use function file_put_contents;
 use function glob;
+use function is_dir;
 use function mkdir;
 use function restore_error_handler;
 use function set_error_handler;
@@ -238,6 +239,100 @@ final class AtomicFileTest extends TempDirTestCase
         // The rejection is the partial-write guard, and no truncated temp file is left behind.
         self::assertStringContainsStringIgnoringCase('completely', $message);
         self::assertSame([], $leftovers);
+    }
+
+    /**
+     * ensureDirectory creates a missing directory (and any missing parents).
+     */
+    #[Test]
+    public function ensureDirectoryCreatesAMissingDirectory(): void
+    {
+        $dir = $this->tmp . '/nested/leaf';
+
+        AtomicFile::ensureDirectory($dir);
+
+        self::assertDirectoryExists($dir);
+    }
+
+    /**
+     * Calling ensureDirectory on an already-existing directory is a silent no-op: the is_dir probe
+     * short-circuits before any mkdir, so a second call neither throws nor disturbs the directory.
+     */
+    #[Test]
+    public function ensureDirectoryIsIdempotentOnAnExistingDirectory(): void
+    {
+        $dir = $this->tmp . '/existing';
+        mkdir($dir, 0o700, true);
+
+        AtomicFile::ensureDirectory($dir);
+
+        self::assertDirectoryExists($dir);
+    }
+
+    /**
+     * A genuine creation failure (the parent is a regular file, so no directory can be created under
+     * it) surfaces as a RuntimeException rather than being swallowed silently.
+     */
+    #[Test]
+    public function ensureDirectoryThrowsOnAGenuineFailure(): void
+    {
+        $parentFile = $this->tmp . '/not-a-directory';
+        file_put_contents($parentFile, 'x');
+
+        // The forced mkdir failure emits an expected warning; a scoped handler swallows it without the
+        // forbidden @-suppression operator so the genuine-failure branch (not an error-handler throw)
+        // is what raises.
+        set_error_handler(static fn (): bool => true);
+
+        try {
+            $this->expectException(RuntimeException::class);
+            $this->expectExceptionMessageMatches('/Failed to create directory/');
+            AtomicFile::ensureDirectory($parentFile . '/child');
+        } finally {
+            restore_error_handler();
+        }
+    }
+
+    /**
+     * The key regression test for the directory-creation finding: under a custom error handler that
+     * converts every E_WARNING into a thrown ErrorException (webtrees installs such a handler), a
+     * BENIGN create race must NOT abort fatally. A stream wrapper reproduces the race deterministically:
+     * the is_dir probe sees the directory as absent (so the create is attempted), then the internal
+     * mkdir raises a "File exists" E_WARNING and loses — exactly as a concurrent process winning the
+     * mkdir between the probe and the create would — and from then on the directory reports as present.
+     *
+     * The outer throwing handler would convert that mkdir warning into an ErrorException BEFORE the
+     * "&& !is_dir()" recovery could run, aborting the benign race fatally — UNLESS ensureDirectory's
+     * own scoped handler swallows it so mkdir returns false and the !is_dir() recovery observes the
+     * now-present directory as success. ensureDirectory must therefore complete without throwing. With
+     * the scoped handler removed this test fails (the converted ErrorException propagates).
+     */
+    #[Test]
+    public function ensureDirectoryDoesNotThrowOnABenignRaceUnderAThrowingErrorHandler(): void
+    {
+        RacingMkdirStreamWrapper::register();
+
+        set_error_handler(static function (int $severity, string $message): never {
+            throw new ErrorException($message, 0, $severity);
+        });
+
+        $raced = RacingMkdirStreamWrapper::SCHEME . '://raced';
+
+        try {
+            // The is_dir probe sees the path as absent, so the create is attempted; the wrapper's
+            // mkdir then raises the "File exists" warning a lost race emits and reports the directory
+            // as present. Without ensureDirectory's scoped handler the outer handler would convert
+            // that warning into a thrown exception before the !is_dir() recovery could run.
+            AtomicFile::ensureDirectory($raced);
+
+            // Reaching here without an exception proves the scoped handler neutralised the converted
+            // warning; the directory now reports as present, so the !is_dir() recovery counted the
+            // lost race as success.
+            self::assertTrue(is_dir($raced));
+        } finally {
+            restore_error_handler();
+            RacingMkdirStreamWrapper::unregister();
+        }
     }
 
     /**

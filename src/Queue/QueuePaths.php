@@ -16,7 +16,6 @@ use RuntimeException;
 
 use function clearstatcache;
 use function is_dir;
-use function mkdir;
 use function preg_match;
 use function sprintf;
 
@@ -173,17 +172,7 @@ final readonly class QueuePaths
     public function ensureLayout(): void
     {
         foreach ([self::STATE_QUEUED, self::STATE_RUNNING, self::STATE_DONE, self::STATE_FAILED] as $state) {
-            $directory = $this->stateRoot($state);
-
-            if (
-                !is_dir($directory)
-                && !mkdir($directory, 0o700, true)
-                && !is_dir($directory)
-            ) {
-                throw new RuntimeException(
-                    sprintf('Failed to create queue state directory: %s', $directory)
-                );
-            }
+            AtomicFile::ensureDirectory($this->stateRoot($state));
         }
     }
 
