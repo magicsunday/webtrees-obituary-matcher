@@ -135,23 +135,22 @@ final class ArchitectureTest
 
     /**
      * Parsing turns raw obituary text into Domain value objects. It builds only
-     * on Domain and must not depend on the layers that sit above it
-     * (Support/Scoring/Queue/Matching) nor on the Webtrees adapter.
+     * on Domain and Support and must not depend on the higher engine layers
+     * (Scoring/Queue/Matching) nor on the Webtrees adapter.
      */
     #[TestRule]
-    public function parsingDependsOnlyOnDomain(): Rule
+    public function parsingDependsOnlyOnDomainAndSupport(): Rule
     {
         return PHPat::rule()
             ->classes(Selector::inNamespace(self::NAMESPACE_ROOT . '\\Parsing'))
             ->shouldNot()->dependOn()
             ->classes(
-                Selector::inNamespace(self::NAMESPACE_ROOT . '\\Support'),
                 Selector::inNamespace(self::NAMESPACE_ROOT . '\\Scoring'),
                 Selector::inNamespace(self::NAMESPACE_ROOT . '\\Queue'),
                 Selector::inNamespace(self::NAMESPACE_ROOT . '\\Matching'),
                 Selector::inNamespace(self::NAMESPACE_ROOT . '\\Webtrees'),
             )
-            ->because('Parsing only produces Domain values; it must not depend on Support, the higher engine layers, or the adapter');
+            ->because('Parsing builds on Domain and Support only; it must not depend on the higher engine layers or the adapter');
     }
 
     /**
@@ -211,15 +210,15 @@ final class ArchitectureTest
     }
 
     /**
-     * The Webtrees adapter is the only layer allowed to touch the framework, but
-     * it is still a thin bridge: it maps framework objects onto the pure core
-     * (Domain/Support) and must not reach into the higher engine layers
-     * (Parsing/Scoring/Queue/Matching). Keeping the adapter dependent only on
-     * Domain and Support means swapping the adapter never drags the whole engine
-     * along.
+     * The Webtrees layer is the composition boundary (adapter plus the future
+     * module/controllers/review-UI). To orchestrate a match it may drive the
+     * Matching apex (e.g. IngestService), but it must not reach directly into
+     * the inner engine layers (Parsing/Scoring/Queue). Keeping the adapter out
+     * of the inner layers means swapping the adapter never drags the whole
+     * engine internals along.
      */
     #[TestRule]
-    public function webtreesAdapterDependsOnlyOnDomainAndSupport(): Rule
+    public function webtreesAdapterDoesNotDependOnInnerEngineLayers(): Rule
     {
         return PHPat::rule()
             ->classes(Selector::inNamespace(self::NAMESPACE_ROOT . '\\Webtrees'))
@@ -228,8 +227,7 @@ final class ArchitectureTest
                 Selector::inNamespace(self::NAMESPACE_ROOT . '\\Parsing'),
                 Selector::inNamespace(self::NAMESPACE_ROOT . '\\Scoring'),
                 Selector::inNamespace(self::NAMESPACE_ROOT . '\\Queue'),
-                Selector::inNamespace(self::NAMESPACE_ROOT . '\\Matching'),
             )
-            ->because('The Webtrees adapter is a thin bridge onto Domain and Support; it must not pull in the higher engine layers');
+            ->because('The Webtrees adapter/composition layer may drive the Matching apex but must not reach directly into the inner parsing, scoring, or queue layers');
     }
 }
