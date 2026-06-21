@@ -113,6 +113,41 @@ final class UrlNormalizerTest extends TestCase
     }
 
     /**
+     * The tracking-parameter strip list matches case-insensitively, so an upper- or mixed-case
+     * tracking parameter ("UTM_SOURCE", "Fbclid", "GCLID") is stripped just like its lower-case form
+     * and cannot leak past the de-dup. A non-tracking parameter is retained with its original name
+     * case preserved (query parameter names are case-sensitive in general; only the tracking-strip
+     * match is case-insensitive).
+     */
+    #[Test]
+    public function matchesTrackingParametersCaseInsensitively(): void
+    {
+        // An upper-case utm_* prefix is stripped, the non-tracking "id" survives with its value.
+        self::assertSame(
+            'https://example.test/a?id=7',
+            UrlNormalizer::normalizeForIdentity('https://example.test/a?UTM_SOURCE=x&id=7'),
+        );
+
+        // A mixed-case fbclid is stripped down to the bare path, mirroring the lower-case form.
+        self::assertSame(
+            'https://example.test/a',
+            UrlNormalizer::normalizeForIdentity('https://example.test/a?Fbclid=z'),
+        );
+
+        // An upper-case gclid is stripped too.
+        self::assertSame(
+            'https://example.test/a',
+            UrlNormalizer::normalizeForIdentity('https://example.test/a?GCLID=y'),
+        );
+
+        // A non-tracking parameter keeps its original name case (only the strip match is folded).
+        self::assertSame(
+            'https://example.test/a?Ref=Foo',
+            UrlNormalizer::normalizeForIdentity('https://example.test/a?Ref=Foo'),
+        );
+    }
+
+    /**
      * The URL port is part of the identity: a notice served on an explicit non-default port is a
      * distinct resource from the same path on the default port, so the port is kept in the key and
      * the two must NOT collapse onto one identity.

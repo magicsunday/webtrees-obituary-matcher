@@ -134,11 +134,16 @@ final class UrlNormalizer
 
             [$name] = explode('=', $pair, 2);
 
-            if (str_starts_with($name, 'utm_')) {
+            // Match the tracking-strip list case-insensitively (so "UTM_SOURCE", "Fbclid", "GCLID"
+            // are stripped too), but keep the ORIGINAL pair bytes for a retained parameter: query
+            // parameter names are case-sensitive in general, only the tracking-strip match folds case.
+            $lowerName = strtolower($name);
+
+            if (str_starts_with($lowerName, 'utm_')) {
                 continue;
             }
 
-            if (in_array($name, self::TRACKING_PARAMS, true)) {
+            if (in_array($lowerName, self::TRACKING_PARAMS, true)) {
                 continue;
             }
 
