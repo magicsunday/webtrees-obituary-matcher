@@ -78,24 +78,26 @@ final class AtomicFile
 
         $tmpPath = $path . '.tmp.' . uniqid('', true);
 
-        if (file_put_contents($tmpPath, $json) === false) {
-            throw new RuntimeException(
-                sprintf('Failed to write temporary queue file: %s', $tmpPath)
-            );
-        }
-
-        // Wrap the rename so the temp file is always cleaned up on failure. A custom error handler
-        // (webtrees installs one) can convert the rename E_WARNING into a thrown exception FROM
-        // rename() itself, bypassing the "if (!rename(...))" branch and leaking the *.tmp.* file;
-        // catching every Throwable and removing the temp file in the catch closes that leak too.
+        // Wrap BOTH the write and the rename so the temp file is always cleaned up on failure. A
+        // custom error handler (webtrees installs one) can convert a file_put_contents or rename
+        // E_WARNING into a thrown exception FROM the call itself, bypassing the explicit failure
+        // branches and leaking the *.tmp.* file once it has been created on disk (a partial write on
+        // a full filesystem creates the temp file, then fails); catching every Throwable and removing
+        // the temp file in the catch closes both leaks.
         try {
+            if (file_put_contents($tmpPath, $json) === false) {
+                throw new RuntimeException(
+                    sprintf('Failed to write temporary queue file: %s', $tmpPath)
+                );
+            }
+
             if (!rename($tmpPath, $path)) {
                 throw new RuntimeException(
                     sprintf('Failed to atomically rename %s to %s', $tmpPath, $path)
                 );
             }
         } catch (Throwable $exception) {
-            // Remove the orphaned temp file so a failed rename does not leak a *.tmp.* file.
+            // Remove the orphaned temp file so a failed write or rename does not leak a *.tmp.* file.
             if (is_file($tmpPath)) {
                 unlink($tmpPath);
             }

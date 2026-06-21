@@ -113,6 +113,49 @@ final class AtomicFileTest extends TempDirTestCase
     }
 
     /**
+     * The write itself can fail AFTER the temporary file has already been created on disk — a real
+     * partial write (a full filesystem, or a warning the webtrees error handler converts into a thrown
+     * exception). A stream wrapper reproduces exactly that: stream_open creates the backing temp file,
+     * but the first stream_write fails, so file_put_contents reports failure with the temp file
+     * already present. writeJson must then propagate the failure AND clean up the partial temp file,
+     * so a failed write never leaks a *.tmp.* file into the queue directory. Under the old
+     * write-outside-the-try order the partial temp file would leak.
+     */
+    #[Test]
+    public function writeJsonCleansUpTheTempFileWhenTheWriteItselfFailsAfterCreation(): void
+    {
+        FailingWriteStreamWrapper::register();
+
+        // The webtrees error handler converts the partial-write E_WARNING into a thrown exception,
+        // which leaves file_put_contents through a throw rather than a false return — so the cleanup
+        // must be reachable from inside the write step, not only from the rename branch.
+        set_error_handler(static function (int $severity, string $message): bool {
+            throw new ErrorException($message, 0, $severity);
+        });
+
+        $leftovers = [];
+
+        try {
+            AtomicFile::writeJson(FailingWriteStreamWrapper::SCHEME . '://r.json', ['a' => 1]);
+            self::fail('writeJson must propagate the partial-write failure.');
+        } catch (AssertionFailedError $assertionFailure) {
+            throw $assertionFailure;
+        } catch (Throwable) {
+            // The partial-write failure propagated as expected. Capture any leftover BEFORE the
+            // wrapper teardown removes the backing directory.
+            $glob      = glob(FailingWriteStreamWrapper::backingDirectory() . '/*.tmp.*');
+            $leftovers = ($glob === false) ? [] : $glob;
+        } finally {
+            restore_error_handler();
+            FailingWriteStreamWrapper::unregister();
+        }
+
+        // No leftover *.tmp.* file: the cleanup ran even though the temp file had already been created
+        // on disk before the write failed.
+        self::assertSame([], $leftovers);
+    }
+
+    /**
      * @return array<string, array{0:string}>
      */
     public static function topLevelNonArrayPayloads(): array
