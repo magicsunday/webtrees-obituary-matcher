@@ -1,0 +1,20 @@
+{
+  "jobId": "job-1",
+  "schemaVersion": 1,
+  "results": {
+    "I1": [
+      {
+        "noticeType": "obituary",
+        "name": "Erika Mustermann",
+        "parsedName": {
+          "surname": "",
+          "givenNames": []
+        },
+        "death": "12.03.2024",
+        "url": "https://example.test/traueranzeige/erika",
+        "source": "example.test",
+        "fetchedAt": "2024-03-22T10:00:00+00:00"
+      }
+    ]
+  }
+}
