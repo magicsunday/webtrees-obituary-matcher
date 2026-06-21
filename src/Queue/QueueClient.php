@@ -17,6 +17,7 @@ use RecursiveDirectoryIterator;
 use RecursiveIteratorIterator;
 use RuntimeException;
 use SplFileInfo;
+use Throwable;
 
 use function is_dir;
 use function is_int;
@@ -115,16 +116,25 @@ final readonly class QueueClient
             );
         }
 
-        AtomicFile::writeJson($tempDir . self::REQUEST_FILE, $payload);
+        // Wrap the write AND the publish rename so the populated temp dir is ALWAYS removed on any
+        // failure. A custom error handler (webtrees installs one) can convert a writeJson or rename
+        // E_WARNING into a thrown exception that bypasses the "if (!rename(...))" branch and would
+        // otherwise leak the populated .tmp- directory; catching every Throwable and removing the
+        // temp dir in the catch closes that leak too.
+        try {
+            AtomicFile::writeJson($tempDir . self::REQUEST_FILE, $payload);
 
-        if (!rename($tempDir, $targetDir)) {
-            // The atomic move failed: remove the fully populated temp dir so a failed enqueue does
-            // not leak an orphan .tmp- directory in the queued state.
+            if (!rename($tempDir, $targetDir)) {
+                throw new RuntimeException(
+                    sprintf('Failed to atomically move job %s into the queued state', $jobId)
+                );
+            }
+        } catch (Throwable $exception) {
+            // Remove the fully populated temp dir so a failed enqueue does not leak an orphan .tmp-
+            // directory in the queued state.
             $this->removeDirectory($tempDir);
 
-            throw new RuntimeException(
-                sprintf('Failed to atomically move job %s into the queued state', $jobId)
-            );
+            throw $exception;
         }
 
         return $jobId;

@@ -12,6 +12,7 @@ declare(strict_types=1);
 namespace MagicSunday\ObituaryMatcher\Test\Queue;
 
 use DateTimeImmutable;
+use ErrorException;
 use MagicSunday\ObituaryMatcher\Domain\DateRange;
 use MagicSunday\ObituaryMatcher\Domain\Gender;
 use MagicSunday\ObituaryMatcher\Domain\PersonCandidate;
@@ -26,12 +27,16 @@ use MagicSunday\ObituaryMatcher\Support\FeederCandidateRequest;
 use MagicSunday\ObituaryMatcher\Support\FeederRequest;
 use MagicSunday\ObituaryMatcher\Support\FeederRequestFactory;
 use MagicSunday\ObituaryMatcher\Support\QueryGenerator;
+use PHPUnit\Framework\AssertionFailedError;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\Attributes\UsesClass;
 use RuntimeException;
+use Throwable;
 
 use function chmod;
+use function file_put_contents;
+use function glob;
 use function restore_error_handler;
 use function set_error_handler;
 
@@ -254,6 +259,46 @@ final class QueueClientTest extends TempDirTestCase
 
         $this->expectException(RuntimeException::class);
         $client->enqueue($this->request('job-1'));             // job-1 is done
+    }
+
+    /**
+     * When job creation fails AFTER the temporary directory has been populated — here a custom error
+     * handler (webtrees installs one) converts the publish rename's E_WARNING into a thrown exception,
+     * bypassing the "if (!rename(...))" branch — the exception must still propagate AND the populated
+     * temporary directory must be cleaned up, so a failed enqueue never leaks a .tmp-<jobId>-* orphan
+     * into the queued state root.
+     */
+    #[Test]
+    public function enqueueCleansUpTheTempDirectoryWhenJobCreationThrows(): void
+    {
+        $client = new QueueClient(new QueuePaths($this->tmp));
+        $client->enqueue($this->request('seed'));
+
+        // Occupy the target queued/job-1 slot with a regular FILE (not a directory): the clobber
+        // guard probes with is_dir(), so it does not refuse, yet rename() of the populated temp
+        // directory onto an existing regular file fails — and the installed handler turns that
+        // warning into a thrown exception that bypasses the rename branch.
+        file_put_contents($this->tmp . '/queued/job-1', 'occupied');
+
+        set_error_handler(static function (int $severity, string $message): bool {
+            throw new ErrorException($message, 0, $severity);
+        });
+
+        try {
+            $client->enqueue($this->request('job-1'));
+            self::fail('enqueue must propagate the job-creation failure.');
+        } catch (AssertionFailedError $assertionFailure) {
+            throw $assertionFailure;
+        } catch (Throwable) {
+            // The job-creation failure propagated as expected.
+        } finally {
+            restore_error_handler();
+        }
+
+        // No leftover .tmp-job-1-* directory: the cleanup ran even though the exception bypassed the
+        // "if (!rename(...))" branch.
+        $leftovers = glob($this->tmp . '/queued/.tmp-job-1-*');
+        self::assertSame([], ($leftovers === false) ? [] : $leftovers);
     }
 
     /**
