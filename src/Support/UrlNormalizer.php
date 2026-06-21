@@ -15,6 +15,7 @@ use function explode;
 use function implode;
 use function in_array;
 use function is_array;
+use function mb_strtolower;
 use function parse_url;
 use function sort;
 use function str_starts_with;
@@ -66,7 +67,7 @@ final class UrlNormalizer
         $parts = parse_url($url);
 
         if (!is_array($parts)) {
-            return strtolower(trim($url));
+            return mb_strtolower(trim($url), 'UTF-8');
         }
 
         $scheme = $parts['scheme'] ?? '';
@@ -81,7 +82,7 @@ final class UrlNormalizer
             ($scheme === '')
             || ($host === '')
         ) {
-            return strtolower(trim($url));
+            return mb_strtolower(trim($url), 'UTF-8');
         }
 
         // parse_url() yields no path for "https://example.test" (no trailing slash), which would not
@@ -110,7 +111,7 @@ final class UrlNormalizer
             && ($portNumber === $defaultPorts[$schemeLower]);
         $port = (($portNumber !== null) && !$isDefaultPort) ? ':' . $portNumber : '';
 
-        $result = $schemeLower . '://' . strtolower($host) . $port . $path;
+        $result = $schemeLower . '://' . mb_strtolower($host, 'UTF-8') . $port . $path;
 
         if ($query !== '') {
             $residual = self::residualQuery($query);

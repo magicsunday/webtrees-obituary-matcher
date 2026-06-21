@@ -206,6 +206,28 @@ final class UrlNormalizerTest extends TestCase
     }
 
     /**
+     * A host carrying an uppercase non-ASCII (UTF-8 IDN) character is lower-cased correctly, so the
+     * upper- and lower-case host variants of the same IDN host collapse onto one identity key. Plain
+     * strtolower() is byte-wise ASCII-only and would leave "Ä"/"É" untouched, leaking a duplicate
+     * identity; mb_strtolower() folds the case so the two variants share one key.
+     */
+    #[Test]
+    public function lowerCasesANonAsciiHostMultibyteSafely(): void
+    {
+        // "Ä" lower-cases to "ä" under mb_strtolower but stays "Ä" under plain strtolower.
+        self::assertSame(
+            'https://äöü.test/a',
+            UrlNormalizer::normalizeForIdentity('https://Äöü.test/a'),
+        );
+
+        // The upper- and lower-case host variants collapse onto one identity key.
+        self::assertSame(
+            UrlNormalizer::normalizeForIdentity('https://äöü.test/a'),
+            UrlNormalizer::normalizeForIdentity('https://Äöü.test/a'),
+        );
+    }
+
+    /**
      * Two URLs differing only in the case of their scheme normalise to the same lower-cased identity
      * key, so a scheme-case variant cannot leak past the de-dup (ResponseReader lower-cases the
      * scheme only for its allow-list check, not for the identity key).
