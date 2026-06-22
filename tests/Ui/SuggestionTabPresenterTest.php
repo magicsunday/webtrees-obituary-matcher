@@ -268,4 +268,80 @@ final class SuggestionTabPresenterTest extends TestCase
 
         self::assertSame(1, $store->calls);
     }
+
+    /**
+     * An empty result is memoised too: a candidate with no kept matches reads the store exactly once
+     * across repeated lookups, because the cached empty array still registers as set (`isset([])`).
+     *
+     * @return void
+     */
+    #[Test]
+    public function memoisesEmptyStoreReadPerXref(): void
+    {
+        $store = new class implements MatchStore {
+            /**
+             * The number of times the store was read.
+             *
+             * @var int
+             */
+            public int $calls = 0;
+
+            /**
+             * Returns every stored match for the given candidate.
+             *
+             * @param string $personId The candidate identifier.
+             *
+             * @return list<StoredMatch> The stored matches (always empty in this fake).
+             */
+            public function findByPerson(string $personId): array
+            {
+                ++$this->calls;
+
+                return [];
+            }
+
+            /**
+             * Stores a pending suggestion.
+             *
+             * @param StoredMatch $match The suggestion to store.
+             *
+             * @return bool Always true in this fake.
+             */
+            public function upsertPending(StoredMatch $match): bool
+            {
+                return true;
+            }
+
+            /**
+             * Returns every pending stored match.
+             *
+             * @return list<StoredMatch> The pending matches (always empty in this fake).
+             */
+            public function allPending(): array
+            {
+                return [];
+            }
+
+            /**
+             * Marks the row as rejected.
+             *
+             * @param string      $personId    The candidate identifier.
+             * @param string      $obituaryUrl The source notice URL.
+             * @param string|null $reason      The rejection reason, if any.
+             *
+             * @return void
+             */
+            public function markRejected(string $personId, string $obituaryUrl, ?string $reason): void
+            {
+            }
+        };
+
+        $presenter = new SuggestionTabPresenter($store);
+
+        $presenter->hasContent('I9');
+        $presenter->suggestionsFor('I9');
+        $presenter->hasContent('I9');
+
+        self::assertSame(1, $store->calls);
+    }
 }
