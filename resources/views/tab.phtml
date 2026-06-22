@@ -33,7 +33,7 @@ $statusLabels = [
     <?php foreach ($suggestions as $s) : ?>
         <div class="om-suggestion om-band-<?= e($s->bandKey) ?>">
             <span class="om-score"><?= e((string) $s->score) ?></span>
-            <span class="om-band"><span aria-hidden="true"><?= e($bandIcons[$s->bandKey]) ?></span> <?= e($bandLabels[$s->bandKey]) ?></span>
+            <span class="om-band"><span aria-hidden="true"><?= e($bandIcons[$s->bandKey] ?? '○') ?></span> <?= e($bandLabels[$s->bandKey] ?? $s->bandKey) ?></span>
             <span class="om-status"><?= e($statusLabels[$s->statusKey] ?? $s->statusKey) ?></span>
             <?php if ($s->deathDate !== null) : ?><span class="om-death">† <?= e($s->deathDate) ?></span><?php endif ?>
             <?php if ($s->hardConflict) : ?><span class="om-flag" title="<?= e(I18N::translate('Hard conflict')) ?>">⚠</span><?php endif ?>

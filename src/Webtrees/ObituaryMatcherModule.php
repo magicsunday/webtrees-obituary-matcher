@@ -43,6 +43,11 @@ class ObituaryMatcherModule extends AbstractModule implements ModuleCustomInterf
     use ModuleTabTrait;
 
     /**
+     * @var array<int, SuggestionTabPresenter> Per-request presenter cache keyed by tree id.
+     */
+    private array $presenters = [];
+
+    /**
      * How should this module be identified in the control panel, etc.?
      *
      * @return string The module title shown in the control panel.
@@ -206,6 +211,6 @@ class ObituaryMatcherModule extends AbstractModule implements ModuleCustomInterf
      */
     protected function presenterForTree(Tree $tree): SuggestionTabPresenter
     {
-        return new SuggestionTabPresenter(MatchStoreFactory::forTree($tree));
+        return $this->presenters[$tree->id()] ??= new SuggestionTabPresenter(MatchStoreFactory::forTree($tree));
     }
 }
