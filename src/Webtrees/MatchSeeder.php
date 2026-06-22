@@ -82,21 +82,13 @@ final class MatchSeeder
     ): StoredMatch {
         $obituaryUrl = 'https://trauer.example/' . $xref;
 
-        $extractedFacts = $deathDate === null ? [] : ['deathDate' => $deathDate];
-
-        /** @var ClassifiedMatchArray $match */
-        $match = [
-            'personId'       => $xref,
-            'obituaryUrl'    => $obituaryUrl,
-            'score'          => self::BAND_SCORES[$band] ?? self::DEFAULT_SCORE,
-            'hardConflict'   => false,
-            'signals'        => [],
-            'extractedFacts' => $extractedFacts,
-            'classification' => $band,
-            'ambiguous'      => false,
-            'runnerUp'       => null,
-            'review'         => null,
-        ];
+        // Build the payload from the canonical zero-value shape and override only the keys that
+        // differ, mirroring how ClassifiedMatch::toArray() overrides on top of its base shape. This
+        // keeps the ClassifiedMatchArray literal defined in exactly one place (ClassifiedMatch).
+        $match                   = ClassifiedMatch::emptyArray($xref, $obituaryUrl);
+        $match['score']          = self::BAND_SCORES[$band] ?? self::DEFAULT_SCORE;
+        $match['classification'] = $band;
+        $match['extractedFacts'] = $deathDate === null ? [] : ['deathDate' => $deathDate];
 
         $storedMatch = new StoredMatch($xref, $obituaryUrl, $status, $match);
 

@@ -65,6 +65,23 @@ final class MatchStoreFactory
      */
     public static function pathForTree(string $baseDir, Tree $tree): string
     {
-        return rtrim($baseDir, '/') . '/tree-' . $tree->id();
+        return self::pathForTreeId($baseDir, $tree->id());
+    }
+
+    /**
+     * Returns the tree-scoped store directory below the given base directory for a bare numeric tree
+     * id. The base directory's trailing slash is normalised away and the numeric tree id is appended
+     * as a `tree-<id>` segment. This is the single source for the tree-path layout, so callers that
+     * have only the numeric id (such as the developer seeder CLI) reuse the same definition as
+     * {@see self::pathForTree()} without needing a {@see Tree} object.
+     *
+     * @param string $baseDir The base directory that holds every tree's match store.
+     * @param int    $treeId  The numeric tree id whose store directory is requested.
+     *
+     * @return string The isolated, tree-scoped store directory.
+     */
+    public static function pathForTreeId(string $baseDir, int $treeId): string
+    {
+        return rtrim($baseDir, '/') . '/tree-' . $treeId;
     }
 }

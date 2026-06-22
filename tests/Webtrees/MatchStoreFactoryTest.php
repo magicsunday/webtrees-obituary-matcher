@@ -46,4 +46,16 @@ final class MatchStoreFactoryTest extends TestCase
 
         self::assertSame('/data/matches/tree-3', MatchStoreFactory::pathForTree('/data/matches/', $tree));
     }
+
+    #[Test]
+    public function pathForTreeIdIsScopedByTreeId(): void
+    {
+        self::assertSame('/data/matches/tree-7', MatchStoreFactory::pathForTreeId('/data/matches', 7));
+    }
+
+    #[Test]
+    public function pathForTreeIdTrimsTrailingSlash(): void
+    {
+        self::assertSame('/data/matches/tree-3', MatchStoreFactory::pathForTreeId('/data/matches/', 3));
+    }
 }
