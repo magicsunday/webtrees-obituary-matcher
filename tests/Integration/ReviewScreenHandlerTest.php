@@ -1321,6 +1321,39 @@ final class ReviewScreenHandlerTest extends IntegrationTestCase
     }
 
     /**
+     * POST confirm against a malformed-but-array `match` row whose `extractedFacts` IS an array but whose
+     * `deathDate` is a non-string (e.g. a number from a hand-edited or older-schema row): the
+     * `is_string($isoRaw)` narrowing coerces it to null, the gate denies on the unreadable exact date, and
+     * the confirm degrades to a warning flash with no write and no transition. This pins the `is_string`
+     * branch so a future refactor that dropped it (passing a non-string straight to the gate/converter,
+     * typed `string|null`) would go red on the TypeError instead of regressing to a 500.
+     *
+     * @return void
+     */
+    #[Test]
+    public function postConfirmOnMalformedRowWithNonStringDeathDateDoesNotCrash(): void
+    {
+        // extractedFacts is a valid array but deathDate is an int, so only the is_string() narrowing
+        // (not the is_array() one) stands between the chained read and the typed gate/converter.
+        $match = [
+            'personId'       => 'I2',
+            'obituaryUrl'    => 'https://trauer.example/I2',
+            'hardConflict'   => false,
+            'extractedFacts' => ['deathDate' => 12345],
+        ];
+
+        $key = $this->seedMalformedConfirmableMatch('I2', $match);
+
+        // The non-string date narrows to null → the gate denies (no exact death date) → warning flash, the
+        // row stays pending and no DEAT is written to the tree.
+        $this->assertConfirmRefusedNoTransition('I2', $key);
+
+        $individual = $this->individual('I2', $this->tree);
+        self::assertInstanceOf(Individual::class, $individual);
+        self::assertCount(0, iterator_to_array($individual->facts(['DEAT'], false, null, true)));
+    }
+
+    /**
      * Builds the handler under test, scoped to this test's temp store via the seam override.
      *
      * @return ReviewScreenHandler The handler whose store points at the temp directory.
