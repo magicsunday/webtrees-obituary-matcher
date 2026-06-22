@@ -35,6 +35,7 @@ declare(strict_types=1);
 use MagicSunday\ObituaryMatcher\Matching\FileMatchStore;
 use MagicSunday\ObituaryMatcher\Matching\MatchStatus;
 use MagicSunday\ObituaryMatcher\Webtrees\MatchSeeder;
+use MagicSunday\ObituaryMatcher\Webtrees\MatchStoreFactory;
 
 // This file lives in the global namespace, so `use function`/`use const` for built-ins is a no-op
 // that emits a warning under newer PHP; the built-ins are referenced unqualified directly, matching
@@ -105,8 +106,9 @@ if (!is_string($baseValue)) {
     exit(1);
 }
 
-// Mirror MatchStoreFactory::pathForTree without a Tree object: the CLI has only the numeric id.
-$dir = rtrim($baseValue, '/') . '/tree-' . $treeId;
+// Reuse the single tree-path definition; the CLI has only the numeric id (no Tree object). Casting
+// to int also strips any non-numeric segment such as `../`, closing a latent path-traversal shape.
+$dir = MatchStoreFactory::pathForTreeId($baseValue, (int) $treeId);
 
 $store = new FileMatchStore($dir);
 
