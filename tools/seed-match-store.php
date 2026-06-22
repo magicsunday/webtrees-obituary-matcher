@@ -105,8 +105,17 @@ if (
     exit(1);
 }
 
+// Two layouts resolve the live data dir without --data-path: a Composer/VendorModuleService install
+// (this module at vendor/magicsunday/<m>, webtrees at the sibling vendor/fisharebest/webtrees), and a
+// classic zip/modules_v4 drop-in (this module at <root>/modules_v4/<m>, data dir at <root>/data — the
+// parent three levels up). Try the sibling first, then the drop-in parent; otherwise require --data-path.
 $siblingWebtrees = realpath(__DIR__ . '/../../../fisharebest/webtrees');
-$baseValue       = $options['data-path'] ?? (($siblingWebtrees !== false) ? $siblingWebtrees . '/data/obituary-matcher/matches' : null);
+$parentRoot      = realpath(__DIR__ . '/../../../');
+$baseValue       = $options['data-path'] ?? match (true) {
+    $siblingWebtrees !== false => $siblingWebtrees . '/data/obituary-matcher/matches',
+    ($parentRoot !== false) && is_dir($parentRoot . '/data') => $parentRoot . '/data/obituary-matcher/matches',
+    default => null,
+};
 
 if (!is_string($baseValue)) {
     fwrite(STDERR, 'Could not locate the running-instance webtrees data dir beside this module; pass --data-path=<dir> explicitly.' . PHP_EOL);
