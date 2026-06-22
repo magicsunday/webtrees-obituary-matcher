@@ -23,6 +23,7 @@ use MagicSunday\ObituaryMatcher\Domain\ScoreConfig;
 use MagicSunday\ObituaryMatcher\Domain\SignalScore;
 use MagicSunday\ObituaryMatcher\Scoring\PlaceScorer;
 use MagicSunday\ObituaryMatcher\Support\Normalizer;
+use MagicSunday\ObituaryMatcher\Support\PlaceHierarchy;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\Attributes\UsesClass;
@@ -42,6 +43,7 @@ use PHPUnit\Framework\TestCase;
 #[UsesClass(DateValue::class)]
 #[UsesClass(Gender::class)]
 #[UsesClass(Normalizer::class)]
+#[UsesClass(PlaceHierarchy::class)]
 #[UsesClass(PersonCandidate::class)]
 #[UsesClass(PersonName::class)]
 #[UsesClass(Place::class)]
@@ -165,5 +167,78 @@ final class PlaceScorerTest extends TestCase
 
         self::assertSame(0, $signal->score);
         self::assertSame([], $signal->reasons);
+    }
+
+    /**
+     * A notice place equal to the most-specific segment of a comma-separated GEDCOM residence
+     * hierarchy matches the residence: "Bad Hersfeld" is a segment of
+     * "Bad Hersfeld, Hessen, Deutschland".
+     */
+    #[Test]
+    public function noticeTownMatchesMostSpecificSegmentOfResidenceHierarchy(): void
+    {
+        $candidate = $this->candidate(
+            new Place('Beispielstadt'),
+            [new Place('Bad Hersfeld, Hessen, Deutschland')],
+        );
+
+        $signal = (new PlaceScorer(new ScoreConfig()))->score($candidate, new Place('Bad Hersfeld'));
+
+        self::assertSame(12, $signal->score);
+        self::assertContains('place matches residence', $signal->reasons);
+    }
+
+    /**
+     * A notice place equal to a NON-leading segment of the residence hierarchy still matches:
+     * "Hessen" is the region segment of "Bad Hersfeld, Hessen, Deutschland".
+     */
+    #[Test]
+    public function noticePlaceMatchesAnyInnerSegmentOfResidenceHierarchy(): void
+    {
+        $candidate = $this->candidate(
+            new Place('Beispielstadt'),
+            [new Place('Bad Hersfeld, Hessen, Deutschland')],
+        );
+
+        $signal = (new PlaceScorer(new ScoreConfig()))->score($candidate, new Place('Hessen'));
+
+        self::assertSame(12, $signal->score);
+        self::assertContains('place matches residence', $signal->reasons);
+    }
+
+    /**
+     * The match works for a deeper (four-part) hierarchy too: "Connewitz" is the leading segment
+     * of "Connewitz, Leipzig, Sachsen, Deutschland".
+     */
+    #[Test]
+    public function noticeTownMatchesSegmentOfFourPartResidenceHierarchy(): void
+    {
+        $candidate = $this->candidate(
+            new Place('Beispielstadt'),
+            [new Place('Connewitz, Leipzig, Sachsen, Deutschland')],
+        );
+
+        $signal = (new PlaceScorer(new ScoreConfig()))->score($candidate, new Place('Connewitz'));
+
+        self::assertSame(12, $signal->score);
+        self::assertContains('place matches residence', $signal->reasons);
+    }
+
+    /**
+     * A single-segment (non-comma) residence still matches exactly as before, and a different
+     * single-segment notice place still scores zero: the segment split is a no-op for the simple
+     * case, so non-comma behaviour is unchanged.
+     */
+    #[Test]
+    public function singleSegmentResidenceBehavesAsBefore(): void
+    {
+        $candidate = $this->candidate(new Place('Beispielstadt'), [new Place('Güldengossa')]);
+
+        $match = (new PlaceScorer(new ScoreConfig()))->score($candidate, new Place('Güldengossa'));
+        self::assertSame(12, $match->score);
+
+        $noMatch = (new PlaceScorer(new ScoreConfig()))->score($candidate, new Place('Andernort'));
+        self::assertSame(0, $noMatch->score);
+        self::assertSame([], $noMatch->reasons);
     }
 }

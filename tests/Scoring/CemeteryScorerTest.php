@@ -20,6 +20,7 @@ use MagicSunday\ObituaryMatcher\Domain\ScoreConfig;
 use MagicSunday\ObituaryMatcher\Domain\SignalScore;
 use MagicSunday\ObituaryMatcher\Scoring\CemeteryScorer;
 use MagicSunday\ObituaryMatcher\Support\Normalizer;
+use MagicSunday\ObituaryMatcher\Support\PlaceHierarchy;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\Attributes\UsesClass;
@@ -41,6 +42,7 @@ use PHPUnit\Framework\TestCase;
 #[UsesClass(ScoreConfig::class)]
 #[UsesClass(SignalScore::class)]
 #[UsesClass(Normalizer::class)]
+#[UsesClass(PlaceHierarchy::class)]
 final class CemeteryScorerTest extends TestCase
 {
     /**
@@ -118,38 +120,51 @@ final class CemeteryScorerTest extends TestCase
     }
 
     /**
-     * Characterises the tracked #16 limitation: a MULTI-WORD town named in the cemetery does not
-     * match, because the candidate place is normalised to a single space-joined needle while the
-     * cemetery is matched token-by-token ("bad hersfeld" is never one of ["waldfriedhof", "bad",
-     * "hersfeld"]). The 12-char needle clears the 4-char guard, so the zero comes purely from the
-     * whole-token limitation — not from the length guard. When #16 lands its unified place matcher,
-     * this expectation flips to 10.
+     * A MULTI-WORD town named in the cemetery matches: each word of the candidate place is a
+     * whole token, so "bad" and "hersfeld" are both found among the cemetery tokens
+     * ["waldfriedhof", "bad", "hersfeld"]. Both words clear the 4-char guard, so the score is the
+     * full cemetery-place weight.
      */
     #[Test]
-    public function multiWordTownDoesNotMatchYetIssue16(): void
+    public function multiWordTownMatches(): void
     {
         $signal = (new CemeteryScorer(ScoreConfig::enriched()))->score(
             $this->candidate([new Place('Bad Hersfeld')]),
             new Place('Waldfriedhof Bad Hersfeld'),
         );
 
-        self::assertSame(0, $signal->score);
-        self::assertSame([], $signal->reasons);
+        self::assertSame(10, $signal->score);
+        self::assertStringContainsString('cemetery', implode(' ', $signal->reasons));
     }
 
     /**
-     * Characterises the tracked #16 limitation against the REAL adapter place shape: a
-     * PersonCandidate place built from gedcomName() is the comma-separated GEDCOM hierarchy
-     * "Town, Region, Country", which (commas retained, multi-word) never equals a single cemetery
-     * token, so it scores zero even though the cemetery clearly names the town. #16 must split the
-     * hierarchy to its most-specific segment before matching.
+     * The REAL adapter place shape matches: a PersonCandidate place built from gedcomName() is the
+     * comma-separated GEDCOM hierarchy "Town, Region, Country". Each comma-segment is split out and
+     * tested token-by-token, so the cemetery naming the town scores the full cemetery-place weight.
      */
     #[Test]
-    public function commaSeparatedGedcomHierarchyDoesNotMatchYetIssue16(): void
+    public function commaSeparatedGedcomHierarchyMatches(): void
     {
         $signal = (new CemeteryScorer(ScoreConfig::enriched()))->score(
             $this->candidate([new Place('Bad Hersfeld, Hessen, Deutschland')]),
             new Place('Waldfriedhof Bad Hersfeld'),
+        );
+
+        self::assertSame(10, $signal->score);
+        self::assertStringContainsString('cemetery', implode(' ', $signal->reasons));
+    }
+
+    /**
+     * A multi-word town only phrase-matches when EVERY one of its words is a whole cemetery token:
+     * a cemetery naming just one of the two words ("Hersfeld" but not "Bad") must not match, so the
+     * segment match cannot fire on a partial coincidence.
+     */
+    #[Test]
+    public function multiWordTownNeedsEveryWordAsCemeteryToken(): void
+    {
+        $signal = (new CemeteryScorer(ScoreConfig::enriched()))->score(
+            $this->candidate([new Place('Bad Hersfeld, Hessen, Deutschland')]),
+            new Place('Waldfriedhof Hersfeld'),
         );
 
         self::assertSame(0, $signal->score);

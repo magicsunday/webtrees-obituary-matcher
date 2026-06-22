@@ -16,6 +16,7 @@ use MagicSunday\ObituaryMatcher\Domain\Place;
 use MagicSunday\ObituaryMatcher\Domain\ScoreConfig;
 use MagicSunday\ObituaryMatcher\Domain\SignalScore;
 use MagicSunday\ObituaryMatcher\Support\Normalizer;
+use MagicSunday\ObituaryMatcher\Support\PlaceHierarchy;
 
 use function in_array;
 use function mb_strlen;
@@ -83,12 +84,14 @@ final readonly class CemeteryScorer
             return new SignalScore(0, $max, []);
         }
 
-        // NOTE: matches the candidate place name as a single whole token; a real adapter place name
-        // can be a comma-separated GEDCOM hierarchy ("Town, Region, Country") that this does not yet
-        // split — see issue #16.
+        // A real adapter place name can be a comma-separated GEDCOM hierarchy ("Town, Region,
+        // Country"), so each comma-segment is tested as its own whole token against the cemetery.
+        // The per-segment >= 4-char guard in isWholeTokenMatch() still applies.
         foreach ($candidate->places as $residence) {
-            if ($this->isWholeTokenMatch($residence->name, $tokens)) {
-                return new SignalScore(min(self::CEMETERY_PLACE, $max), $max, ['cemetery names a known place']);
+            foreach (PlaceHierarchy::segments($residence->name) as $segment) {
+                if ($this->isWholeTokenMatch($segment, $tokens)) {
+                    return new SignalScore(min(self::CEMETERY_PLACE, $max), $max, ['cemetery names a known place']);
+                }
             }
         }
 
@@ -105,12 +108,17 @@ final readonly class CemeteryScorer
     }
 
     /**
-     * Returns whether the normalised value (≥ 4 chars) is one of the whole tokens.
+     * Returns whether the normalised value (≥ 4 chars) is phrase-matched by the cemetery tokens.
      *
-     * @param string       $value  The candidate place name or region.
+     * A candidate place segment can itself be multi-word ("Bad Hersfeld"), so the normalised value
+     * is split into its words and EVERY word must appear as a whole cemetery token. A single-word
+     * value reduces to the original whole-token check. The ≥ 4-char guard applies to the whole
+     * normalised value (as before), suppressing short-substring noise such as "Au".
+     *
+     * @param string       $value  The candidate place name segment or region.
      * @param list<string> $tokens The normalised cemetery tokens.
      *
-     * @return bool
+     * @return bool Whether every word of the value is a whole cemetery token.
      */
     private function isWholeTokenMatch(string $value, array $tokens): bool
     {
@@ -120,7 +128,19 @@ final readonly class CemeteryScorer
             return false;
         }
 
-        return in_array($needle, $tokens, true);
+        $words = preg_split('/\s+/', $needle, -1, PREG_SPLIT_NO_EMPTY);
+
+        if (($words === false) || ($words === [])) {
+            return false;
+        }
+
+        foreach ($words as $word) {
+            if (!in_array($word, $tokens, true)) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /**
