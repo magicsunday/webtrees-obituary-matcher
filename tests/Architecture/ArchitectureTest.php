@@ -33,9 +33,10 @@ use PHPUnit\Framework\Attributes\CoversNothing;
  *   - Scoring   (explainable feature scorers over Domain values)
  *   - Queue     (candidate-selection + work-item plumbing over Domain/Parsing/Support)
  *   - Matching  (composition of Scoring/Queue into a match decision)
+ *   - Ui        (webtrees-free presentation: presenters + view models over Matching/Domain/Support)
  *   - Webtrees  (THE ONLY adapter; may import `Fisharebest\Webtrees\*`)
  *
- * The load-bearing invariant is engine purity: the six pure layers above must
+ * The load-bearing invariant is engine purity: the seven pure layers above must
  * never depend on `Fisharebest\Webtrees`, so the scoring engine stays unit
  * testable without a webtrees runtime and reusable outside it. Only the
  * `Webtrees` adapter is allowed to reach into the framework.
@@ -64,9 +65,10 @@ final class ArchitectureTest
     private const string WEBTREES_NAMESPACE = 'Fisharebest\\Webtrees';
 
     /**
-     * The pure layers form the engine core: none of them may depend on the
-     * webtrees framework. This is the load-bearing invariant of the whole module
-     * — the scoring engine must stay unit-testable and reusable without a
+     * The pure layers form the engine core plus the webtrees-free presentation
+     * layer: none of them may depend on the webtrees framework. This is the
+     * load-bearing invariant of the whole module — the scoring engine and the
+     * Ui presenters/view models must stay unit-testable and reusable without a
      * webtrees runtime, so every framework touch is confined to the `Webtrees`
      * adapter. A single violation here means a framework dependency has leaked
      * into the pure core.
@@ -82,6 +84,7 @@ final class ArchitectureTest
                 Selector::inNamespace(self::NAMESPACE_ROOT . '\\Scoring'),
                 Selector::inNamespace(self::NAMESPACE_ROOT . '\\Queue'),
                 Selector::inNamespace(self::NAMESPACE_ROOT . '\\Matching'),
+                Selector::inNamespace(self::NAMESPACE_ROOT . '\\Ui'),
             )
             ->shouldNot()->dependOn()
             ->classes(Selector::inNamespace(self::WEBTREES_NAMESPACE))
@@ -208,6 +211,33 @@ final class ArchitectureTest
             ->shouldNot()->dependOn()
             ->classes(Selector::inNamespace(self::NAMESPACE_ROOT . '\\Webtrees'))
             ->because('Matching is the pure engine apex; the Webtrees adapter drives Matching, never the reverse');
+    }
+
+    /**
+     * Ui is the webtrees-free presentation layer: presenters and view models
+     * that project a stored match into a view-ready shape. It may build only on
+     * the Matching apex (the match-store boundary it reads from) plus Domain and
+     * Support, so it stays unit-testable without a webtrees runtime. It must not
+     * reach into the inner engine layers (Parsing/Scoring/Queue) nor — most
+     * importantly — into the Webtrees adapter: the framework boundary lives one
+     * level above, in the module/tab that drives the presenter. (The
+     * framework-purity half of this is already enforced by
+     * {@see self::pureLayersDoNotDependOnWebtrees()}; this rule additionally
+     * pins the internal-layer boundary.).
+     */
+    #[TestRule]
+    public function uiDependsOnlyOnMatchingDomainAndSupport(): Rule
+    {
+        return PHPat::rule()
+            ->classes(Selector::inNamespace(self::NAMESPACE_ROOT . '\\Ui'))
+            ->shouldNot()->dependOn()
+            ->classes(
+                Selector::inNamespace(self::NAMESPACE_ROOT . '\\Parsing'),
+                Selector::inNamespace(self::NAMESPACE_ROOT . '\\Scoring'),
+                Selector::inNamespace(self::NAMESPACE_ROOT . '\\Queue'),
+                Selector::inNamespace(self::NAMESPACE_ROOT . '\\Webtrees'),
+            )
+            ->because('The Ui presentation layer reads the Matching apex over Domain/Support only; it must stay free of the inner engine layers and the webtrees adapter so it remains unit-testable without a webtrees runtime');
     }
 
     /**

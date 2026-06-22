@@ -37,7 +37,7 @@ use function view;
  * @license https://opensource.org/licenses/GPL-3.0 GNU General Public License v3.0
  * @link    https://github.com/magicsunday/webtrees-obituary-matcher/
  */
-final class ObituaryMatcherModule extends AbstractModule implements ModuleCustomInterface, ModuleTabInterface
+class ObituaryMatcherModule extends AbstractModule implements ModuleCustomInterface, ModuleTabInterface
 {
     use ModuleCustomTrait;
     use ModuleTabTrait;
