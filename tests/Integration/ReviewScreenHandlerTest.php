@@ -39,6 +39,9 @@ use MagicSunday\ObituaryMatcher\Matching\StoredMatch;
 use MagicSunday\ObituaryMatcher\Matching\StoredMatchKey;
 use MagicSunday\ObituaryMatcher\Matching\TerminalMatchTransitionException;
 use MagicSunday\ObituaryMatcher\Matching\WriteBack;
+use MagicSunday\ObituaryMatcher\Support\ConfirmDecision;
+use MagicSunday\ObituaryMatcher\Support\ConfirmGate;
+use MagicSunday\ObituaryMatcher\Support\GedcomDateConverter;
 use MagicSunday\ObituaryMatcher\Test\Support\RemovesFlatTempStoreTrait;
 use MagicSunday\ObituaryMatcher\Ui\BandKey;
 use MagicSunday\ObituaryMatcher\Ui\ObituaryDateFormatter;
@@ -47,13 +50,18 @@ use MagicSunday\ObituaryMatcher\Ui\SourceLink;
 use MagicSunday\ObituaryMatcher\Ui\SuggestionViewModel;
 use MagicSunday\ObituaryMatcher\Ui\TreePersonView;
 use MagicSunday\ObituaryMatcher\Webtrees\MatchSeeder;
+use MagicSunday\ObituaryMatcher\Webtrees\ObituaryWriteBack;
+use MagicSunday\ObituaryMatcher\Webtrees\PortalSourceRepository;
 use MagicSunday\ObituaryMatcher\Webtrees\ReviewScreenHandler;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\Attributes\UsesClass;
 use Psr\Http\Message\ServerRequestFactoryInterface;
 use Psr\Http\Message\ServerRequestInterface;
+use RuntimeException;
+use Throwable;
 
+use function iterator_to_array;
 use function str_repeat;
 use function view;
 
@@ -81,6 +89,12 @@ use function view;
 #[UsesClass(BandKey::class)]
 #[UsesClass(ObituaryDateFormatter::class)]
 #[UsesClass(SourceLink::class)]
+#[UsesClass(ConfirmGate::class)]
+#[UsesClass(ConfirmDecision::class)]
+#[UsesClass(GedcomDateConverter::class)]
+#[UsesClass(ObituaryWriteBack::class)]
+#[UsesClass(PortalSourceRepository::class)]
+#[UsesClass(WriteBack::class)]
 final class ReviewScreenHandlerTest extends IntegrationTestCase
 {
     use RemovesFlatTempStoreTrait;
@@ -177,10 +191,15 @@ final class ReviewScreenHandlerTest extends IntegrationTestCase
         self::assertStringContainsString('<span class="om-band">Strong match</span>', $body);
         // The status block renders the translated pending label for a freshly seeded row.
         self::assertStringContainsString('<span class="om-status">Pending</span>', $body);
-        // The "Confirm as source" affordance renders but stays disabled in this slice — write-back is
-        // 2d-3 (spec §2/§12 + smoke step 5). This re-homes the disabled-button render assertion that
-        // was lost when the standalone TabViewTest was removed.
-        self::assertStringContainsString('<button type="button" disabled>Confirm as source</button>', $body);
+        // The seeded I1 already carries a death date, so the confirm gate denies with the
+        // `tree_already_has_death_date` reason: the Confirm button renders DISABLED (carrying the
+        // reason as its title) and the human-readable reason is surfaced alongside it — never as an
+        // enabled confirm form. This re-homes the disabled-button render assertion that was lost when
+        // the standalone TabViewTest was removed.
+        self::assertStringContainsString('disabled title="This individual already has a death date.">Confirm as source</button>', $body);
+        self::assertStringContainsString('<span class="om-confirm-reason">This individual already has a death date.</span>', $body);
+        // The disabled-gate branch must not emit an enabled confirm form (no confirm POST affordance).
+        self::assertStringNotContainsString('value="confirm"', $body);
         // The tree-person birth and death dates come from the live Individual::getBirthDate()/
         // getDeathDate()->display(), which webtrees emits as a `<span class="date">…</span>`. The
         // TreePersonView DTO is plain text that the template e()-escapes, so the date text must reach
@@ -811,6 +830,375 @@ final class ReviewScreenHandlerTest extends IntegrationTestCase
         $messages = FlashMessages::getMessages();
         self::assertCount(1, $messages);
         self::assertSame('warning', $messages[0]->status);
+    }
+
+    /**
+     * GET renders the ENABLED confirm form when the gate passes: I2 has no death date and the seeded
+     * row carries an exact ISO date, so the review screen emits a real confirm POST form (a submit
+     * button + the hidden `confirm` action), not the disabled placeholder.
+     *
+     * @return void
+     */
+    #[Test]
+    public function getRendersEnabledConfirmFormWhenGatePasses(): void
+    {
+        $key     = $this->seedConfirmableMatch('I2', '2023-09-04');
+        $request = $this->managerGetRequest(ReviewScreenHandler::ROUTE_NAME, ['xref' => 'I2', 'key' => $key]);
+
+        $response = $this->handler()->handle($request);
+
+        $body = (string) $response->getBody();
+
+        self::assertSame(200, $response->getStatusCode());
+        // The confirmable row renders a real confirm POST form, not the disabled placeholder.
+        self::assertStringContainsString('<input type="hidden" name="action" value="confirm">', $body);
+        self::assertStringContainsString('<button type="submit">Confirm as source</button>', $body);
+        self::assertStringNotContainsString('disabled title=', $body);
+    }
+
+    /**
+     * POST confirm writes the sourced DEAT, marks the store confirmed and redirects to the individual
+     * with a success flash. I2 carries no death date and the seeded row carries an exact ISO date, so
+     * the gate passes; auto-accept is ON so the written DEAT commits and the re-fetched individual and
+     * the persisted store row both reflect the confirm (spec §2/§9).
+     *
+     * @return void
+     */
+    #[Test]
+    public function postConfirmWritesMarksAndRedirectsToIndividual(): void
+    {
+        Auth::user()->setPreference(UserInterface::PREF_AUTO_ACCEPT_EDITS, '1');
+
+        $key     = $this->seedConfirmableMatch('I2', '2023-09-04');
+        $request = $this->managerPostRequest(
+            ReviewScreenHandler::ROUTE_NAME,
+            ['xref'   => 'I2', 'key' => $key],
+            ['action' => 'confirm']
+        );
+
+        $response = $this->handler()->handle($request);
+
+        self::assertSame(302, $response->getStatusCode());
+        // Confirm is terminal, so the reviewer lands on the individual page, not the review screen.
+        self::assertStringContainsString('individual', $response->getHeaderLine('Location'));
+        self::assertStringNotContainsString('obituary-review', $response->getHeaderLine('Location'));
+
+        $messages = FlashMessages::getMessages();
+        self::assertCount(1, $messages);
+        self::assertSame('success', $messages[0]->status);
+
+        // The store row transitioned to Confirmed and persisted the WriteBack from the write. A
+        // re-read row reconstructs the write-back as its serialised array shape (StoredMatch::fromArray),
+        // so the deatFactId from the write round-tripped through the store rather than being dropped.
+        $row = $this->store()->findOne('I2', $key);
+        self::assertInstanceOf(StoredMatch::class, $row);
+        self::assertSame(MatchStatus::Confirmed, $row->status);
+        self::assertIsArray($row->writeBack);
+        self::assertArrayHasKey('deatFactId', $row->writeBack);
+        self::assertNotSame('', $row->writeBack['deatFactId']);
+
+        // The live individual now carries exactly one dated DEAT fact (the write reached the tree).
+        $individual = $this->individual('I2', $this->tree);
+        self::assertInstanceOf(Individual::class, $individual);
+
+        $facts = iterator_to_array($individual->facts(['DEAT'], false, null, true));
+        self::assertCount(1, $facts);
+        self::assertStringContainsString('2 DATE 04 SEP 2023', $facts[0]->gedcom());
+    }
+
+    /**
+     * POST confirm on a row the gate refuses (the tree person already has a death date) writes nothing
+     * and does not transition: the server-side ConfirmGate re-check fails (I1 carries a DEAT), so the
+     * handler flashes a warning, redirects back to review and leaves the row pending. The disabled
+     * Confirm button is NOT the authorization control — a hand-crafted POST must still be refused.
+     *
+     * @return void
+     */
+    #[Test]
+    public function postConfirmRefusedByGateWhenTreeHasDeathDate(): void
+    {
+        // I1 carries a DEAT in the fixture, so the gate's treeHasDeathDate conjunct fails.
+        $key = $this->seedConfirmableMatch('I1', '2023-09-04');
+
+        $this->assertConfirmRefusedNoTransition('I1', $key);
+    }
+
+    /**
+     * POST confirm whose writeDeath throws a precondition failure (a stored non-http URL) flashes a
+     * warning and does NOT transition: the write aborts cleanly, no GEDCOM is written and the store
+     * row stays pending (Block A of the separate try/catch, spec §9).
+     *
+     * @return void
+     */
+    #[Test]
+    public function postConfirmWriteBackPreconditionFailDoesNotTransition(): void
+    {
+        // A confirmable gate state (I2 has no death date, exact ISO date) but a non-http stored URL:
+        // the gate passes, then writeDeath throws WriteBackPreconditionException on the bad URL.
+        $key = $this->seedConfirmableMatchRaw('I2', 'ftp://trauer.example/I2', '2023-09-04');
+
+        $this->assertConfirmRefusedNoTransition('I2', $key);
+
+        // The write aborted before any GEDCOM was written, so no DEAT reached the tree.
+        $individual = $this->individual('I2', $this->tree);
+        self::assertInstanceOf(Individual::class, $individual);
+        self::assertCount(0, iterator_to_array($individual->facts(['DEAT'], false, null, true)));
+    }
+
+    /**
+     * POST confirm where the write succeeds but markConfirmed returns false (the row was already
+     * finalised by someone else, or vanished) flashes an "already finalised" warning, NOT the
+     * confirmed-success message: a false return is not success (spec §9). The writer seam writes
+     * fine and the store seam returns false.
+     *
+     * @return void
+     */
+    #[Test]
+    public function postConfirmMarkConfirmedFalseFlashesAlreadyFinalised(): void
+    {
+        // The write succeeds (auto-accept on, gate passes) but markConfirmed returns false: a false
+        // return is not success, so the handler flashes a warning rather than the confirmed message.
+        $status = $this->runConfirmThroughStore($this->storeMarkingConfirmed(false));
+
+        self::assertSame('warning', $status);
+    }
+
+    /**
+     * POST confirm where the write succeeds but markConfirmed throws a non-terminal Throwable (Block B,
+     * the orphan-risk path: the DEAT was written but the store could not record it) flashes a danger
+     * error, NOT a success message (spec §9). The writer seam writes fine; the store seam throws.
+     *
+     * @return void
+     */
+    #[Test]
+    public function postConfirmStoreThrowsAfterWriteFlashesOrphanError(): void
+    {
+        // The write succeeds but markConfirmed throws: the DEAT is orphaned, so the handler surfaces a
+        // danger error (logged for reconciliation) rather than reporting success.
+        $status = $this->runConfirmThroughStore($this->storeThrowingOnConfirmed(new RuntimeException('store down')));
+
+        self::assertSame('danger', $status);
+    }
+
+    /**
+     * A POST confirm WITHOUT a valid CSRF token is rejected by the {@see CheckCsrf} middleware before
+     * the handler runs: it redirects back with no write and no transition. Mirrors the reject/uncertain
+     * CSRF coverage for the confirm action (spec §11).
+     *
+     * @return void
+     */
+    #[Test]
+    public function postConfirmWithoutValidCsrfTokenIsRejectedByMiddleware(): void
+    {
+        $key = $this->seedConfirmableMatch('I2', '2023-09-04');
+        Session::put('CSRF_TOKEN', 'the-session-token');
+
+        $request = $this->managerPostRequest(
+            ReviewScreenHandler::ROUTE_NAME,
+            ['xref'   => 'I2', 'key' => $key],
+            ['action' => 'confirm']
+        );
+
+        $response = (new CheckCsrf())->process($request, $this->handler());
+
+        self::assertSame(302, $response->getStatusCode());
+        // The middleware redirects back to the same request URI; the row is untouched (still pending).
+        self::assertStringContainsString('index.php', $response->getHeaderLine('Location'));
+        self::assertSame(MatchStatus::Pending, $this->store()->findOne('I2', $key)?->status);
+    }
+
+    /**
+     * A non-manager confirm POST is denied by the manager gate (the same gate the GET path enforces),
+     * before any write or transition.
+     *
+     * @return void
+     */
+    #[Test]
+    public function postConfirmNonManagerIsDenied(): void
+    {
+        $key     = $this->seedConfirmableMatch('I2', '2023-09-04');
+        $request = $this->getRequestAs(
+            new GuestUser(),
+            ReviewScreenHandler::ROUTE_NAME,
+            ['xref' => 'I2', 'key' => $key],
+            RequestMethodInterface::METHOD_POST,
+            ['action' => 'confirm']
+        );
+
+        $this->expectException(HttpAccessDeniedException::class);
+
+        $this->handler()->handle($request);
+    }
+
+    /**
+     * Posts a confirm for the given already-seeded row through the real handler and asserts it was
+     * refused without a write: a 302 back to the review screen, exactly one warning flash and the row
+     * left pending. Shared by the gate-refusal and the writeDeath-precondition cases — both abort
+     * before any store transition (spec §9), differing only in the abort cause and the no-DEAT check.
+     *
+     * @param string $xref The candidate identifier whose row was seeded.
+     * @param string $key  The canonical row key of the seeded row.
+     *
+     * @return void
+     */
+    private function assertConfirmRefusedNoTransition(string $xref, string $key): void
+    {
+        $request = $this->managerPostRequest(
+            ReviewScreenHandler::ROUTE_NAME,
+            ['xref'   => $xref, 'key' => $key],
+            ['action' => 'confirm']
+        );
+
+        $response = $this->handler()->handle($request);
+
+        self::assertSame(302, $response->getStatusCode());
+        // Refused before any write — the manager loops back to the review screen, not the individual.
+        self::assertStringContainsString('obituary-review', $response->getHeaderLine('Location'));
+
+        $messages = FlashMessages::getMessages();
+        self::assertCount(1, $messages);
+        self::assertSame('warning', $messages[0]->status);
+
+        // The row never transitioned; it is still pending.
+        self::assertSame(MatchStatus::Pending, $this->store()->findOne($xref, $key)?->status);
+    }
+
+    /**
+     * Drives a confirm POST for a confirmable I2 row through a handler whose store seam is the given
+     * double, while the writer writes against the real tree (auto-accept on, so the write succeeds and
+     * Block B is reached). Asserts the 302 + exactly one flash and returns that flash's status, so the
+     * Block-B return-false and throw cases assert only their distinguishing outcome.
+     *
+     * @param MatchStore $store The store double driving markConfirmed's outcome.
+     *
+     * @return string The single flash message's status.
+     */
+    private function runConfirmThroughStore(MatchStore $store): string
+    {
+        Auth::user()->setPreference(UserInterface::PREF_AUTO_ACCEPT_EDITS, '1');
+
+        $key     = $this->seedConfirmableMatch('I2', '2023-09-04');
+        $handler = $this->handlerWith($store);
+        $request = $this->managerPostRequest(
+            ReviewScreenHandler::ROUTE_NAME,
+            ['xref'   => 'I2', 'key' => $key],
+            ['action' => 'confirm']
+        );
+
+        $response = $handler->handle($request);
+
+        self::assertSame(302, $response->getStatusCode());
+
+        // Block B is only reachable AFTER a successful write: anchor that the DEAT actually reached the
+        // tree, so a 'warning' here proves the post-write markConfirmed-false path (not a gate or
+        // precondition short-circuit, which would warn without ever writing).
+        $individual = $this->individual('I2', $this->tree);
+        self::assertInstanceOf(Individual::class, $individual);
+        self::assertCount(1, iterator_to_array($individual->facts(['DEAT'], false, null, true)));
+
+        $messages = FlashMessages::getMessages();
+        self::assertCount(1, $messages);
+
+        return $messages[0]->status;
+    }
+
+    /**
+     * Builds a confirm handler whose store seam is injected for the Block-B tests. The writer is left
+     * as the production {@see ObituaryWriteBack}, so a confirmable row's write reaches the real tree
+     * (auto-accept on) and Block B runs against the injected store's markConfirmed outcome.
+     *
+     * @param MatchStore $store The store the handler resolves and transitions through.
+     *
+     * @return ReviewScreenHandler The handler with the store seam overridden.
+     */
+    private function handlerWith(MatchStore $store): ReviewScreenHandler
+    {
+        return new class(self::MODULE_NAMESPACE, $store) extends ReviewScreenHandler {
+            /**
+             * @param string     $viewNamespace The view namespace the handler renders under.
+             * @param MatchStore $store         The injected store the handler resolves/transitions through.
+             */
+            public function __construct(string $viewNamespace, private readonly MatchStore $store)
+            {
+                parent::__construct($viewNamespace);
+            }
+
+            /**
+             * Returns the injected store so the confirm transition runs against the configured double.
+             *
+             * @param Tree $tree The tree whose store is requested.
+             *
+             * @return MatchStore The injected store.
+             */
+            protected function storeForTree(Tree $tree): MatchStore
+            {
+                return $this->store;
+            }
+        };
+    }
+
+    /**
+     * Wraps this test's temp-directory store in the configurable double so markConfirmed returns the
+     * given boolean while findOne still reads the real seeded row.
+     *
+     * @param bool $result The boolean markConfirmed returns.
+     *
+     * @return MatchStore The configured store double.
+     */
+    private function storeMarkingConfirmed(bool $result): MatchStore
+    {
+        return new ConfigurableConfirmStore($this->store(), $result);
+    }
+
+    /**
+     * Wraps this test's temp-directory store in the configurable double so markConfirmed throws the
+     * given exception (the Block-B orphan path) while findOne still reads the real seeded row.
+     *
+     * @param Throwable $failure The exception markConfirmed throws.
+     *
+     * @return MatchStore The configured store double.
+     */
+    private function storeThrowingOnConfirmed(Throwable $failure): MatchStore
+    {
+        return new ConfigurableConfirmStore($this->store(), false, $failure);
+    }
+
+    /**
+     * Seeds a pending row whose payload carries an exact ISO death date and no hard conflict, so the
+     * confirm gate passes when the tree person has no death date. The source URL is fabricated from the
+     * XREF exactly like {@see seedPendingMatch()}.
+     *
+     * @param string $xref      The candidate identifier.
+     * @param string $deathDate The exact ISO (`YYYY-MM-DD`) death date the obituary carries.
+     *
+     * @return string The canonical row key for the seeded row.
+     */
+    private function seedConfirmableMatch(string $xref, string $deathDate): string
+    {
+        $match = MatchSeeder::seed($this->store(), $xref, MatchStatus::Pending, 'strong', $deathDate);
+
+        return StoredMatchKey::fromUrl($match->obituaryUrl);
+    }
+
+    /**
+     * Seeds a confirmable pending row carrying an arbitrary (here non-http) source URL so the confirm
+     * write's URL precondition can be exercised end-to-end: the gate still passes (it reads the death
+     * date and the tree state, not the URL), then writeDeath rejects the URL.
+     *
+     * @param string $xref      The candidate identifier.
+     * @param string $url       The raw source notice URL (e.g. a non-http scheme).
+     * @param string $deathDate The exact ISO (`YYYY-MM-DD`) death date the obituary carries.
+     *
+     * @return string The canonical row key for the seeded row.
+     */
+    private function seedConfirmableMatchRaw(string $xref, string $url, string $deathDate): string
+    {
+        $payload                   = ClassifiedMatch::emptyArray($xref, $url);
+        $payload['extractedFacts'] = ['deathDate' => $deathDate];
+
+        $this->store()->upsertPending(new StoredMatch($xref, $url, MatchStatus::Pending, $payload));
+
+        return StoredMatchKey::fromUrl($url);
     }
 
     /**
