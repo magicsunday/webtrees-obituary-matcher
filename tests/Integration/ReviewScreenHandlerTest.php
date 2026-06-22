@@ -166,6 +166,10 @@ final class ReviewScreenHandlerTest extends IntegrationTestCase
         self::assertStringContainsString('<span class="om-band">Strong match</span>', $body);
         // The status block renders the translated pending label for a freshly seeded row.
         self::assertStringContainsString('<span class="om-status">Pending</span>', $body);
+        // The "Confirm as source" affordance renders but stays disabled in this slice — write-back is
+        // 2d-3 (spec §2/§12 + smoke step 5). This re-homes the disabled-button render assertion that
+        // was lost when the standalone TabViewTest was removed.
+        self::assertStringContainsString('<button type="button" disabled>Confirm as source</button>', $body);
     }
 
     /**
@@ -215,8 +219,10 @@ final class ReviewScreenHandlerTest extends IntegrationTestCase
 
     /**
      * A non-HTTP source URL is refused as a link: the rendered tab carries the review affordance but
-     * no outbound source anchor (`target="_blank"`), proving the {@see SuggestionViewModel} HTTP-only
-     * guard reaches the template.
+     * no outbound source anchor (`target="_blank"`) and — re-homing the old `nullSourceRowHasNoHref`
+     * intent — no active anchor for the refused scheme at all (`href="javascript:…"`), proving the
+     * {@see SuggestionViewModel} HTTP-only guard reaches the template rather than leaking the raw
+     * `javascript:` URL into an href.
      *
      * @return void
      */
@@ -227,6 +233,7 @@ final class ReviewScreenHandlerTest extends IntegrationTestCase
 
         self::assertStringContainsString('class="om-review-link"', $html);
         self::assertStringNotContainsString('target="_blank"', $html);
+        self::assertStringNotContainsString('href="javascript:', $html);
     }
 
     /**
