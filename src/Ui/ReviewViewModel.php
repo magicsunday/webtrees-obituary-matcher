@@ -101,7 +101,12 @@ final readonly class ReviewViewModel
         $url    = $match->obituaryUrl;
         $source = SourceLink::fromUrl($url);
 
+        // The death date is surfaced as the dedicated, German-formatted $deathDate field, so it must
+        // not also appear in the iterated facts — otherwise the review screen renders it twice (once
+        // raw under an untranslated "deathDate" key, once formatted). Read it out, then drop the key
+        // from the facts map the view iterates.
         $deathRaw = $extractedFacts['deathDate'] ?? null;
+        unset($extractedFacts['deathDate']);
 
         return new self(
             $person,

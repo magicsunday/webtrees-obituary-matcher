@@ -202,6 +202,23 @@ final class ReviewViewModelTest extends TestCase
     }
 
     /**
+     * The promoted death date is surfaced only as the dedicated formatted field and is dropped from
+     * the iterated extracted facts, so the review screen never renders it twice (once raw under the
+     * untranslated "deathDate" key, once formatted). The other facts (place) survive.
+     *
+     * @return void
+     */
+    #[Test]
+    public function deathDateIsExcludedFromIteratedFactsButExposedFormatted(): void
+    {
+        $vm = ReviewViewModel::fromStoredMatch($this->match(), $this->person());
+
+        self::assertSame('04.09.2023', $vm->deathDate);
+        self::assertArrayNotHasKey('deathDate', $vm->extractedFacts);
+        self::assertSame('Musterstadt', $vm->extractedFacts['place']);
+    }
+
+    /**
      * A runner-up summary is exposed only when present.
      *
      * @return void
