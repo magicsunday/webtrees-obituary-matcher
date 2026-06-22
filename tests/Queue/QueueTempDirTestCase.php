@@ -14,10 +14,12 @@ namespace MagicSunday\ObituaryMatcher\Test\Queue;
 use MagicSunday\ObituaryMatcher\Queue\AtomicFile;
 use MagicSunday\ObituaryMatcher\Queue\QueuePaths;
 use MagicSunday\ObituaryMatcher\Test\Support\TempDirTestCase;
+use RuntimeException;
 
 use function dirname;
 use function file_get_contents;
 use function json_decode;
+use function sprintf;
 
 use const JSON_THROW_ON_ERROR;
 
@@ -46,12 +48,14 @@ abstract class QueueTempDirTestCase extends TempDirTestCase
 
         AtomicFile::ensureDirectory(dirname($path));
 
+        $contents = file_get_contents(__DIR__ . '/../fixtures/' . $fixture);
+
+        if ($contents === false) {
+            throw new RuntimeException(sprintf('Fixture not readable: %s', $fixture));
+        }
+
         /** @var array<string, mixed> $data */
-        $data = json_decode(
-            (string) file_get_contents(__DIR__ . '/../fixtures/' . $fixture),
-            true,
-            flags: JSON_THROW_ON_ERROR
-        );
+        $data = json_decode($contents, true, flags: JSON_THROW_ON_ERROR);
 
         AtomicFile::writeJson($path, $data);
     }
