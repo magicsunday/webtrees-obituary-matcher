@@ -11,6 +11,7 @@ declare(strict_types=1);
 
 namespace MagicSunday\ObituaryMatcher\Test\Matching;
 
+use Closure;
 use MagicSunday\ObituaryMatcher\Domain\Classification;
 use MagicSunday\ObituaryMatcher\Domain\ClassifiedMatch;
 use MagicSunday\ObituaryMatcher\Domain\DateRange;
@@ -33,6 +34,7 @@ use MagicSunday\ObituaryMatcher\Scoring\MatchEngine;
 use MagicSunday\ObituaryMatcher\Support\ObituaryNameParser;
 use MagicSunday\ObituaryMatcher\Test\Support\TempDirTestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\Attributes\UsesClass;
 
@@ -517,21 +519,76 @@ final class FileMatchStoreTest extends TempDirTestCase
     }
 
     /**
-     * markUncertain refuses a terminal row.
+     * markUncertain refuses a terminal row, whether it is rejected OR confirmed (spec §8: you cannot
+     * transition out of a terminal state). The two terminal states are reached through their genuine
+     * store paths — markRejected for the rejected row, a fresh-key Confirmed upsert for the confirmed
+     * row — so each branch of the terminal guard is exercised.
+     *
+     * @param Closure(FileMatchStore, string): void $seedTerminal Drives the store into the terminal state under test.
      *
      * @return void
      */
     #[Test]
-    public function markUncertainThrowsOnTerminalRow(): void
+    #[DataProvider('terminalRowSeedProvider')]
+    public function markUncertainThrowsOnTerminalRow(Closure $seedTerminal): void
     {
         $store = new FileMatchStore($this->tmp);
         $url   = 'https://trauer.example/a';
-        $store->upsertPending($this->pendingMatch('I1', $url));
-        $store->markRejected('I1', $url, null);
+
+        $seedTerminal($store, $url);
 
         $this->expectException(TerminalMatchTransitionException::class);
 
         $store->markUncertain('I1', $url, null);
+    }
+
+    /**
+     * Provides a seeding closure per terminal status, so markUncertain's guard is pinned against both
+     * the rejected and the confirmed terminal rows.
+     *
+     * @return iterable<string, array{Closure(FileMatchStore, string): void}> The terminal seeds.
+     */
+    public static function terminalRowSeedProvider(): iterable
+    {
+        yield 'rejected' => [
+            static function (FileMatchStore $store, string $url): void {
+                $store->upsertPending(self::terminalSeedRow($url, MatchStatus::Pending));
+                $store->markRejected('I1', $url, null);
+            },
+        ];
+
+        yield 'confirmed' => [
+            static function (FileMatchStore $store, string $url): void {
+                // A fresh-key Confirmed upsert lands the row directly in the terminal confirmed state;
+                // the store has no public markConfirmed, so this is how a confirmed row is seeded.
+                $store->upsertPending(self::terminalSeedRow($url, MatchStatus::Confirmed));
+            },
+        ];
+    }
+
+    /**
+     * Builds a minimal stored match for the terminal-seed provider, carrying a valid payload shape and
+     * the given status.
+     *
+     * @param string      $url    The source URL.
+     * @param MatchStatus $status The status to stamp on the seed row.
+     *
+     * @return StoredMatch The seed row.
+     */
+    private static function terminalSeedRow(string $url, MatchStatus $status): StoredMatch
+    {
+        return new StoredMatch('I1', $url, $status, [
+            'personId'       => 'I1',
+            'obituaryUrl'    => $url,
+            'score'          => 80,
+            'hardConflict'   => false,
+            'signals'        => [],
+            'extractedFacts' => [],
+            'classification' => 'probable',
+            'ambiguous'      => false,
+            'runnerUp'       => null,
+            'review'         => null,
+        ]);
     }
 
     /**

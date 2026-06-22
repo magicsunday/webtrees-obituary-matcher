@@ -222,7 +222,8 @@ final class ReviewViewModelTest extends TestCase
     }
 
     /**
-     * A runner-up summary is exposed only when present.
+     * A runner-up summary is exposed only when present, carrying every projected field (name, score,
+     * birth year and birth place).
      *
      * @return void
      */
@@ -246,6 +247,36 @@ final class ReviewViewModelTest extends TestCase
         self::assertNotNull($vm->runnerUp);
         self::assertSame('Karl Vorbild', $vm->runnerUp['name']);
         self::assertSame(74, $vm->runnerUp['score']);
+        self::assertSame(1940, $vm->runnerUp['birthYear']);
+        self::assertSame('Beispieldorf', $vm->runnerUp['birthPlace']);
+    }
+
+    /**
+     * The optional runner-up birth year and birth place narrow to null when their payload values are
+     * typewrong (a string year, an int place) — pinning {@see ReviewViewModel::projectRunnerUp()}'s
+     * defensive `is_int`/`is_string` branches while the required name/score/classification still pass.
+     *
+     * @return void
+     */
+    #[Test]
+    public function runnerUpTypewrongOptionalFieldsNarrowToNull(): void
+    {
+        $vm = ReviewViewModel::fromStoredMatch(
+            $this->match(['runnerUp' => [
+                'personId'       => 'I0982',
+                'score'          => 74,
+                'classification' => 'probable',
+                'name'           => 'Karl Vorbild',
+                'birthYear'      => '1940',
+                'birthPlace'     => 1940,
+            ]]),
+            $this->person()
+        );
+
+        self::assertNotNull($vm->runnerUp);
+        self::assertSame('Karl Vorbild', $vm->runnerUp['name']);
+        self::assertNull($vm->runnerUp['birthYear']);
+        self::assertNull($vm->runnerUp['birthPlace']);
     }
 
     /**
