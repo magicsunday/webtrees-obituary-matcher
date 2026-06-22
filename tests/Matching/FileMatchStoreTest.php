@@ -12,6 +12,7 @@ declare(strict_types=1);
 namespace MagicSunday\ObituaryMatcher\Test\Matching;
 
 use Closure;
+use InvalidArgumentException;
 use MagicSunday\ObituaryMatcher\Domain\Classification;
 use MagicSunday\ObituaryMatcher\Domain\ClassifiedMatch;
 use MagicSunday\ObituaryMatcher\Domain\DateRange;
@@ -48,6 +49,8 @@ use function is_dir;
 use function is_file;
 use function json_encode;
 use function mkdir;
+use function str_repeat;
+use function symlink;
 
 use const JSON_THROW_ON_ERROR;
 
@@ -584,6 +587,97 @@ final class FileMatchStoreTest extends TempDirTestCase
         $store = new FileMatchStore($this->tmp);
 
         self::assertNull($store->findOne('I1', StoredMatchKey::fromUrl('https://trauer.example/missing')));
+    }
+
+    /**
+     * findOne rejects a malformed row key at the path sink rather than building a path from it: a
+     * traversal-shaped key, a too-short key, an uppercase-hex key (the guard is lowercase-only) and a
+     * trailing-newline key (which a non-"/D"-anchored "$" would let slip past) all throw
+     * InvalidArgumentException. Without the guard, findOne would build a path from the raw key and
+     * return null (a silent miss / traversal) rather than throw — so the throw is the discriminator.
+     *
+     * @param string $badKey A row key that is not a 64-character lowercase hex string.
+     *
+     * @return void
+     */
+    #[Test]
+    #[DataProvider('malformedRowKeyProvider')]
+    public function findOneRejectsAMalformedRowKey(string $badKey): void
+    {
+        $store = new FileMatchStore($this->tmp);
+
+        $this->expectException(InvalidArgumentException::class);
+
+        $store->findOne('I1', $badKey);
+    }
+
+    /**
+     * Provides row keys that must be rejected by the path-sink guard: each is NOT a 64-character
+     * lowercase hex string.
+     *
+     * @return iterable<string, array{string}> The malformed row keys.
+     */
+    public static function malformedRowKeyProvider(): iterable
+    {
+        yield 'path traversal' => ['../../etc/passwd'];
+        yield 'too short' => ['abc'];
+        yield 'uppercase hex (guard is lowercase-only)' => [str_repeat('A', 64)];
+        yield 'valid hex with a trailing newline' => [str_repeat('a', 64) . "\n"];
+    }
+
+    /**
+     * findOne accepts a valid 64-character lowercase hex row key (the StoredMatchKey shape) and does
+     * NOT throw: it resolves to the row the upsert wrote. This pins the happy path of the path-sink
+     * guard alongside the malformed-key rejections.
+     *
+     * @return void
+     */
+    #[Test]
+    public function findOneAcceptsAValidHexRowKey(): void
+    {
+        $store = new FileMatchStore($this->tmp);
+        $url   = 'https://trauer.example/a';
+        $store->upsertPending($this->pendingMatch('I1', $url));
+
+        $found = $store->findOne('I1', StoredMatchKey::fromUrl($url));
+
+        self::assertInstanceOf(StoredMatch::class, $found);
+        self::assertSame('I1', $found->personId);
+    }
+
+    /**
+     * A symlinked directory planted at the store root is skipped by the recursive worklist scan: the
+     * symlink target is a real directory OUTSIDE the store holding a fully VALID pending row, so it
+     * WOULD surface through allPending if the scan followed the link. allRows now guards "!isDir() ||
+     * isLink()", so the row under the symlink target never surfaces. The valid in-store row still does
+     * — the exact count is the discriminator (without the isLink() guard the count would be two).
+     *
+     * @return void
+     */
+    #[Test]
+    public function allPendingSkipsASymlinkedDirectoryAtTheStoreRoot(): void
+    {
+        $store = new FileMatchStore($this->tmp);
+        $store->upsertPending($this->pendingMatch('I1', 'https://trauer.example/a'));
+
+        // A real directory OUTSIDE the store root, holding a valid pending row, then symlinked INTO the
+        // store root. If allRows followed the link, isDir() (true through the link) would let it scan
+        // the target and surface the row — the !isLink() guard must skip it.
+        $outsideDir = $this->tmp . '-outside';
+        mkdir($outsideDir, 0o700, true);
+        $hiddenRow = $this->pendingMatch('I9', 'https://trauer.example/hidden');
+        file_put_contents(
+            $outsideDir . '/' . StoredMatchKey::fromUrl('https://trauer.example/hidden') . '.json',
+            json_encode($hiddenRow->toArray(), JSON_THROW_ON_ERROR),
+        );
+
+        if (symlink($outsideDir, $this->tmp . '/evil') !== true) {
+            self::markTestSkipped('symlink() is unavailable on this platform.');
+        }
+
+        $pending = $store->allPending();
+        self::assertCount(1, $pending, 'the symlinked directory at the store root is skipped');
+        self::assertSame('I1', $pending[0]->personId);
     }
 
     /**

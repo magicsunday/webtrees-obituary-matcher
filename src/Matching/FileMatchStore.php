@@ -12,6 +12,7 @@ declare(strict_types=1);
 namespace MagicSunday\ObituaryMatcher\Matching;
 
 use FilesystemIterator;
+use InvalidArgumentException;
 use JsonException;
 use MagicSunday\ObituaryMatcher\Domain\ClassifiedMatch;
 use MagicSunday\ObituaryMatcher\Queue\AtomicFile;
@@ -22,6 +23,7 @@ use UnexpectedValueException;
 use function hash;
 use function is_file;
 use function pathinfo;
+use function preg_match;
 use function sprintf;
 
 use const PATHINFO_EXTENSION;
@@ -264,9 +266,19 @@ final readonly class FileMatchStore implements MatchStore
      * @param string $rowKey   The canonical row key (SHA-256 of the identity-normalised URL).
      *
      * @return string The absolute row path.
+     *
+     * @throws InvalidArgumentException When the row key is not a 64-character lowercase hex string.
      */
     private function pathForRowKey(string $personId, string $rowKey): string
     {
+        // Defence-in-depth at the path sink: the candidate identifier is hashed in dirForPerson, but
+        // the row key is used RAW as the file name and is the only untrusted-shaped path component.
+        // Every current caller passes a 64-hex SHA-256 key, so reject anything else here so a future
+        // caller cannot smuggle a traversal sequence (or a trailing newline past "$") into the path.
+        if (preg_match('/^[0-9a-f]{64}$/D', $rowKey) !== 1) {
+            throw new InvalidArgumentException(sprintf('Invalid row key: %s', $rowKey));
+        }
+
         return sprintf('%s/%s.json', $this->dirForPerson($personId), $rowKey);
     }
 
@@ -340,8 +352,15 @@ final readonly class FileMatchStore implements MatchStore
             }
 
             if (!$fileInfo->isDir()) {
-                // The store root holds only per-candidate sub-directories; a stray top-level file is
-                // not a row and is ignored.
+                // The store root holds only real per-candidate sub-directories; a stray top-level file
+                // is not a row and is ignored.
+                continue;
+            }
+
+            if ($fileInfo->isLink()) {
+                // A symlink is skipped even when isDir() reports true THROUGH the link: this keeps the
+                // read scan from following a link out of the store, mirroring the cleanup trait's
+                // !isLink() guard.
                 continue;
             }
 
