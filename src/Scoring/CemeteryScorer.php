@@ -28,9 +28,13 @@ use const PREG_SPLIT_NO_EMPTY;
 /**
  * Scores the burial cemetery as its own review-visible signal (separate from PlaceScorer, because a
  * cemetery is a burial location, not a residence/birth/death place). The notice cemetery is a
- * free-text Place name like "Waldfriedhof Musterstadt", so the candidate's place is matched as a
- * whole token within the cemetery text (and must be at least 4 characters, to avoid short-substring
- * noise such as "Au" inside "Auenwald"). Positive-only, deliberately weighted low.
+ * free-text Place name like "Waldfriedhof Musterstadt", so the candidate's place is matched against
+ * the cemetery text per word: every word of the (≥ 4-character) candidate segment must appear as a
+ * whole cemetery token. The ≥ 4-character guard applies to the whole normalised segment value, to
+ * avoid short-substring noise such as "Au" inside "Auenwald". Both sides are tokenised on runs of
+ * non-alphanumeric characters, so attached punctuation (commas/periods/parentheses/slashes/hyphens)
+ * in the free-text becomes a token boundary instead of fusing onto a token. Positive-only,
+ * deliberately weighted low.
  *
  * @author  Rico Sonntag <mail@ricosonntag.de>
  * @license https://opensource.org/licenses/GPL-3.0 GNU General Public License v3.0
@@ -113,7 +117,9 @@ final readonly class CemeteryScorer
      * A candidate place segment can itself be multi-word ("Bad Hersfeld"), so the normalised value
      * is split into its words and EVERY word must appear as a whole cemetery token. A single-word
      * value reduces to the original whole-token check. The ≥ 4-char guard applies to the whole
-     * normalised value (as before), suppressing short-substring noise such as "Au".
+     * normalised value (as before), suppressing short-substring noise such as "Au". The split is on
+     * runs of non-alphanumeric characters — the same boundary the cemetery tokens use — so a
+     * candidate segment carrying punctuation is tokenised symmetrically.
      *
      * @param string       $value  The candidate place name segment or region.
      * @param list<string> $tokens The normalised cemetery tokens.
@@ -128,7 +134,7 @@ final readonly class CemeteryScorer
             return false;
         }
 
-        $words = preg_split('/\s+/', $needle, -1, PREG_SPLIT_NO_EMPTY);
+        $words = preg_split('/[^\p{L}\p{N}]+/u', $needle, -1, PREG_SPLIT_NO_EMPTY);
 
         if (($words === false) || ($words === [])) {
             return false;
@@ -144,7 +150,13 @@ final readonly class CemeteryScorer
     }
 
     /**
-     * Splits the normalised cemetery name into whole tokens.
+     * Splits the normalised cemetery name into whole tokens on non-alphanumeric boundaries.
+     *
+     * Splitting on any run of non-alphanumeric characters (not only whitespace) makes the tokens
+     * punctuation-robust: a comma/period/parenthesis/slash/hyphen in the free-text name becomes a
+     * token boundary instead of fusing onto a token (so "Waldfriedhof Bad Hersfeld, Hessen" yields
+     * "hersfeld", not "hersfeld,"). After normalisation the meaningful characters are ASCII letters
+     * and digits, so this cleanly drops the punctuation while leaving real words intact.
      *
      * @param string $value The cemetery free-text name.
      *
@@ -158,7 +170,7 @@ final readonly class CemeteryScorer
             return [];
         }
 
-        $tokens = preg_split('/\s+/', $normalized, -1, PREG_SPLIT_NO_EMPTY);
+        $tokens = preg_split('/[^\p{L}\p{N}]+/u', $normalized, -1, PREG_SPLIT_NO_EMPTY);
 
         return ($tokens === false) ? [] : $tokens;
     }

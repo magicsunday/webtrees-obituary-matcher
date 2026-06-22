@@ -155,6 +155,42 @@ final class CemeteryScorerTest extends TestCase
     }
 
     /**
+     * Punctuation attached to a cemetery word (a comma in a GEDCOM-style free-text name) must not
+     * fuse onto the token and block a match: "Bad Hersfeld, Waldfriedhof" yields the token
+     * "hersfeld" (not "hersfeld,"), so the candidate town "Bad Hersfeld" still scores the full
+     * weight. The comma-bearing word is the ONLY matching token here (no other segment coincides),
+     * so the assertion fails on the unfixed whitespace-only split.
+     */
+    #[Test]
+    public function cemeteryTokenWithTrailingCommaStillMatches(): void
+    {
+        $signal = (new CemeteryScorer(ScoreConfig::enriched()))->score(
+            $this->candidate([new Place('Bad Hersfeld, Hessen, Deutschland')]),
+            new Place('Bad Hersfeld, Waldfriedhof'),
+        );
+
+        self::assertSame(10, $signal->score);
+        self::assertStringContainsString('cemetery', implode(' ', $signal->reasons));
+    }
+
+    /**
+     * Parentheses around a cemetery's place name must not fuse onto the tokens: "Friedhof (Bad
+     * Hersfeld)" yields "bad" and "hersfeld" (not "(bad" / "hersfeld)"), so the candidate town
+     * still phrase-matches and scores the full cemetery-place weight.
+     */
+    #[Test]
+    public function cemeteryTokensWithParenthesesStillMatch(): void
+    {
+        $signal = (new CemeteryScorer(ScoreConfig::enriched()))->score(
+            $this->candidate([new Place('Bad Hersfeld')]),
+            new Place('Friedhof (Bad Hersfeld)'),
+        );
+
+        self::assertSame(10, $signal->score);
+        self::assertStringContainsString('cemetery', implode(' ', $signal->reasons));
+    }
+
+    /**
      * A multi-word town only phrase-matches when EVERY one of its words is a whole cemetery token:
      * a cemetery naming just one of the two words ("Hersfeld" but not "Bad") must not match, so the
      * segment match cannot fire on a partial coincidence.
