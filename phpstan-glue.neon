@@ -1,0 +1,24 @@
+# Dedicated static-analysis config for the procedural glue PHP that the main
+# phpstan.neon (which only analyses src/ + tests/) does not cover, so the glue
+# drifts silently from refactored service signatures.
+#
+# Level 6 catches the contract-break class (arity, argument.type, dead code)
+# with 0 ignores; level 7+ would only add mixed-noise that procedural CLI glue
+# (getopt() etc.) legitimately has. No phpat include (glue is not an
+# architecture layer), no phpunit include (glue has no tests). A SEPARATE tmpDir
+# keeps this cache from clashing with the main config's cache.
+includes:
+    - %currentWorkingDirectory%/.build/vendor/phpstan/phpstan-strict-rules/rules.neon
+    - %currentWorkingDirectory%/.build/vendor/phpstan/phpstan-deprecation-rules/rules.neon
+
+parameters:
+    level: 6
+    phpVersion: 80300
+    tmpDir: %currentWorkingDirectory%/.build/cache/.phpstan-glue.cache
+    paths:
+        - %currentWorkingDirectory%/module.php
+        - %currentWorkingDirectory%/tools/
+    fileExtensions:
+        - php
+    excludePaths:
+        - %currentWorkingDirectory%/.build/

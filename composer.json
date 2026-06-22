@@ -82,6 +82,9 @@
         "ci:test:php:phpstan": [
             "phpstan analyse --configuration phpstan.neon --memory-limit=-1"
         ],
+        "ci:test:php:phpstan-glue": [
+            "phpstan analyse --configuration phpstan-glue.neon --memory-limit=-1"
+        ],
         "ci:test:php:rector": [
             "@ci:rector --dry-run"
         ],
@@ -98,6 +101,7 @@
             "@ci:test:php:lint",
             "@ci:test:php:cgl",
             "@ci:test:php:phpstan",
+            "@ci:test:php:phpstan-glue",
             "@ci:test:php:rector",
             "@ci:test:cpd",
             "@ci:test:php:unit",
