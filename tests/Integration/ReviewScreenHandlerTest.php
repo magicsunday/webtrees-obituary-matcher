@@ -288,6 +288,31 @@ final class ReviewScreenHandlerTest extends IntegrationTestCase
     }
 
     /**
+     * GET renders the conflict field name behind a translated label (Gemini fix-wave R2): a seeded
+     * `death date` conflict — one of the three field names {@see ConflictDetector} emits — must surface
+     * as the translated "Death date" label in the conflicts block, not the raw producer field string.
+     *
+     * @return void
+     */
+    #[Test]
+    public function getRendersConflictFieldWithTranslatedLabel(): void
+    {
+        $key     = $this->seedPendingMatchWithConflict('I1', 'death date', 'hard');
+        $request = $this->managerGetRequest(ReviewScreenHandler::ROUTE_NAME, ['xref' => 'I1', 'key' => $key]);
+
+        $response = $this->handler()->handle($request);
+
+        $body = (string) $response->getBody();
+
+        self::assertSame(200, $response->getStatusCode());
+        // The known `death date` conflict field renders through the label map as the translated
+        // "Death date" label inside the conflict line …
+        self::assertStringContainsString('Death date: 1901 ↔ 1950', $body);
+        // … so the raw, untranslated `death date:` field string must NOT leak into the conflict line.
+        self::assertStringNotContainsString('death date: 1901', $body);
+    }
+
+    /**
      * The tab link's row key resolves the same row via findOne (VM ↔ store normalisation parity).
      * The row is seeded with a raw, un-normalised URL (mixed case + tracking query) so the assertion
      * only holds when the tab's {@see SuggestionViewModel::$rowKey} and the store apply the exact same
@@ -890,6 +915,39 @@ final class ReviewScreenHandlerTest extends IntegrationTestCase
         $obituaryUrl               = 'https://trauer.example/' . $xref;
         $payload                   = ClassifiedMatch::emptyArray($xref, $obituaryUrl);
         $payload['extractedFacts'] = [$factKey => $factValue];
+
+        $this->store()->upsertPending(new StoredMatch($xref, $obituaryUrl, MatchStatus::Pending, $payload));
+
+        return StoredMatchKey::fromUrl($obituaryUrl);
+    }
+
+    /**
+     * Upserts a pending row carrying a single conflict reason so the review screen's conflict
+     * field-label rendering can be exercised end-to-end. The conflict reasons live under the dedicated
+     * `signals.conflicts.reasons` entry exactly as {@see \MagicSunday\ObituaryMatcher\Domain\MatchExplanation::toArray()}
+     * writes them, so the seeded shape mirrors the real payload the producer emits.
+     *
+     * @param string $xref     The candidate identifier.
+     * @param string $field    The conflict field name the detector emits (e.g. 'death date').
+     * @param string $severity The conflict severity value ('hard' or 'soft').
+     *
+     * @return string The canonical row key for the seeded row.
+     */
+    private function seedPendingMatchWithConflict(string $xref, string $field, string $severity): string
+    {
+        $obituaryUrl                     = 'https://trauer.example/' . $xref;
+        $payload                         = ClassifiedMatch::emptyArray($xref, $obituaryUrl);
+        $payload['signals']['conflicts'] = [
+            'score'   => -30,
+            'reasons' => [
+                [
+                    'field'         => $field,
+                    'treeValue'     => '1901',
+                    'obituaryValue' => '1950',
+                    'severity'      => $severity,
+                ],
+            ],
+        ];
 
         $this->store()->upsertPending(new StoredMatch($xref, $obituaryUrl, MatchStatus::Pending, $payload));
 

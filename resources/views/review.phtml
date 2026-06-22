@@ -40,6 +40,15 @@ $factLabels = [
     'place' => I18N::translate('Place'),
 ];
 
+// Labels for the conflict field names ConflictDetector emits ('birth date', 'death date', 'age'). An
+// unknown field falls back to the raw value so a new conflict still renders (untranslated) rather
+// than showing nothing.
+$conflictFieldLabels = [
+    'birth date' => I18N::translate('Birth date'),
+    'death date' => I18N::translate('Death date'),
+    'age'        => I18N::translate('Age'),
+];
+
 // Icon + text per severity (colour alone is forbidden). ConflictSeverity::value() emits only
 // "hard" and "soft"; any other value (including the empty string a malformed payload yields) falls
 // back to the neutral note.
@@ -100,7 +109,7 @@ $severityLabels = [
                     <?php [$severityIcon, $severityLabel] = $severityLabels[$conflict['severity']] ?? $severityLabels['neutral']; ?>
                     <p class="om-conflict om-severity-<?= e($conflict['severity']) ?>">
                         <span aria-hidden="true"><?= e($severityIcon) ?></span> <?= e($severityLabel) ?>:
-                        <?= e($conflict['field']) ?>: <?= e($conflict['treeValue']) ?> ↔ <?= e($conflict['obituaryValue']) ?>
+                        <?= e($conflictFieldLabels[$conflict['field']] ?? $conflict['field']) ?>: <?= e($conflict['treeValue']) ?> ↔ <?= e($conflict['obituaryValue']) ?>
                     </p>
                 <?php endforeach ?>
             </div>
