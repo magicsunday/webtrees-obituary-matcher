@@ -199,6 +199,9 @@ final class ReviewViewModelTest extends TestCase
         self::assertSame('04.09.2023', $vm->deathDate);
         self::assertSame('Maria Mustermann', $vm->person->name);
         self::assertSame('14.03.1931', $vm->person->birthDate);
+        // The DTO's null death date is NOT cross-contaminated by the payload's present deathDate: the
+        // tree side comes solely from the DTO, never the persisted obituary payload.
+        self::assertNull($vm->person->deathDate);
     }
 
     /**

@@ -19,6 +19,7 @@ use Fisharebest\Webtrees\Contracts\UserInterface;
 use Fisharebest\Webtrees\FlashMessages;
 use Fisharebest\Webtrees\GuestUser;
 use Fisharebest\Webtrees\Http\Exceptions\HttpAccessDeniedException;
+use Fisharebest\Webtrees\Http\Exceptions\HttpBadRequestException;
 use Fisharebest\Webtrees\Http\Exceptions\HttpNotFoundException;
 use Fisharebest\Webtrees\Http\Routes\WebRoutes;
 use Fisharebest\Webtrees\Individual;
@@ -360,6 +361,28 @@ final class ReviewScreenHandlerTest extends IntegrationTestCase
         // Uncertain is non-terminal, so it loops back to the review screen (not the individual page).
         self::assertStringContainsString('obituary-review', $response->getHeaderLine('Location'));
         self::assertSame(MatchStatus::Uncertain, $this->store()->findOne('I1', $key)?->status);
+    }
+
+    /**
+     * A POST carrying an unknown decision action is a bad request: the row resolves (a real pending
+     * row is seeded so resolveRow passes), then applyDecision's default arm throws
+     * HttpBadRequestException rather than silently doing nothing.
+     *
+     * @return void
+     */
+    #[Test]
+    public function postWithUnknownActionIsBadRequest(): void
+    {
+        $key     = $this->seedPendingMatch('I1');
+        $request = $this->managerPostRequest(
+            ReviewScreenHandler::ROUTE_NAME,
+            ['xref'   => 'I1', 'key' => $key],
+            ['action' => 'bogus']
+        );
+
+        $this->expectException(HttpBadRequestException::class);
+
+        $this->handler()->handle($request);
     }
 
     /**

@@ -394,6 +394,29 @@ final class FileMatchStoreTest extends TempDirTestCase
     }
 
     /**
+     * findOne is fail-loud on a corrupt row: a wrong-shape JSON file planted exactly where the key
+     * for (I1, url) resolves throws CorruptMatchRowException rather than masquerading as "not found".
+     * This pins the single-key read contract directly on findOne (the upsert path proves the same
+     * readRow semantics from the other side).
+     *
+     * @return void
+     */
+    #[Test]
+    public function findOneOfACorruptRowThrows(): void
+    {
+        $store = new FileMatchStore($this->tmp);
+        $url   = 'https://trauer.example/a';
+        $store->upsertPending($this->pendingMatch('I1', $url));
+
+        $path = $this->tmp . '/' . hash('sha256', 'I1' . "\0" . StoredMatchKey::fromUrl($url)) . '.json';
+        file_put_contents($path, '{"not":"a stored match"}');
+
+        $this->expectException(CorruptMatchRowException::class);
+
+        $store->findOne('I1', StoredMatchKey::fromUrl($url));
+    }
+
+    /**
      * findOne returns null for an unknown key.
      *
      * @return void
@@ -448,6 +471,34 @@ final class FileMatchStoreTest extends TempDirTestCase
         self::assertSame($before, hash_file('sha256', $path), 'idempotent uncertain must not change the file content');
         self::assertSame($mtime, filemtime($path), 'idempotent uncertain must not rewrite the row');
         self::assertSame(MatchStatus::Uncertain, $store->findOne('I1', StoredMatchKey::fromUrl($url))?->status);
+    }
+
+    /**
+     * Re-marking an already-uncertain row with a DIFFERENT reason rewrites the row in place: the
+     * status stays Uncertain, the reason is updated and — the inverse of the idempotency test — the
+     * file content hash changes. This pins the rewrite branch the same-reason no-op skips.
+     *
+     * @return void
+     */
+    #[Test]
+    public function markUncertainUpdatesReasonWhenDifferent(): void
+    {
+        $store = new FileMatchStore($this->tmp);
+        $url   = 'https://trauer.example/a';
+        $store->upsertPending($this->pendingMatch('I1', $url));
+
+        $store->markUncertain('I1', $url, 'first');
+
+        $path   = $this->tmp . '/' . hash('sha256', 'I1' . "\0" . StoredMatchKey::fromUrl($url)) . '.json';
+        $before = hash_file('sha256', $path);
+
+        $store->markUncertain('I1', $url, 'revised');
+
+        $found = $store->findOne('I1', StoredMatchKey::fromUrl($url));
+        self::assertInstanceOf(StoredMatch::class, $found);
+        self::assertSame(MatchStatus::Uncertain, $found->status);
+        self::assertSame('revised', $found->reason);
+        self::assertNotSame($before, hash_file('sha256', $path), 'a different reason must rewrite the file content');
     }
 
     /**
