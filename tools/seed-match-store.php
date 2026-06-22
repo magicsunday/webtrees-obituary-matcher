@@ -64,6 +64,14 @@ if (
     exit(1);
 }
 
+// Fail loud on a non-numeric --tree-id (a typo, or a `../`-style segment) instead of silently
+// coercing it to tree-0 via the (int) cast below.
+if (!ctype_digit($treeId)) {
+    fwrite(STDERR, '--tree-id must be a numeric tree id (the integer primary key).' . PHP_EOL);
+
+    exit(1);
+}
+
 $statusValue = $options['status'] ?? 'pending';
 $status      = is_string($statusValue) ? MatchStatus::tryFrom($statusValue) : null;
 
