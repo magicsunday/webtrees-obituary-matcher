@@ -83,6 +83,19 @@ $death = (array_key_exists('death', $options) && is_string($options['death'])) ?
 // standalone CLI it loads the .build TEST webtrees, whose data dir is not the live instance. The
 // sibling module-updater can use `Webtrees::DATA_DIR` only because it runs as module code inside
 // the live instance; this CLI cannot. A checkout without that sibling layout must pass --data-path.
+// `--data-path` is an optional-value (`::`) long option, so passing it without the `=` form
+// (`--data-path /dir`) parses as `false` rather than the directory. Detect that malformed case
+// explicitly so the user who DID pass the flag gets a precise hint instead of the generic
+// "could not locate the sibling" error below.
+if (
+    array_key_exists('data-path', $options)
+    && !is_string($options['data-path'])
+) {
+    fwrite(STDERR, '--data-path requires the = form, e.g. --data-path=/path/to/data' . PHP_EOL);
+
+    exit(1);
+}
+
 $siblingWebtrees = realpath(__DIR__ . '/../../../fisharebest/webtrees');
 $baseValue       = $options['data-path'] ?? (($siblingWebtrees !== false) ? $siblingWebtrees . '/data/obituary-matcher/matches' : null);
 
