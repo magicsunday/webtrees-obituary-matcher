@@ -30,7 +30,6 @@ final readonly class TreePersonView
      * @param string|null $birthDate  The formatted birth date, or null when absent.
      * @param string|null $birthPlace The birth place, or null when absent.
      * @param string|null $deathDate  The formatted death date, or null when absent.
-     * @param string      $sex        The sex code (M / F / U / X).
      */
     public function __construct(
         public string $xref,
@@ -38,7 +37,6 @@ final readonly class TreePersonView
         public ?string $birthDate,
         public ?string $birthPlace,
         public ?string $deathDate,
-        public string $sex,
     ) {
     }
 }

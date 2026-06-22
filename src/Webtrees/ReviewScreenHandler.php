@@ -243,7 +243,6 @@ class ReviewScreenHandler implements RequestHandlerInterface
             $birthDate->isOK() ? $birthDate->display() : null,
             $birthPlace === '' ? null : $birthPlace,
             $deathDate->isOK() ? $deathDate->display() : null,
-            $individual->sex(),
         );
     }
 

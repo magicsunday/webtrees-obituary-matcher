@@ -90,7 +90,7 @@ final class ReviewViewModelTest extends TestCase
      */
     private function person(): TreePersonView
     {
-        return new TreePersonView('I1', 'Maria Mustermann', '14.03.1931', 'Musterstadt', null, 'F');
+        return new TreePersonView('I1', 'Maria Mustermann', '14.03.1931', 'Musterstadt', null);
     }
 
     /**
