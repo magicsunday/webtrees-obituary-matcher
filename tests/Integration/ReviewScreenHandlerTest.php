@@ -125,8 +125,12 @@ final class ReviewScreenHandlerTest extends IntegrationTestCase
 
         View::registerNamespace(self::MODULE_NAMESPACE, __DIR__ . '/../../resources/views/');
 
+        // The fixture individual carries a real birth AND death date so the render test exercises the
+        // live Individual::getBirthDate()/getDeathDate()->display() path, which webtrees emits as HTML
+        // (a `<span class="date">…</span>`) — the very markup the plain-text TreePersonView DTO must
+        // not leak through the escaping template.
         $this->tree = $this->importFixtureTree(
-            "0 @I1@ INDI\n1 NAME Otto /Vorbild/\n1 SEX M\n1 BIRT\n2 DATE 4 SEP 1901\n2 PLAC Berlin\n"
+            "0 @I1@ INDI\n1 NAME Otto /Vorbild/\n1 SEX M\n1 BIRT\n2 DATE 4 SEP 1901\n2 PLAC Berlin\n1 DEAT\n2 DATE 25 JAN 1932\n"
         );
 
         $this->dir = $this->makeFlatStoreDir('om-review-');
@@ -173,6 +177,14 @@ final class ReviewScreenHandlerTest extends IntegrationTestCase
         // 2d-3 (spec §2/§12 + smoke step 5). This re-homes the disabled-button render assertion that
         // was lost when the standalone TabViewTest was removed.
         self::assertStringContainsString('<button type="button" disabled>Confirm as source</button>', $body);
+        // The tree-person birth and death dates come from the live Individual::getBirthDate()/
+        // getDeathDate()->display(), which webtrees emits as a `<span class="date">…</span>`. The
+        // TreePersonView DTO is plain text that the template e()-escapes, so the date text must reach
+        // the body as plain "1901"/"1932" — and the escaped `&lt;span` markup must NOT leak (the live
+        // smoke bug: the manager saw the literal `<span class="date">…</span>` instead of the date).
+        self::assertStringContainsString('1901', $body);
+        self::assertStringContainsString('1932', $body);
+        self::assertStringNotContainsString('&lt;span', $body);
     }
 
     /**

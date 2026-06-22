@@ -222,10 +222,11 @@ class ReviewScreenHandler implements RequestHandlerInterface
     }
 
     /**
-     * Builds the webtrees-free tree-person projection from the live individual. The display name is
-     * stripped of webtrees' HTML markup so the escaping template renders plain text, and the birth
-     * place uses the raw GEDCOM place name (not the `<bdi>`-wrapped display form), collapsing an
-     * empty place to null.
+     * Builds the webtrees-free tree-person projection from the live individual. The display name and
+     * both dates are stripped of webtrees' HTML markup so the escaping template renders plain text
+     * (`Date::display()` returns a `<span class="date">…</span>`, which would otherwise leak as
+     * escaped markup), and the birth place uses the raw GEDCOM place name (not the `<bdi>`-wrapped
+     * display form), collapsing an empty place to null.
      *
      * @param Individual $individual The individual under review.
      *
@@ -240,9 +241,9 @@ class ReviewScreenHandler implements RequestHandlerInterface
         return new TreePersonView(
             $individual->xref(),
             strip_tags($individual->fullName()),
-            $birthDate->isOK() ? $birthDate->display() : null,
+            $birthDate->isOK() ? strip_tags($birthDate->display()) : null,
             $birthPlace === '' ? null : $birthPlace,
-            $deathDate->isOK() ? $deathDate->display() : null,
+            $deathDate->isOK() ? strip_tags($deathDate->display()) : null,
         );
     }
 
