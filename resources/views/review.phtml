@@ -34,6 +34,12 @@ $signalLabels = [
     'plausibility' => I18N::translate('Plausibility'),
 ];
 
+// Labels for the extracted obituary fact keys the producer emits. An unknown key falls back to the
+// raw key so a new producer fact still renders (untranslated) rather than vanishing.
+$factLabels = [
+    'place' => I18N::translate('Place'),
+];
+
 // Icon + text per severity (colour alone is forbidden). ConflictSeverity::value() emits only
 // "hard" and "soft"; any other value (including the empty string a malformed payload yields) falls
 // back to the neutral note.
@@ -65,7 +71,7 @@ $severityLabels = [
         <section class="om-obituary">
             <h3><?= e(I18N::translate('Obituary')) ?></h3>
             <?php foreach ($vm->extractedFacts as $factKey => $factValue) : ?>
-                <p><?= e($factKey) ?>: <?= e($factValue) ?></p>
+                <p><?= e($factLabels[$factKey] ?? $factKey) ?>: <?= e($factValue) ?></p>
             <?php endforeach ?>
             <?php if ($vm->deathDate !== null) : ?><p><?= e(I18N::translate('Extracted death date')) ?>: <?= e($vm->deathDate) ?></p><?php endif ?>
             <p>

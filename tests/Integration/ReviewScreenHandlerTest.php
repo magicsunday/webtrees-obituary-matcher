@@ -265,6 +265,29 @@ final class ReviewScreenHandlerTest extends IntegrationTestCase
     }
 
     /**
+     * GET renders the obituary extracted-fact keys behind translated labels (Gemini thread 2): a
+     * seeded `place` fact must surface as the translated "Place" label, not the raw producer key.
+     *
+     * @return void
+     */
+    #[Test]
+    public function getRendersExtractedFactKeysWithTranslatedLabel(): void
+    {
+        $key     = $this->seedPendingMatchWithExtractedFact('I1', 'place', 'Berlin');
+        $request = $this->managerGetRequest(ReviewScreenHandler::ROUTE_NAME, ['xref' => 'I1', 'key' => $key]);
+
+        $response = $this->handler()->handle($request);
+
+        $body = (string) $response->getBody();
+
+        self::assertSame(200, $response->getStatusCode());
+        // The known `place` fact key renders through the label map as the translated "Place" label …
+        self::assertStringContainsString('Place: Berlin', $body);
+        // … so the raw, untranslated `place:` key must NOT leak into the obituary fact line.
+        self::assertStringNotContainsString('place: Berlin', $body);
+    }
+
+    /**
      * The tab link's row key resolves the same row via findOne (VM ↔ store normalisation parity).
      * The row is seeded with a raw, un-normalised URL (mixed case + tracking query) so the assertion
      * only holds when the tab's {@see SuggestionViewModel::$rowKey} and the store apply the exact same
@@ -822,6 +845,28 @@ final class ReviewScreenHandlerTest extends IntegrationTestCase
             'birthYear'      => $birthYear,
             'birthPlace'     => 'Beispieldorf',
         ];
+
+        $this->store()->upsertPending(new StoredMatch($xref, $obituaryUrl, MatchStatus::Pending, $payload));
+
+        return StoredMatchKey::fromUrl($obituaryUrl);
+    }
+
+    /**
+     * Upserts a pending row carrying a single extracted obituary fact so the review screen's
+     * fact-label rendering can be exercised end-to-end. The {@see MatchSeeder} only writes a death
+     * date, so the payload is tailored here to carry an arbitrary producer key/value pair.
+     *
+     * @param string $xref      The candidate identifier.
+     * @param string $factKey   The extracted-fact key the producer emits.
+     * @param string $factValue The extracted-fact value.
+     *
+     * @return string The canonical row key for the seeded row.
+     */
+    private function seedPendingMatchWithExtractedFact(string $xref, string $factKey, string $factValue): string
+    {
+        $obituaryUrl               = 'https://trauer.example/' . $xref;
+        $payload                   = ClassifiedMatch::emptyArray($xref, $obituaryUrl);
+        $payload['extractedFacts'] = [$factKey => $factValue];
 
         $this->store()->upsertPending(new StoredMatch($xref, $obituaryUrl, MatchStatus::Pending, $payload));
 
