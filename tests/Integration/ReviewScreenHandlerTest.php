@@ -15,6 +15,9 @@ use Aura\Router\Route;
 use Aura\Router\RouterContainer;
 use Fig\Http\Message\RequestMethodInterface;
 use Fisharebest\Webtrees\Auth;
+use Fisharebest\Webtrees\Contracts\UserInterface;
+use Fisharebest\Webtrees\GuestUser;
+use Fisharebest\Webtrees\Http\Exceptions\HttpAccessDeniedException;
 use Fisharebest\Webtrees\Http\Exceptions\HttpNotFoundException;
 use Fisharebest\Webtrees\Http\Routes\WebRoutes;
 use Fisharebest\Webtrees\Module\ModuleThemeInterface;
@@ -175,6 +178,67 @@ final class ReviewScreenHandlerTest extends IntegrationTestCase
     }
 
     /**
+     * A malformed (non-hex) key 404s at the regex pre-filter, before any row lookup. This
+     * distinguishes the `^[a-f0-9]{64}$` guard branch from the well-formed-but-absent row path that
+     * {@see getUnknownKey404s()} exercises.
+     *
+     * @return void
+     */
+    #[Test]
+    public function getMalformedKey404s(): void
+    {
+        $request = $this->managerGetRequest(
+            ReviewScreenHandler::ROUTE_NAME,
+            ['xref' => 'I1', 'key' => 'not-a-hash']
+        );
+
+        $this->expectException(HttpNotFoundException::class);
+
+        $this->handler()->handle($request);
+    }
+
+    /**
+     * A non-manager (here a guest) is denied even with a seeded pending row, exercising the real
+     * {@see Auth::isManager()} gate rather than the admin happy path.
+     *
+     * @return void
+     */
+    #[Test]
+    public function getNonManagerIsDenied(): void
+    {
+        $key     = $this->seedPendingMatch('I1');
+        $request = $this->nonManagerGetRequest(
+            ReviewScreenHandler::ROUTE_NAME,
+            ['xref' => 'I1', 'key' => $key]
+        );
+
+        $this->expectException(HttpAccessDeniedException::class);
+
+        $this->handler()->handle($request);
+    }
+
+    /**
+     * A well-formed-but-nonexistent XREF makes {@see Registry::individualFactory()} return null, so
+     * the {@see Auth::checkIndividualAccess()} gate throws {@see HttpNotFoundException}. This exercises
+     * the individual-access gate as a manager without needing a non-admin/private-record combination.
+     *
+     * @return void
+     */
+    #[Test]
+    public function getAbsentIndividualIsNotFound(): void
+    {
+        $key     = $this->seedPendingMatch('X9999');
+        $request = $this->managerGetRequest(
+            ReviewScreenHandler::ROUTE_NAME,
+            ['xref' => 'X9999', 'key' => $key]
+        );
+
+        $this->expectException(HttpNotFoundException::class);
+
+        $this->handler()->handle($request);
+    }
+
+    /**
      * Builds the handler under test, scoped to this test's temp store via the seam override.
      *
      * @return ReviewScreenHandler The handler whose store points at the temp directory.
@@ -235,6 +299,38 @@ final class ReviewScreenHandlerTest extends IntegrationTestCase
      */
     private function managerGetRequest(string $routeName, array $attributes): ServerRequestInterface
     {
+        return $this->getRequestAs(Auth::user(), $routeName, $attributes);
+    }
+
+    /**
+     * Builds a GET request authenticated as a non-manager (a guest, who is neither an administrator
+     * nor holds the tree's manager role) so the real {@see Auth::isManager()} deny-branch fires. The
+     * guest is attached as the request's `user` attribute exactly as webtrees' middleware would.
+     *
+     * @param string                $routeName  The route name carried on the route attribute.
+     * @param array<string, string> $attributes The route attributes (xref, key).
+     *
+     * @return ServerRequestInterface The request the handler consumes.
+     */
+    private function nonManagerGetRequest(string $routeName, array $attributes): ServerRequestInterface
+    {
+        return $this->getRequestAs(new GuestUser(), $routeName, $attributes);
+    }
+
+    /**
+     * Builds a GET request carrying the tree, the route, and the given user as request attributes.
+     *
+     * @param UserInterface         $user       The user attached as the request's `user` attribute.
+     * @param string                $routeName  The route name carried on the route attribute.
+     * @param array<string, string> $attributes The route attributes (xref, key).
+     *
+     * @return ServerRequestInterface The request the handler consumes.
+     */
+    private function getRequestAs(
+        UserInterface $user,
+        string $routeName,
+        array $attributes,
+    ): ServerRequestInterface {
         $factory = Registry::container()->get(ServerRequestFactoryInterface::class);
         self::assertInstanceOf(ServerRequestFactoryInterface::class, $factory);
 
@@ -247,7 +343,7 @@ final class ReviewScreenHandlerTest extends IntegrationTestCase
             ->withAttribute('client-ip', '127.0.0.1')
             ->withAttribute('route', $route)
             ->withAttribute('tree', $this->tree)
-            ->withAttribute('user', Auth::user());
+            ->withAttribute('user', $user);
 
         foreach ($attributes as $key => $value) {
             $request = $request->withAttribute($key, $value);
