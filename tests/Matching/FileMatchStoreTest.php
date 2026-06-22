@@ -49,6 +49,8 @@ use function is_dir;
 use function is_file;
 use function json_encode;
 use function mkdir;
+use function restore_error_handler;
+use function set_error_handler;
 use function str_repeat;
 use function symlink;
 
@@ -699,7 +701,18 @@ final class FileMatchStoreTest extends TempDirTestCase
             json_encode($hiddenRow->toArray(), JSON_THROW_ON_ERROR),
         );
 
-        if (symlink($outsideDir, $this->tmp . '/evil') !== true) {
+        // Wrap symlink() in the scoped-error-handler idiom (the AtomicFile W4 pattern): a restricted
+        // platform makes symlink() raise an E_WARNING that PHPUnit converts to a thrown exception BEFORE
+        // the "!== true" check, so the markTestSkipped fallback would otherwise be unreachable.
+        set_error_handler(static fn (): bool => true);
+
+        try {
+            $symlinkCreated = symlink($outsideDir, $this->tmp . '/evil');
+        } finally {
+            restore_error_handler();
+        }
+
+        if ($symlinkCreated !== true) {
             self::markTestSkipped('symlink() is unavailable on this platform.');
         }
 
