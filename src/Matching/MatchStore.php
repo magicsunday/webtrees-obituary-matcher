@@ -51,6 +51,17 @@ interface MatchStore
     public function allPending(): array;
 
     /**
+     * Returns the single stored match addressed by its candidate identifier and row key, or null
+     * when no such row exists. The row key is {@see StoredMatchKey::fromUrl()} over the source URL.
+     *
+     * @param string $personId The candidate identifier.
+     * @param string $rowKey   The canonical row key (SHA-256 of the identity-normalised URL).
+     *
+     * @return StoredMatch|null The stored row, or null when absent.
+     */
+    public function findOne(string $personId, string $rowKey): ?StoredMatch;
+
+    /**
      * Marks the row for the given candidate and source URL as rejected. Rejection is terminal: a
      * later pending upsert for the same key must not resurrect the row.
      *
@@ -64,4 +75,19 @@ interface MatchStore
      *                                          rejection is refused.
      */
     public function markRejected(string $personId, string $obituaryUrl, ?string $reason): void;
+
+    /**
+     * Marks the row for the given candidate and source URL as uncertain. Uncertain is non-terminal:
+     * the row stays reviewable. Re-marking an already-uncertain row with the same reason is a no-op.
+     *
+     * @param string      $personId    The candidate identifier.
+     * @param string      $obituaryUrl The source notice URL (raw, pre-normalisation).
+     * @param string|null $reason      The reviewer note, if any.
+     *
+     * @return void
+     *
+     * @throws TerminalMatchTransitionException When the current row is already terminal
+     *                                          (Confirmed or Rejected): you cannot un-terminal a row.
+     */
+    public function markUncertain(string $personId, string $obituaryUrl, ?string $reason): void;
 }

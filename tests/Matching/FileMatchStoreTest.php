@@ -11,6 +11,7 @@ declare(strict_types=1);
 
 namespace MagicSunday\ObituaryMatcher\Test\Matching;
 
+use Closure;
 use MagicSunday\ObituaryMatcher\Domain\Classification;
 use MagicSunday\ObituaryMatcher\Domain\ClassifiedMatch;
 use MagicSunday\ObituaryMatcher\Domain\DateRange;
@@ -24,6 +25,7 @@ use MagicSunday\ObituaryMatcher\Matching\CorruptMatchRowException;
 use MagicSunday\ObituaryMatcher\Matching\FileMatchStore;
 use MagicSunday\ObituaryMatcher\Matching\MatchStatus;
 use MagicSunday\ObituaryMatcher\Matching\StoredMatch;
+use MagicSunday\ObituaryMatcher\Matching\StoredMatchKey;
 use MagicSunday\ObituaryMatcher\Matching\TerminalMatchTransitionException;
 use MagicSunday\ObituaryMatcher\Parsing\ObituaryDateParser;
 use MagicSunday\ObituaryMatcher\Queue\AtomicFile;
@@ -32,11 +34,16 @@ use MagicSunday\ObituaryMatcher\Scoring\MatchEngine;
 use MagicSunday\ObituaryMatcher\Support\ObituaryNameParser;
 use MagicSunday\ObituaryMatcher\Test\Support\TempDirTestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\Attributes\UsesClass;
 
+use function clearstatcache;
 use function file_put_contents;
+use function filemtime;
 use function glob;
+use function hash;
+use function hash_file;
 use function mkdir;
 
 /**
@@ -58,6 +65,7 @@ use function mkdir;
 #[UsesClass(MatchEngine::class)]
 #[UsesClass(MatchExplanation::class)]
 #[UsesClass(Classifier::class)]
+#[UsesClass(StoredMatchKey::class)]
 final class FileMatchStoreTest extends TempDirTestCase
 {
     /**
@@ -366,6 +374,246 @@ final class FileMatchStoreTest extends TempDirTestCase
 
         $this->expectException(CorruptMatchRowException::class);
         $store->upsertPending($match);
+    }
+
+    /**
+     * findOne returns the row written for the same (person, url), addressed by its row key.
+     *
+     * @return void
+     */
+    #[Test]
+    public function findOneResolvesTheRowUpsertWrote(): void
+    {
+        $store = new FileMatchStore($this->tmp);
+        $url   = 'https://trauer.example/a';
+        $store->upsertPending($this->pendingMatch('I1', $url));
+
+        $found = $store->findOne('I1', StoredMatchKey::fromUrl($url));
+
+        self::assertInstanceOf(StoredMatch::class, $found);
+        self::assertSame('I1', $found->personId);
+        self::assertSame(MatchStatus::Pending, $found->status);
+    }
+
+    /**
+     * findOne is fail-loud on a corrupt row: a wrong-shape JSON file planted exactly where the key
+     * for (I1, url) resolves throws CorruptMatchRowException rather than masquerading as "not found".
+     * This pins the single-key read contract directly on findOne (the upsert path proves the same
+     * readRow semantics from the other side).
+     *
+     * @return void
+     */
+    #[Test]
+    public function findOneOfACorruptRowThrows(): void
+    {
+        $store = new FileMatchStore($this->tmp);
+        $url   = 'https://trauer.example/a';
+        $store->upsertPending($this->pendingMatch('I1', $url));
+
+        $path = $this->tmp . '/' . hash('sha256', 'I1' . "\0" . StoredMatchKey::fromUrl($url)) . '.json';
+        file_put_contents($path, '{"not":"a stored match"}');
+
+        $this->expectException(CorruptMatchRowException::class);
+
+        $store->findOne('I1', StoredMatchKey::fromUrl($url));
+    }
+
+    /**
+     * findOne returns null for an unknown key.
+     *
+     * @return void
+     */
+    #[Test]
+    public function findOneReturnsNullForUnknownKey(): void
+    {
+        $store = new FileMatchStore($this->tmp);
+
+        self::assertNull($store->findOne('I1', StoredMatchKey::fromUrl('https://trauer.example/missing')));
+    }
+
+    /**
+     * markUncertain moves a pending row to uncertain.
+     *
+     * @return void
+     */
+    #[Test]
+    public function markUncertainMovesPendingToUncertain(): void
+    {
+        $store = new FileMatchStore($this->tmp);
+        $url   = 'https://trauer.example/a';
+        $store->upsertPending($this->pendingMatch('I1', $url));
+
+        $store->markUncertain('I1', $url, null);
+
+        self::assertSame(MatchStatus::Uncertain, $store->findOne('I1', StoredMatchKey::fromUrl($url))?->status);
+    }
+
+    /**
+     * Re-marking an already-uncertain row with the same reason does not rewrite the file.
+     *
+     * @return void
+     */
+    #[Test]
+    public function markUncertainIsIdempotentWithoutRewrite(): void
+    {
+        $store = new FileMatchStore($this->tmp);
+        $url   = 'https://trauer.example/a';
+        $store->upsertPending($this->pendingMatch('I1', $url));
+        $store->markUncertain('I1', $url, null);
+
+        $path   = $this->tmp . '/' . hash('sha256', 'I1' . "\0" . StoredMatchKey::fromUrl($url)) . '.json';
+        $before = hash_file('sha256', $path);
+        clearstatcache(true, $path);
+        $mtime = filemtime($path);
+
+        $store->markUncertain('I1', $url, null);
+
+        clearstatcache(true, $path);
+        // Content hash is the primary, FS-resolution-independent assertion; mtime is secondary.
+        self::assertSame($before, hash_file('sha256', $path), 'idempotent uncertain must not change the file content');
+        self::assertSame($mtime, filemtime($path), 'idempotent uncertain must not rewrite the row');
+        self::assertSame(MatchStatus::Uncertain, $store->findOne('I1', StoredMatchKey::fromUrl($url))?->status);
+    }
+
+    /**
+     * Re-marking an already-uncertain row with a DIFFERENT reason rewrites the row in place: the
+     * status stays Uncertain, the reason is updated and — the inverse of the idempotency test — the
+     * file content hash changes. This pins the rewrite branch the same-reason no-op skips.
+     *
+     * @return void
+     */
+    #[Test]
+    public function markUncertainUpdatesReasonWhenDifferent(): void
+    {
+        $store = new FileMatchStore($this->tmp);
+        $url   = 'https://trauer.example/a';
+        $store->upsertPending($this->pendingMatch('I1', $url));
+
+        $store->markUncertain('I1', $url, 'first');
+
+        $path   = $this->tmp . '/' . hash('sha256', 'I1' . "\0" . StoredMatchKey::fromUrl($url)) . '.json';
+        $before = hash_file('sha256', $path);
+
+        $store->markUncertain('I1', $url, 'revised');
+
+        $found = $store->findOne('I1', StoredMatchKey::fromUrl($url));
+        self::assertInstanceOf(StoredMatch::class, $found);
+        self::assertSame(MatchStatus::Uncertain, $found->status);
+        self::assertSame('revised', $found->reason);
+        self::assertNotSame($before, hash_file('sha256', $path), 'a different reason must rewrite the file content');
+    }
+
+    /**
+     * markUncertain on a vanished row is a no-op: it creates no synthetic uncertain row.
+     *
+     * @return void
+     */
+    #[Test]
+    public function markUncertainOnMissingRowIsANoOp(): void
+    {
+        $store = new FileMatchStore($this->tmp);
+
+        $store->markUncertain('I1', 'https://trauer.example/missing', null);
+
+        self::assertNull($store->findOne('I1', StoredMatchKey::fromUrl('https://trauer.example/missing')));
+    }
+
+    /**
+     * markUncertain refuses a terminal row, whether it is rejected OR confirmed (spec §8: you cannot
+     * transition out of a terminal state). The two terminal states are reached through their genuine
+     * store paths — markRejected for the rejected row, a fresh-key Confirmed upsert for the confirmed
+     * row — so each branch of the terminal guard is exercised.
+     *
+     * @param Closure(FileMatchStore, string): void $seedTerminal Drives the store into the terminal state under test.
+     *
+     * @return void
+     */
+    #[Test]
+    #[DataProvider('terminalRowSeedProvider')]
+    public function markUncertainThrowsOnTerminalRow(Closure $seedTerminal): void
+    {
+        $store = new FileMatchStore($this->tmp);
+        $url   = 'https://trauer.example/a';
+
+        $seedTerminal($store, $url);
+
+        $this->expectException(TerminalMatchTransitionException::class);
+
+        $store->markUncertain('I1', $url, null);
+    }
+
+    /**
+     * Provides a seeding closure per terminal status, so markUncertain's guard is pinned against both
+     * the rejected and the confirmed terminal rows.
+     *
+     * @return iterable<string, array{Closure(FileMatchStore, string): void}> The terminal seeds.
+     */
+    public static function terminalRowSeedProvider(): iterable
+    {
+        yield 'rejected' => [
+            static function (FileMatchStore $store, string $url): void {
+                $store->upsertPending(self::terminalSeedRow($url, MatchStatus::Pending));
+                $store->markRejected('I1', $url, null);
+            },
+        ];
+
+        yield 'confirmed' => [
+            static function (FileMatchStore $store, string $url): void {
+                // A fresh-key Confirmed upsert lands the row directly in the terminal confirmed state;
+                // the store has no public markConfirmed, so this is how a confirmed row is seeded.
+                $store->upsertPending(self::terminalSeedRow($url, MatchStatus::Confirmed));
+            },
+        ];
+    }
+
+    /**
+     * Builds a minimal stored match for the terminal-seed provider, carrying a valid payload shape and
+     * the given status.
+     *
+     * @param string      $url    The source URL.
+     * @param MatchStatus $status The status to stamp on the seed row.
+     *
+     * @return StoredMatch The seed row.
+     */
+    private static function terminalSeedRow(string $url, MatchStatus $status): StoredMatch
+    {
+        return new StoredMatch('I1', $url, $status, [
+            'personId'       => 'I1',
+            'obituaryUrl'    => $url,
+            'score'          => 80,
+            'hardConflict'   => false,
+            'signals'        => [],
+            'extractedFacts' => [],
+            'classification' => 'probable',
+            'ambiguous'      => false,
+            'runnerUp'       => null,
+            'review'         => null,
+        ]);
+    }
+
+    /**
+     * Builds a StoredMatch carrying a minimal valid ClassifiedMatchArray payload with
+     * MatchStatus::Pending, mirroring what the ingest pipeline would write.
+     *
+     * @param string $personId    The candidate identifier.
+     * @param string $obituaryUrl The source URL.
+     *
+     * @return StoredMatch The pending stored match.
+     */
+    private function pendingMatch(string $personId, string $obituaryUrl): StoredMatch
+    {
+        return new StoredMatch($personId, $obituaryUrl, MatchStatus::Pending, [
+            'personId'       => $personId,
+            'obituaryUrl'    => $obituaryUrl,
+            'score'          => 80,
+            'hardConflict'   => false,
+            'signals'        => [],
+            'extractedFacts' => [],
+            'classification' => 'probable',
+            'ambiguous'      => false,
+            'runnerUp'       => null,
+            'review'         => null,
+        ]);
     }
 
     /**

@@ -13,13 +13,7 @@ namespace MagicSunday\ObituaryMatcher\Ui;
 
 use MagicSunday\ObituaryMatcher\Domain\ClassifiedMatch;
 use MagicSunday\ObituaryMatcher\Matching\StoredMatch;
-
-use function in_array;
-use function is_string;
-use function parse_url;
-use function preg_match;
-
-use const PHP_URL_HOST;
+use MagicSunday\ObituaryMatcher\Matching\StoredMatchKey;
 
 /**
  * A read-only, view-ready projection of a {@see StoredMatch} for the individual tab. It exposes the
@@ -37,13 +31,6 @@ use const PHP_URL_HOST;
 final readonly class SuggestionViewModel
 {
     /**
-     * The classification values that may pass through to a CSS class.
-     *
-     * @var list<string>
-     */
-    private const array BANDS = ['strong', 'probable', 'possible', 'weak', 'none'];
-
-    /**
      * Constructor.
      *
      * @param int         $score        The match score.
@@ -54,6 +41,7 @@ final readonly class SuggestionViewModel
      * @param string      $statusKey    The lifecycle status backing value.
      * @param bool        $ambiguous    Whether the engine flagged the match as ambiguous.
      * @param bool        $hardConflict Whether the engine flagged a hard conflict.
+     * @param string      $rowKey       The canonical review-route row key.
      */
     public function __construct(
         public int $score,
@@ -64,6 +52,7 @@ final readonly class SuggestionViewModel
         public string $statusKey,
         public bool $ambiguous,
         public bool $hardConflict,
+        public string $rowKey,
     ) {
     }
 
@@ -78,53 +67,19 @@ final readonly class SuggestionViewModel
     {
         $payload = $match->match;
 
-        $band = in_array($payload['classification'], self::BANDS, true)
-            ? $payload['classification']
-            : 'none';
-
         $url    = $match->obituaryUrl;
-        $isHttp = preg_match('~^https?://~i', $url) === 1;
-
-        $host = null;
-
-        if ($isHttp) {
-            $parsedHost = parse_url($url, PHP_URL_HOST);
-
-            if (is_string($parsedHost) && ($parsedHost !== '')) {
-                $host = $parsedHost;
-            }
-        }
+        $source = SourceLink::fromUrl($url);
 
         return new self(
             $payload['score'],
-            $band,
-            self::formatDeathDate($payload['extractedFacts']['deathDate'] ?? null),
-            $isHttp ? $url : null,
-            $host,
+            BandKey::normalise($payload['classification']),
+            ObituaryDateFormatter::toGerman($payload['extractedFacts']['deathDate'] ?? null),
+            $source->href,
+            $source->host,
             $match->status->value,
             $payload['ambiguous'],
             $payload['hardConflict'],
+            StoredMatchKey::fromUrl($url),
         );
-    }
-
-    /**
-     * Formats an ISO `YYYY-MM-DD` death date as a German `DD.MM.YYYY` string, passing any other
-     * shape through unchanged.
-     *
-     * @param string|null $raw The raw extracted death date, or null when absent.
-     *
-     * @return string|null The formatted date, the unchanged raw value, or null.
-     */
-    private static function formatDeathDate(?string $raw): ?string
-    {
-        if ($raw === null) {
-            return null;
-        }
-
-        if (preg_match('/^(\d{4})-(\d{2})-(\d{2})$/', $raw, $matches) === 1) {
-            return $matches[3] . '.' . $matches[2] . '.' . $matches[1];
-        }
-
-        return $raw;
     }
 }

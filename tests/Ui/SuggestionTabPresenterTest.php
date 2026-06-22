@@ -108,6 +108,32 @@ final class SuggestionTabPresenterTest extends TestCase
             public function markRejected(string $personId, string $obituaryUrl, ?string $reason): void
             {
             }
+
+            /**
+             * Returns the single stored match for the given key (unused by these tests).
+             *
+             * @param string $personId The candidate identifier.
+             * @param string $rowKey   The canonical row key.
+             *
+             * @return StoredMatch|null Always null in this fake.
+             */
+            public function findOne(string $personId, string $rowKey): ?StoredMatch
+            {
+                return null;
+            }
+
+            /**
+             * Marks the row as uncertain (no-op in this fake).
+             *
+             * @param string      $personId    The candidate identifier.
+             * @param string      $obituaryUrl The source notice URL.
+             * @param string|null $reason      The reviewer note, if any.
+             *
+             * @return void
+             */
+            public function markUncertain(string $personId, string $obituaryUrl, ?string $reason): void
+            {
+            }
         };
     }
 
@@ -258,6 +284,32 @@ final class SuggestionTabPresenterTest extends TestCase
             public function markRejected(string $personId, string $obituaryUrl, ?string $reason): void
             {
             }
+
+            /**
+             * Returns the single stored match for the given key (unused by these tests).
+             *
+             * @param string $personId The candidate identifier.
+             * @param string $rowKey   The canonical row key.
+             *
+             * @return StoredMatch|null Always null in this fake.
+             */
+            public function findOne(string $personId, string $rowKey): ?StoredMatch
+            {
+                return null;
+            }
+
+            /**
+             * Marks the row as uncertain (no-op in this fake).
+             *
+             * @param string      $personId    The candidate identifier.
+             * @param string      $obituaryUrl The source notice URL.
+             * @param string|null $reason      The reviewer note, if any.
+             *
+             * @return void
+             */
+            public function markUncertain(string $personId, string $obituaryUrl, ?string $reason): void
+            {
+            }
         };
 
         $presenter = new SuggestionTabPresenter($store);
@@ -332,6 +384,32 @@ final class SuggestionTabPresenterTest extends TestCase
              * @return void
              */
             public function markRejected(string $personId, string $obituaryUrl, ?string $reason): void
+            {
+            }
+
+            /**
+             * Returns the single stored match for the given key (unused by these tests).
+             *
+             * @param string $personId The candidate identifier.
+             * @param string $rowKey   The canonical row key.
+             *
+             * @return StoredMatch|null Always null in this fake.
+             */
+            public function findOne(string $personId, string $rowKey): ?StoredMatch
+            {
+                return null;
+            }
+
+            /**
+             * Marks the row as uncertain (no-op in this fake).
+             *
+             * @param string      $personId    The candidate identifier.
+             * @param string      $obituaryUrl The source notice URL.
+             * @param string|null $reason      The reviewer note, if any.
+             *
+             * @return void
+             */
+            public function markUncertain(string $personId, string $obituaryUrl, ?string $reason): void
             {
             }
         };

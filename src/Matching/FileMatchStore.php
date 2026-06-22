@@ -15,7 +15,6 @@ use FilesystemIterator;
 use JsonException;
 use MagicSunday\ObituaryMatcher\Domain\ClassifiedMatch;
 use MagicSunday\ObituaryMatcher\Queue\AtomicFile;
-use MagicSunday\ObituaryMatcher\Support\UrlNormalizer;
 use RuntimeException;
 use SplFileInfo;
 use UnexpectedValueException;
@@ -127,6 +126,21 @@ final readonly class FileMatchStore implements MatchStore
     /**
      * {@inheritDoc}
      *
+     * @param string $personId The candidate identifier.
+     * @param string $rowKey   The canonical row key.
+     *
+     * @return StoredMatch|null The stored row, or null when absent.
+     */
+    public function findOne(string $personId, string $rowKey): ?StoredMatch
+    {
+        // The fail-loud single-key read (readRow) matches markRejected's semantics: a corrupt target
+        // throws rather than masquerading as "not found".
+        return $this->readRow($this->pathForRowKey($personId, $rowKey));
+    }
+
+    /**
+     * {@inheritDoc}
+     *
      * @param string      $personId    The candidate identifier.
      * @param string      $obituaryUrl The source notice URL (raw, pre-normalisation).
      * @param string|null $reason      The rejection reason, if any.
@@ -188,7 +202,79 @@ final readonly class FileMatchStore implements MatchStore
     }
 
     /**
-     * Returns the absolute path of the JSON row for the given (candidate, normalised URL) key.
+     * {@inheritDoc}
+     *
+     * @param string      $personId    The candidate identifier.
+     * @param string      $obituaryUrl The source notice URL (raw, pre-normalisation).
+     * @param string|null $reason      The reviewer note, if any.
+     *
+     * @return void
+     *
+     * @throws TerminalMatchTransitionException When the current row is already terminal.
+     */
+    public function markUncertain(string $personId, string $obituaryUrl, ?string $reason): void
+    {
+        $path     = $this->pathForRowKey($personId, StoredMatchKey::fromUrl($obituaryUrl));
+        $existing = $this->readRow($path);
+
+        if (!$existing instanceof StoredMatch) {
+            // Nothing to mark: the row vanished (a concurrent delete). "Uncertain" is meaningless
+            // without an existing match, so this is a no-op — NOT a synthetic empty row. (This is a
+            // deliberate divergence from markRejected, whose empty tombstone blocks a re-ingest from
+            // resurrecting a rejected decision; uncertain has no such dedup purpose.)
+            return;
+        }
+
+        if ($existing->status->isTerminal()) {
+            throw new TerminalMatchTransitionException(
+                sprintf(
+                    'Cannot mark match for person %s uncertain: it is already %s.',
+                    $personId,
+                    $existing->status->value
+                )
+            );
+        }
+
+        if (
+            ($existing->status === MatchStatus::Uncertain)
+            && ($existing->reason === $reason)
+        ) {
+            // Already uncertain with the same reviewer note: an idempotent no-op, no rewrite, so the
+            // mtime-based tab/asset cache stays stable.
+            return;
+        }
+
+        $uncertain = new StoredMatch(
+            $personId,
+            $obituaryUrl,
+            MatchStatus::Uncertain,
+            $existing->match,
+            $reason,
+            $existing->writeBack,
+        );
+
+        $this->ensureLayout();
+
+        AtomicFile::writeJson($path, $uncertain->toArray());
+    }
+
+    /**
+     * Returns the absolute path of the JSON row for the given (candidate, row key) pair.
+     *
+     * @param string $personId The candidate identifier.
+     * @param string $rowKey   The canonical row key (SHA-256 of the identity-normalised URL).
+     *
+     * @return string The absolute row path.
+     */
+    private function pathForRowKey(string $personId, string $rowKey): string
+    {
+        $key = hash('sha256', $personId . "\0" . $rowKey);
+
+        return sprintf('%s/%s.json', $this->dir, $key);
+    }
+
+    /**
+     * Returns the absolute path of the JSON row for the given (candidate, raw URL) pair.
      *
      * @param string $personId    The candidate identifier.
      * @param string $obituaryUrl The source notice URL (raw, pre-normalisation).
@@ -197,10 +283,7 @@ final readonly class FileMatchStore implements MatchStore
      */
     private function pathFor(string $personId, string $obituaryUrl): string
     {
-        $urlHash = hash('sha256', UrlNormalizer::normalizeForIdentity($obituaryUrl));
-        $key     = hash('sha256', $personId . "\0" . $urlHash);
-
-        return sprintf('%s/%s.json', $this->dir, $key);
+        return $this->pathForRowKey($personId, StoredMatchKey::fromUrl($obituaryUrl));
     }
 
     /**

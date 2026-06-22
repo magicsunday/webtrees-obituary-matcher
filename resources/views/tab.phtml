@@ -3,8 +3,11 @@
 declare(strict_types=1);
 
 use Fisharebest\Webtrees\I18N;
+use Fisharebest\Webtrees\Individual;
 use MagicSunday\ObituaryMatcher\Ui\SuggestionViewModel;
+use MagicSunday\ObituaryMatcher\Webtrees\ReviewScreenHandler;
 
+/** @var Individual $individual */
 /** @var list<SuggestionViewModel> $suggestions */
 
 $bandLabels = [
@@ -41,7 +44,8 @@ $statusLabels = [
             <?php if ($s->sourceUrl !== null) : ?>
                 <a href="<?= e($s->sourceUrl) ?>" target="_blank" rel="noopener noreferrer"><?= e($s->sourceHost ?? $s->sourceUrl) ?></a>
             <?php endif ?>
-            <button type="button" disabled><?= e(I18N::translate('Review')) ?></button>
+            <a class="om-review-link"
+               href="<?= e(route(ReviewScreenHandler::ROUTE_NAME, ['tree' => $individual->tree()->name(), 'xref' => $individual->xref(), 'key' => $s->rowKey])) ?>"><?= e(I18N::translate('Review')) ?></a>
         </div>
     <?php endforeach ?>
 </div>

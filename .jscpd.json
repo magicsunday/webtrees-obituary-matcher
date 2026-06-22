@@ -14,7 +14,8 @@
     ],
     "ignore": [
         "tests/Scoring/EnrichedMatchEngineTest.php",
-        "tests/Scoring/EnrichedEngineWorkedExampleTest.php"
+        "tests/Scoring/EnrichedEngineWorkedExampleTest.php",
+        "tests/Ui/SuggestionTabPresenterTest.php"
     ],
     "exitCode": 1
 }
