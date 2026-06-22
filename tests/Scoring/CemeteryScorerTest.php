@@ -118,6 +118,45 @@ final class CemeteryScorerTest extends TestCase
     }
 
     /**
+     * Characterises the tracked #16 limitation: a MULTI-WORD town named in the cemetery does not
+     * match, because the candidate place is normalised to a single space-joined needle while the
+     * cemetery is matched token-by-token ("bad hersfeld" is never one of ["waldfriedhof", "bad",
+     * "hersfeld"]). The 12-char needle clears the 4-char guard, so the zero comes purely from the
+     * whole-token limitation — not from the length guard. When #16 lands its unified place matcher,
+     * this expectation flips to 10.
+     */
+    #[Test]
+    public function multiWordTownDoesNotMatchYetIssue16(): void
+    {
+        $signal = (new CemeteryScorer(ScoreConfig::enriched()))->score(
+            $this->candidate([new Place('Bad Hersfeld')]),
+            new Place('Waldfriedhof Bad Hersfeld'),
+        );
+
+        self::assertSame(0, $signal->score);
+        self::assertSame([], $signal->reasons);
+    }
+
+    /**
+     * Characterises the tracked #16 limitation against the REAL adapter place shape: a
+     * PersonCandidate place built from gedcomName() is the comma-separated GEDCOM hierarchy
+     * "Town, Region, Country", which (commas retained, multi-word) never equals a single cemetery
+     * token, so it scores zero even though the cemetery clearly names the town. #16 must split the
+     * hierarchy to its most-specific segment before matching.
+     */
+    #[Test]
+    public function commaSeparatedGedcomHierarchyDoesNotMatchYetIssue16(): void
+    {
+        $signal = (new CemeteryScorer(ScoreConfig::enriched()))->score(
+            $this->candidate([new Place('Bad Hersfeld, Hessen, Deutschland')]),
+            new Place('Waldfriedhof Bad Hersfeld'),
+        );
+
+        self::assertSame(0, $signal->score);
+        self::assertSame([], $signal->reasons);
+    }
+
+    /**
      * A null cemetery and a non-matching cemetery both score zero.
      */
     #[Test]
