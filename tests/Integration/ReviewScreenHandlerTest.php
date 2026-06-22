@@ -176,6 +176,36 @@ final class ReviewScreenHandlerTest extends IntegrationTestCase
     }
 
     /**
+     * GET renders the full runner-up summary (spec §6): a seeded pending row carrying a runner-up must
+     * surface its name, birth year, birth place and the translated classification band label — not just
+     * the name and score. The runner-up is stamped `probable`, which maps to the translated "Probable
+     * match" label, so the raw band key must NOT leak into the rendered body.
+     *
+     * @return void
+     */
+    #[Test]
+    public function getRendersFullRunnerUpSummary(): void
+    {
+        $key     = $this->seedPendingMatchWithRunnerUp('I1');
+        $request = $this->managerGetRequest(ReviewScreenHandler::ROUTE_NAME, ['xref' => 'I1', 'key' => $key]);
+
+        $response = $this->handler()->handle($request);
+
+        $body = (string) $response->getBody();
+
+        self::assertSame(200, $response->getStatusCode());
+        // The runner-up section now renders the full spec §6 field set, not just name + score. The
+        // birth year and place are anchored to the rendered "Born:" line so a bare-substring match
+        // can't pass on an unrelated occurrence.
+        self::assertStringContainsString('Karl Vorbild', $body);
+        self::assertStringContainsString('Born: 1940 · Beispieldorf', $body);
+        // The classification renders through the band-label map: the translated "Probable match" label
+        // reaches the body inside the runner-up band span, proving the lookup ran rather than emitting
+        // the raw `probable` key.
+        self::assertStringContainsString('<span class="om-band">Probable match</span>', $body);
+    }
+
+    /**
      * The tab link's row key resolves the same row via findOne (VM ↔ store normalisation parity).
      * The row is seeded with a raw, un-normalised URL (mixed case + tracking query) so the assertion
      * only holds when the tab's {@see SuggestionViewModel::$rowKey} and the store apply the exact same
@@ -708,6 +738,34 @@ final class ReviewScreenHandlerTest extends IntegrationTestCase
                 ClassifiedMatch::emptyArray($xref, $url),
             )
         );
+    }
+
+    /**
+     * Upserts a pending row for the given candidate carrying a fully-populated runner-up summary so the
+     * review screen's runner-up block can be exercised end-to-end. The {@see MatchSeeder} fabricates no
+     * runner-up, so the payload is built from the canonical zero-value shape with only the runner-up
+     * overridden — mirroring how {@see seedPendingMatchRaw()} writes a tailored row.
+     *
+     * @param string $xref The candidate identifier.
+     *
+     * @return string The canonical row key for the seeded row.
+     */
+    private function seedPendingMatchWithRunnerUp(string $xref): string
+    {
+        $obituaryUrl         = 'https://trauer.example/' . $xref;
+        $payload             = ClassifiedMatch::emptyArray($xref, $obituaryUrl);
+        $payload['runnerUp'] = [
+            'personId'       => 'I2',
+            'score'          => 74,
+            'classification' => 'probable',
+            'name'           => 'Karl Vorbild',
+            'birthYear'      => 1940,
+            'birthPlace'     => 'Beispieldorf',
+        ];
+
+        $this->store()->upsertPending(new StoredMatch($xref, $obituaryUrl, MatchStatus::Pending, $payload));
+
+        return StoredMatchKey::fromUrl($obituaryUrl);
     }
 
     /**

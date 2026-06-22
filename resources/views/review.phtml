@@ -104,7 +104,12 @@ $severityLabels = [
     <?php if ($vm->runnerUp !== null) : ?>
         <section class="om-runner-up">
             <h3><?= e(I18N::translate('Next best candidate')) ?></h3>
-            <p><?= e($vm->runnerUp['name']) ?> · <?= e((string) $vm->runnerUp['score']) ?></p>
+            <p class="om-name"><?= e($vm->runnerUp['name']) ?></p>
+            <?php if ($vm->runnerUp['birthYear'] !== null) : ?><p><?= e(I18N::translate('Born')) ?>: <?= e((string) $vm->runnerUp['birthYear']) ?><?php if ($vm->runnerUp['birthPlace'] !== null) : ?> · <?= e($vm->runnerUp['birthPlace']) ?><?php endif ?></p><?php elseif ($vm->runnerUp['birthPlace'] !== null) : ?><p><?= e($vm->runnerUp['birthPlace']) ?></p><?php endif ?>
+            <p>
+                <span class="om-score-value"><?= e((string) $vm->runnerUp['score']) ?></span> / 100
+                <span class="om-band"><?= e($bandLabels[$vm->runnerUp['classification']] ?? $vm->runnerUp['classification']) ?></span>
+            </p>
         </section>
     <?php endif ?>
 
