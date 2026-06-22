@@ -116,4 +116,12 @@ final class SuggestionViewModelTest extends TestCase
         self::assertNull($vm->sourceUrl);
         self::assertNull($vm->sourceHost);
     }
+
+    #[Test]
+    public function uppercaseHttpSchemeYieldsLink(): void
+    {
+        $vm = SuggestionViewModel::fromStoredMatch($this->stored($this->payload(url: 'HTTP://trauer.example/x')));
+        self::assertSame('HTTP://trauer.example/x', $vm->sourceUrl);
+        self::assertSame('trauer.example', $vm->sourceHost);
+    }
 }

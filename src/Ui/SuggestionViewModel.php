@@ -18,7 +18,6 @@ use function in_array;
 use function is_string;
 use function parse_url;
 use function preg_match;
-use function str_starts_with;
 
 use const PHP_URL_HOST;
 
@@ -84,8 +83,7 @@ final readonly class SuggestionViewModel
             : 'none';
 
         $url    = $match->obituaryUrl;
-        $isHttp = str_starts_with($url, 'http://')
-            || str_starts_with($url, 'https://');
+        $isHttp = preg_match('~^https?://~i', $url) === 1;
 
         $host = null;
 

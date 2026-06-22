@@ -62,6 +62,6 @@ final class ObituaryMatcherModuleTest extends TestCase
     {
         // With the translator initialised in setup mode no catalogue is loaded, so I18N::translate
         // returns the key verbatim; the per-individual count lives in the tab content, never here.
-        self::assertSame('Traueranzeigen', (new ObituaryMatcherModule())->tabTitle());
+        self::assertSame('Death notices', (new ObituaryMatcherModule())->tabTitle());
     }
 }

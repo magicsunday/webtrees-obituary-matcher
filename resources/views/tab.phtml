@@ -41,7 +41,7 @@ $statusLabels = [
             <?php if ($s->sourceUrl !== null) : ?>
                 <a href="<?= e($s->sourceUrl) ?>" target="_blank" rel="noopener noreferrer"><?= e($s->sourceHost ?? $s->sourceUrl) ?></a>
             <?php endif ?>
-            <button type="button" disabled><?= e(I18N::translate('Prüfen')) ?></button>
+            <button type="button" disabled><?= e(I18N::translate('Review')) ?></button>
         </div>
     <?php endforeach ?>
 </div>

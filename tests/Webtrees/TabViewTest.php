@@ -24,7 +24,7 @@ use function view;
 /**
  * Behavioural tests for the read-only `tab.phtml` template: it renders the suggestion list the
  * module passes in, escapes every output, links the source notice only for an HTTP(S) URL and
- * keeps the "Prüfen" action a disabled button (the per-individual review trigger ships later).
+ * keeps the "Review" action a disabled button (the per-individual review trigger ships later).
  *
  * @author  Rico Sonntag <mail@ricosonntag.de>
  * @license https://opensource.org/licenses/GPL-3.0 GNU General Public License v3.0

@@ -124,7 +124,7 @@ class ObituaryMatcherModule extends AbstractModule implements ModuleCustomInterf
     #[Override]
     public function tabTitle(): string
     {
-        return I18N::translate('Traueranzeigen');
+        return I18N::translate('Death notices');
     }
 
     /**
