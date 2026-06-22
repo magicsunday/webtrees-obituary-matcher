@@ -17,9 +17,7 @@ use MagicSunday\ObituaryMatcher\Test\Support\TempDirTestCase;
 
 use function dirname;
 use function file_get_contents;
-use function is_dir;
 use function json_decode;
-use function mkdir;
 
 use const JSON_THROW_ON_ERROR;
 
@@ -46,11 +44,7 @@ abstract class QueueTempDirTestCase extends TempDirTestCase
     {
         $path = (new QueuePaths($this->tmp))->doneDir($jobId) . '/response.json';
 
-        $directory = dirname($path);
-
-        if (!is_dir($directory)) {
-            mkdir($directory, 0o700, true);
-        }
+        AtomicFile::ensureDirectory(dirname($path));
 
         /** @var array<string, mixed> $data */
         $data = json_decode(
