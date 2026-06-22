@@ -128,9 +128,12 @@ final class ReviewScreenHandlerTest extends IntegrationTestCase
         // The fixture individual carries a real birth AND death date so the render test exercises the
         // live Individual::getBirthDate()/getDeathDate()->display() path, which webtrees emits as HTML
         // (a `<span class="date">…</span>`) — the very markup the plain-text TreePersonView DTO must
-        // not leak through the escaping template.
+        // not leak through the escaping template. A second individual @I2@ carries a birth PLACE but NO
+        // birth date, so the render test can exercise the place-only branch (a date-less birth event)
+        // through the real handler→template path.
         $this->tree = $this->importFixtureTree(
             "0 @I1@ INDI\n1 NAME Otto /Vorbild/\n1 SEX M\n1 BIRT\n2 DATE 4 SEP 1901\n2 PLAC Berlin\n1 DEAT\n2 DATE 25 JAN 1932\n"
+            . "0 @I2@ INDI\n1 NAME Emma /Ortlos/\n1 SEX F\n1 BIRT\n2 PLAC Hamburg\n"
         );
 
         $this->dir = $this->makeFlatStoreDir('om-review-');
@@ -215,6 +218,50 @@ final class ReviewScreenHandlerTest extends IntegrationTestCase
         // reaches the body inside the runner-up band span, proving the lookup ran rather than emitting
         // the raw `probable` key.
         self::assertStringContainsString('<span class="om-band">Probable match</span>', $body);
+    }
+
+    /**
+     * GET renders the tree-person birth PLACE even when the birth DATE is missing (Gemini thread 1):
+     * individual I2 carries a `1 BIRT` with only a `2 PLAC` (no `2 DATE`). The place must reach the
+     * body behind the translated "Born" label — proving the place-only branch renders, not date+place.
+     *
+     * @return void
+     */
+    #[Test]
+    public function getRendersTreePersonBirthPlaceWithoutDate(): void
+    {
+        $key     = $this->seedPendingMatch('I2');
+        $request = $this->managerGetRequest(ReviewScreenHandler::ROUTE_NAME, ['xref' => 'I2', 'key' => $key]);
+
+        $response = $this->handler()->handle($request);
+
+        $body = (string) $response->getBody();
+
+        self::assertSame(200, $response->getStatusCode());
+        // The date-less birth event still surfaces the place behind the translated "Born" label.
+        self::assertStringContainsString('Born: Hamburg', $body);
+    }
+
+    /**
+     * GET renders the runner-up birth PLACE behind the translated "Born" label even when the birth
+     * YEAR is missing (Gemini thread 3): the place-only branch must read "Born: place", consistent
+     * with the tree-person place-only branch — not a bare, unlabelled place.
+     *
+     * @return void
+     */
+    #[Test]
+    public function getRendersRunnerUpBirthPlaceWithoutYearWithLabel(): void
+    {
+        $key     = $this->seedPendingMatchWithRunnerUp('I1', null);
+        $request = $this->managerGetRequest(ReviewScreenHandler::ROUTE_NAME, ['xref' => 'I1', 'key' => $key]);
+
+        $response = $this->handler()->handle($request);
+
+        $body = (string) $response->getBody();
+
+        self::assertSame(200, $response->getStatusCode());
+        // The year-less runner-up surfaces its place behind the same translated "Born" label.
+        self::assertStringContainsString('Born: Beispieldorf', $body);
     }
 
     /**
@@ -758,11 +805,12 @@ final class ReviewScreenHandlerTest extends IntegrationTestCase
      * runner-up, so the payload is built from the canonical zero-value shape with only the runner-up
      * overridden — mirroring how {@see seedPendingMatchRaw()} writes a tailored row.
      *
-     * @param string $xref The candidate identifier.
+     * @param string   $xref      The candidate identifier.
+     * @param int|null $birthYear The runner-up birth year, or null to exercise the place-only branch.
      *
      * @return string The canonical row key for the seeded row.
      */
-    private function seedPendingMatchWithRunnerUp(string $xref): string
+    private function seedPendingMatchWithRunnerUp(string $xref, ?int $birthYear = 1940): string
     {
         $obituaryUrl         = 'https://trauer.example/' . $xref;
         $payload             = ClassifiedMatch::emptyArray($xref, $obituaryUrl);
@@ -771,7 +819,7 @@ final class ReviewScreenHandlerTest extends IntegrationTestCase
             'score'          => 74,
             'classification' => 'probable',
             'name'           => 'Karl Vorbild',
-            'birthYear'      => 1940,
+            'birthYear'      => $birthYear,
             'birthPlace'     => 'Beispieldorf',
         ];
 

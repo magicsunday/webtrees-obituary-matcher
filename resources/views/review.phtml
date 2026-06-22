@@ -58,7 +58,7 @@ $severityLabels = [
         <section class="om-tree-person">
             <h3><?= e(I18N::translate('Tree person')) ?></h3>
             <p class="om-name"><?= e($vm->person->name) ?> · <?= e($vm->person->xref) ?></p>
-            <?php if ($vm->person->birthDate !== null) : ?><p><?= e(I18N::translate('Born')) ?>: <?= e($vm->person->birthDate) ?><?php if ($vm->person->birthPlace !== null) : ?> · <?= e($vm->person->birthPlace) ?><?php endif ?></p><?php endif ?>
+            <?php if ($vm->person->birthDate !== null) : ?><p><?= e(I18N::translate('Born')) ?>: <?= e($vm->person->birthDate) ?><?php if ($vm->person->birthPlace !== null) : ?> · <?= e($vm->person->birthPlace) ?><?php endif ?></p><?php elseif ($vm->person->birthPlace !== null) : ?><p><?= e(I18N::translate('Born')) ?>: <?= e($vm->person->birthPlace) ?></p><?php endif ?>
             <?php if ($vm->person->deathDate !== null) : ?><p><?= e(I18N::translate('Died')) ?>: <?= e($vm->person->deathDate) ?></p><?php endif ?>
         </section>
 
@@ -105,7 +105,7 @@ $severityLabels = [
         <section class="om-runner-up">
             <h3><?= e(I18N::translate('Next best candidate')) ?></h3>
             <p class="om-name"><?= e($vm->runnerUp['name']) ?></p>
-            <?php if ($vm->runnerUp['birthYear'] !== null) : ?><p><?= e(I18N::translate('Born')) ?>: <?= e((string) $vm->runnerUp['birthYear']) ?><?php if ($vm->runnerUp['birthPlace'] !== null) : ?> · <?= e($vm->runnerUp['birthPlace']) ?><?php endif ?></p><?php elseif ($vm->runnerUp['birthPlace'] !== null) : ?><p><?= e($vm->runnerUp['birthPlace']) ?></p><?php endif ?>
+            <?php if ($vm->runnerUp['birthYear'] !== null) : ?><p><?= e(I18N::translate('Born')) ?>: <?= e((string) $vm->runnerUp['birthYear']) ?><?php if ($vm->runnerUp['birthPlace'] !== null) : ?> · <?= e($vm->runnerUp['birthPlace']) ?><?php endif ?></p><?php elseif ($vm->runnerUp['birthPlace'] !== null) : ?><p><?= e(I18N::translate('Born')) ?>: <?= e($vm->runnerUp['birthPlace']) ?></p><?php endif ?>
             <p>
                 <span class="om-score-value"><?= e((string) $vm->runnerUp['score']) ?></span> / 100
                 <span class="om-band"><?= e($bandLabels[$vm->runnerUp['classification']] ?? $vm->runnerUp['classification']) ?></span>
