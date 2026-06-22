@@ -52,7 +52,7 @@ use function reset;
 #[UsesClass(DateRange::class)]
 #[UsesClass(ObituaryNameParser::class)]
 #[UsesClass(ObituaryDateParser::class)]
-final class ResponseReaderTest extends TempDirTestCase
+final class ResponseReaderTest extends QueueTempDirTestCase
 {
     /**
      * A valid response is mapped into death-notice records, preserving the cemetery, notice type and
