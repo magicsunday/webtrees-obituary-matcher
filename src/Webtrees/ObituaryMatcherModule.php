@@ -11,6 +11,7 @@ declare(strict_types=1);
 
 namespace MagicSunday\ObituaryMatcher\Webtrees;
 
+use Fig\Http\Message\RequestMethodInterface;
 use Fisharebest\Webtrees\I18N;
 use Fisharebest\Webtrees\Individual;
 use Fisharebest\Webtrees\Module\AbstractModule;
@@ -18,6 +19,7 @@ use Fisharebest\Webtrees\Module\ModuleCustomInterface;
 use Fisharebest\Webtrees\Module\ModuleCustomTrait;
 use Fisharebest\Webtrees\Module\ModuleTabInterface;
 use Fisharebest\Webtrees\Module\ModuleTabTrait;
+use Fisharebest\Webtrees\Registry;
 use Fisharebest\Webtrees\Tree;
 use Fisharebest\Webtrees\View;
 use MagicSunday\ObituaryMatcher\Ui\SuggestionTabPresenter;
@@ -103,9 +105,12 @@ class ObituaryMatcherModule extends AbstractModule implements ModuleCustomInterf
     }
 
     /**
-     * Bootstrap the module by registering its view namespace, so the tab template resolves under the
-     * module name. The registration is guarded by {@see realpath()} so a missing resources directory
-     * leaves the namespace unregistered instead of pointing it at a non-existent path.
+     * Bootstrap the module by registering its view namespace (so the tab and review templates resolve
+     * under the module name) and the review-screen route. The namespace registration is guarded by
+     * {@see realpath()} so a missing resources directory leaves the namespace unregistered instead of
+     * pointing it at a non-existent path. The route is registered as a {@see ReviewScreenHandler}
+     * instance bound to the module's own view namespace and allows POST for the Task 5 decision
+     * dispatch.
      *
      * @return void
      */
@@ -117,6 +122,10 @@ class ObituaryMatcherModule extends AbstractModule implements ModuleCustomInterf
         if ($views !== false) {
             View::registerNamespace($this->name(), $views . '/');
         }
+
+        Registry::routeFactory()->routeMap()
+            ->get(ReviewScreenHandler::ROUTE_NAME, ReviewScreenHandler::ROUTE_URL, new ReviewScreenHandler($this->name()))
+            ->allows(RequestMethodInterface::METHOD_POST);
     }
 
     /**

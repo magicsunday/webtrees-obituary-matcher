@@ -14,19 +14,12 @@ namespace MagicSunday\ObituaryMatcher\Test\Webtrees;
 use MagicSunday\ObituaryMatcher\Matching\FileMatchStore;
 use MagicSunday\ObituaryMatcher\Matching\MatchStatus;
 use MagicSunday\ObituaryMatcher\Matching\StoredMatch;
+use MagicSunday\ObituaryMatcher\Test\Support\RemovesFlatTempStoreTrait;
 use MagicSunday\ObituaryMatcher\Webtrees\MatchSeeder;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\Attributes\UsesClass;
 use PHPUnit\Framework\TestCase;
-
-use function array_map;
-use function bin2hex;
-use function glob;
-use function is_dir;
-use function random_bytes;
-use function rmdir;
-use function sys_get_temp_dir;
 
 /**
  * Behavioural tests for the fixture seeder: a seeded row round-trips through a real file-backed store,
@@ -44,6 +37,8 @@ use function sys_get_temp_dir;
 #[UsesClass(MatchStatus::class)]
 final class MatchSeederTest extends TestCase
 {
+    use RemovesFlatTempStoreTrait;
+
     /**
      * The temporary store directory created per test, removed in {@see tearDown()} so a failing
      * assertion never leaks a directory under the system temp path.
@@ -59,7 +54,7 @@ final class MatchSeederTest extends TestCase
     {
         parent::setUp();
 
-        $this->dir = sys_get_temp_dir() . '/om-seed-' . bin2hex(random_bytes(4));
+        $this->dir = $this->makeFlatStoreDir('om-seed-');
     }
 
     /**
@@ -69,15 +64,7 @@ final class MatchSeederTest extends TestCase
      */
     protected function tearDown(): void
     {
-        if (($this->dir !== '') && is_dir($this->dir)) {
-            $files = glob($this->dir . '/*');
-
-            if ($files !== false) {
-                array_map('unlink', $files);
-            }
-
-            rmdir($this->dir);
-        }
+        $this->removeFlatStoreDir();
 
         parent::tearDown();
     }

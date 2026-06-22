@@ -1,0 +1,110 @@
+<?php
+
+declare(strict_types=1);
+
+use Fisharebest\Webtrees\I18N;
+use MagicSunday\ObituaryMatcher\Ui\ReviewViewModel;
+
+/** @var ReviewViewModel $vm */
+
+$bandLabels = [
+    'strong'   => I18N::translate('Strong match'),
+    'probable' => I18N::translate('Probable match'),
+    'possible' => I18N::translate('Possible match'),
+    'weak'     => I18N::translate('Weak match'),
+    'none'     => I18N::translate('No match'),
+];
+
+$statusLabels = [
+    'pending'   => I18N::translate('Pending'),
+    'uncertain' => I18N::translate('Uncertain'),
+];
+
+$signalLabels = [
+    'name'         => I18N::translate('Name'),
+    'birth'        => I18N::translate('Birth'),
+    'place'        => I18N::translate('Place'),
+    'plausibility' => I18N::translate('Plausibility'),
+];
+
+// Icon + text per severity (colour alone is forbidden). ConflictSeverity::value() emits only
+// "hard" and "soft"; any other value (including the empty string a malformed payload yields) falls
+// back to the neutral note.
+$severityLabels = [
+    'hard'    => ['⚠', I18N::translate('Hard conflict')],
+    'soft'    => ['⚑', I18N::translate('Soft conflict')],
+    'neutral' => ['•', I18N::translate('Note')],
+];
+?>
+<div class="wt-obituary-matcher-review om-band-<?= e($vm->bandKey) ?>">
+    <h2><?= e(I18N::translate('Review match')) ?></h2>
+
+    <p class="om-score">
+        <span class="om-score-value"><?= e((string) $vm->score) ?></span> / 100
+        <span class="om-band"><?= e($bandLabels[$vm->bandKey] ?? $vm->bandKey) ?></span>
+        <span class="om-status"><?= e($statusLabels[$vm->statusKey] ?? $vm->statusKey) ?></span>
+        <?php if ($vm->hardConflict) : ?><span class="om-flag" title="<?= e(I18N::translate('Hard conflict')) ?>">⚠</span><?php endif ?>
+        <?php if ($vm->ambiguous) : ?><span class="om-flag" title="<?= e(I18N::translate('Ambiguous')) ?>">⚑</span><?php endif ?>
+    </p>
+
+    <div class="om-split">
+        <section class="om-tree-person">
+            <h3><?= e(I18N::translate('Tree person')) ?></h3>
+            <p class="om-name"><?= e($vm->person->name) ?> · <?= e($vm->person->xref) ?></p>
+            <?php if ($vm->person->birthDate !== null) : ?><p><?= e(I18N::translate('Born')) ?>: <?= e($vm->person->birthDate) ?><?php if ($vm->person->birthPlace !== null) : ?> · <?= e($vm->person->birthPlace) ?><?php endif ?></p><?php endif ?>
+            <?php if ($vm->person->deathDate !== null) : ?><p><?= e(I18N::translate('Died')) ?>: <?= e($vm->person->deathDate) ?></p><?php endif ?>
+        </section>
+
+        <section class="om-obituary">
+            <h3><?= e(I18N::translate('Obituary')) ?></h3>
+            <?php foreach ($vm->extractedFacts as $factKey => $factValue) : ?>
+                <p><?= e($factKey) ?>: <?= e($factValue) ?></p>
+            <?php endforeach ?>
+            <?php if ($vm->deathDate !== null) : ?><p><?= e(I18N::translate('Extracted death date')) ?>: <?= e($vm->deathDate) ?></p><?php endif ?>
+            <p>
+                <?php if ($vm->sourceUrl !== null) : ?>
+                    <a href="<?= e($vm->sourceUrl) ?>" target="_blank" rel="noopener noreferrer"><?= e($vm->sourceText) ?></a>
+                <?php else : ?>
+                    <?= e($vm->sourceText) ?>
+                <?php endif ?>
+            </p>
+        </section>
+    </div>
+
+    <section class="om-why">
+        <h3><?= e(I18N::translate('Why this score')) ?></h3>
+        <?php foreach ($vm->signals as $signal) : ?>
+            <div class="om-signal">
+                <span class="om-signal-label"><?= e($signalLabels[$signal['key']] ?? $signal['key']) ?></span>
+                <span class="om-signal-score"><?= e((string) $signal['score']) ?> / <?= e((string) $signal['max']) ?></span>
+                <?php foreach ($signal['reasons'] as $reason) : ?><span class="om-reason"><?= e($reason) ?></span><?php endforeach ?>
+            </div>
+        <?php endforeach ?>
+        <?php if ($vm->conflicts !== []) : ?>
+            <div class="om-conflicts">
+                <h4><?= e(I18N::translate('Conflicts')) ?></h4>
+                <?php foreach ($vm->conflicts as $conflict) : ?>
+                    <?php [$severityIcon, $severityLabel] = $severityLabels[$conflict['severity']] ?? $severityLabels['neutral']; ?>
+                    <p class="om-conflict om-severity-<?= e($conflict['severity']) ?>">
+                        <span aria-hidden="true"><?= e($severityIcon) ?></span> <?= e($severityLabel) ?>:
+                        <?= e($conflict['field']) ?>: <?= e($conflict['treeValue']) ?> ↔ <?= e($conflict['obituaryValue']) ?>
+                    </p>
+                <?php endforeach ?>
+            </div>
+        <?php endif ?>
+    </section>
+
+    <?php if ($vm->runnerUp !== null) : ?>
+        <section class="om-runner-up">
+            <h3><?= e(I18N::translate('Next best candidate')) ?></h3>
+            <p><?= e($vm->runnerUp['name']) ?> · <?= e((string) $vm->runnerUp['score']) ?></p>
+        </section>
+    <?php endif ?>
+
+    <div class="om-actions">
+        <?php if ($vm->sourceUrl !== null) : ?>
+            <a href="<?= e($vm->sourceUrl) ?>" target="_blank" rel="noopener noreferrer"><?= e(I18N::translate('View source')) ?></a>
+        <?php endif ?>
+        <button type="button" disabled><?= e(I18N::translate('Confirm as source')) ?></button>
+    </div>
+</div>
