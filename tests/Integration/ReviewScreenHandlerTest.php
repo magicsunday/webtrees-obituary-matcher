@@ -142,7 +142,9 @@ final class ReviewScreenHandlerTest extends IntegrationTestCase
     }
 
     /**
-     * GET renders the review screen for a seeded pending row, including the source host and score.
+     * GET renders the review screen for a seeded pending row, including the source host, the seeded
+     * score, the band label and the status block (spec §11). The seeder stamps the `strong` band,
+     * which maps to score 92, so all three escaped fields must reach the body.
      *
      * @return void
      */
@@ -154,8 +156,16 @@ final class ReviewScreenHandlerTest extends IntegrationTestCase
 
         $response = $this->handler()->handle($request);
 
+        $body = (string) $response->getBody();
+
         self::assertSame(200, $response->getStatusCode());
-        self::assertStringContainsString('trauer.example', (string) $response->getBody());
+        self::assertStringContainsString('trauer.example', $body);
+        // The seeded strong band maps to score 92; the score value reaches the rendered body.
+        self::assertStringContainsString('<span class="om-score-value">92</span>', $body);
+        // The band block renders the translated "Strong match" label, not the raw band key.
+        self::assertStringContainsString('<span class="om-band">Strong match</span>', $body);
+        // The status block renders the translated pending label for a freshly seeded row.
+        self::assertStringContainsString('<span class="om-status">Pending</span>', $body);
     }
 
     /**
