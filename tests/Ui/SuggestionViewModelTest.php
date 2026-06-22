@@ -14,6 +14,7 @@ namespace MagicSunday\ObituaryMatcher\Test\Ui;
 use MagicSunday\ObituaryMatcher\Domain\ClassifiedMatch;
 use MagicSunday\ObituaryMatcher\Matching\MatchStatus;
 use MagicSunday\ObituaryMatcher\Matching\StoredMatch;
+use MagicSunday\ObituaryMatcher\Matching\StoredMatchKey;
 use MagicSunday\ObituaryMatcher\Ui\SuggestionViewModel;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\Test;
@@ -33,6 +34,7 @@ use PHPUnit\Framework\TestCase;
 #[CoversClass(SuggestionViewModel::class)]
 #[UsesClass(StoredMatch::class)]
 #[UsesClass(MatchStatus::class)]
+#[UsesClass(StoredMatchKey::class)]
 final class SuggestionViewModelTest extends TestCase
 {
     /**
@@ -123,5 +125,23 @@ final class SuggestionViewModelTest extends TestCase
         $vm = SuggestionViewModel::fromStoredMatch($this->stored($this->payload(url: 'HTTP://trauer.example/x')));
         self::assertSame('HTTP://trauer.example/x', $vm->sourceUrl);
         self::assertSame('trauer.example', $vm->sourceHost);
+    }
+
+    /**
+     * The view model exposes the canonical row key for its source URL. The expected value is the
+     * pinned SHA-256 of the identity-normalised URL, not a re-invocation of the production
+     * derivation, so a regression in the canonical key derivation flips this literal.
+     *
+     * @return void
+     */
+    #[Test]
+    public function exposesRowKeyForSourceUrl(): void
+    {
+        $vm = SuggestionViewModel::fromStoredMatch($this->stored($this->payload(url: 'https://trauer.example/a')));
+
+        self::assertSame('89b60f2d1bdf98d97c9b78ab815b88247d26166e08271c838dcc270f90007d29', $vm->rowKey);
+        // Cross-check the pinned literal really is the canonical key for this URL — a guard against
+        // the literal silently drifting from the contract it documents.
+        self::assertSame(StoredMatchKey::fromUrl('https://trauer.example/a'), $vm->rowKey);
     }
 }

@@ -13,6 +13,7 @@ namespace MagicSunday\ObituaryMatcher\Ui;
 
 use MagicSunday\ObituaryMatcher\Domain\ClassifiedMatch;
 use MagicSunday\ObituaryMatcher\Matching\StoredMatch;
+use MagicSunday\ObituaryMatcher\Matching\StoredMatchKey;
 
 use function in_array;
 use function is_string;
@@ -54,6 +55,7 @@ final readonly class SuggestionViewModel
      * @param string      $statusKey    The lifecycle status backing value.
      * @param bool        $ambiguous    Whether the engine flagged the match as ambiguous.
      * @param bool        $hardConflict Whether the engine flagged a hard conflict.
+     * @param string      $rowKey       The canonical review-route row key.
      */
     public function __construct(
         public int $score,
@@ -64,6 +66,7 @@ final readonly class SuggestionViewModel
         public string $statusKey,
         public bool $ambiguous,
         public bool $hardConflict,
+        public string $rowKey,
     ) {
     }
 
@@ -104,6 +107,7 @@ final readonly class SuggestionViewModel
             $match->status->value,
             $payload['ambiguous'],
             $payload['hardConflict'],
+            StoredMatchKey::fromUrl($url),
         );
     }
 

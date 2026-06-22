@@ -21,6 +21,7 @@ use Fisharebest\Webtrees\GuestUser;
 use Fisharebest\Webtrees\Http\Exceptions\HttpAccessDeniedException;
 use Fisharebest\Webtrees\Http\Exceptions\HttpNotFoundException;
 use Fisharebest\Webtrees\Http\Routes\WebRoutes;
+use Fisharebest\Webtrees\Individual;
 use Fisharebest\Webtrees\Module\ModuleThemeInterface;
 use Fisharebest\Webtrees\Module\WebtreesTheme;
 use Fisharebest\Webtrees\Registry;
@@ -36,6 +37,7 @@ use MagicSunday\ObituaryMatcher\Matching\StoredMatchKey;
 use MagicSunday\ObituaryMatcher\Matching\TerminalMatchTransitionException;
 use MagicSunday\ObituaryMatcher\Test\Support\RemovesFlatTempStoreTrait;
 use MagicSunday\ObituaryMatcher\Ui\ReviewViewModel;
+use MagicSunday\ObituaryMatcher\Ui\SuggestionViewModel;
 use MagicSunday\ObituaryMatcher\Ui\TreePersonView;
 use MagicSunday\ObituaryMatcher\Webtrees\MatchSeeder;
 use MagicSunday\ObituaryMatcher\Webtrees\ReviewScreenHandler;
@@ -46,6 +48,7 @@ use Psr\Http\Message\ServerRequestFactoryInterface;
 use Psr\Http\Message\ServerRequestInterface;
 
 use function str_repeat;
+use function view;
 
 /**
  * Integration tests for the review-screen route: GET renders one seeded row; an unknown or terminal
@@ -62,6 +65,7 @@ use function str_repeat;
 #[UsesClass(FileMatchStore::class)]
 #[UsesClass(MatchStatus::class)]
 #[UsesClass(ReviewViewModel::class)]
+#[UsesClass(SuggestionViewModel::class)]
 #[UsesClass(TreePersonView::class)]
 #[UsesClass(StoredMatch::class)]
 #[UsesClass(StoredMatchKey::class)]
@@ -145,6 +149,67 @@ final class ReviewScreenHandlerTest extends IntegrationTestCase
 
         self::assertSame(200, $response->getStatusCode());
         self::assertStringContainsString('trauer.example', (string) $response->getBody());
+    }
+
+    /**
+     * The tab link's row key resolves the same row via findOne (VM ↔ store normalisation parity).
+     * The row is seeded with a raw, un-normalised URL (mixed case + tracking query) so the assertion
+     * only holds when the tab's {@see SuggestionViewModel::$rowKey} and the store apply the exact same
+     * identity normalisation.
+     *
+     * @return void
+     */
+    #[Test]
+    public function tabRowKeyResolvesViaFindOne(): void
+    {
+        $url = 'https://Trauer.Example/a?utm_source=x';
+        $this->seedPendingMatchRaw('I1', $url);
+
+        $vm = SuggestionViewModel::fromStoredMatch($this->store()->findByPerson('I1')[0]);
+
+        // The raw mixed-case + tracking-param URL collapses to the same canonical key as the plain
+        // host/path — pinning the literal anchors the normalisation so a regression that stopped
+        // lowercasing the host or stripping `utm_source` flips this and fails.
+        self::assertSame('89b60f2d1bdf98d97c9b78ab815b88247d26166e08271c838dcc270f90007d29', $vm->rowKey);
+        // Cross-boundary: the key the tab href carries resolves the seeded row through the store.
+        self::assertInstanceOf(StoredMatch::class, $this->store()->findOne('I1', $vm->rowKey));
+    }
+
+    /**
+     * The rendered tab links the "Review" affordance to the booted review route, carrying the same
+     * row key the store resolves: rendering needs the registered route, so this lives in the booted
+     * integration case rather than a routeless unit render.
+     *
+     * @return void
+     */
+    #[Test]
+    public function tabRendersReviewLinkToBootedRoute(): void
+    {
+        $html = $this->renderTabFor('https://Trauer.Example/a?utm_source=x');
+
+        self::assertStringContainsString('class="om-review-link"', $html);
+        self::assertStringContainsString('obituary-review', $html);
+        self::assertStringContainsString($this->rowKeyFor('https://Trauer.Example/a?utm_source=x'), $html);
+        // The HTTP source notice is still linked out, and the count line reflects the single row.
+        self::assertStringContainsString('href="https://Trauer.Example/a?utm_source=x"', $html);
+        self::assertStringContainsString('target="_blank"', $html);
+        self::assertStringContainsString('1 open suggestion', $html);
+    }
+
+    /**
+     * A non-HTTP source URL is refused as a link: the rendered tab carries the review affordance but
+     * no outbound source anchor (`target="_blank"`), proving the {@see SuggestionViewModel} HTTP-only
+     * guard reaches the template.
+     *
+     * @return void
+     */
+    #[Test]
+    public function tabRefusesNonHttpSourceLink(): void
+    {
+        $html = $this->renderTabFor('javascript:alert(1)');
+
+        self::assertStringContainsString('class="om-review-link"', $html);
+        self::assertStringNotContainsString('target="_blank"', $html);
     }
 
     /**
@@ -503,6 +568,63 @@ final class ReviewScreenHandlerTest extends IntegrationTestCase
     }
 
     /**
+     * Upserts a pending row for the given candidate carrying a raw, un-normalised source URL. Unlike
+     * {@see seedPendingMatch()}, which fabricates the URL from the XREF, this lets a test pin an
+     * arbitrary URL so the VM-key ↔ store-key normalisation parity can be exercised end-to-end.
+     *
+     * @param string $xref The candidate identifier.
+     * @param string $url  The raw, pre-normalisation source notice URL.
+     *
+     * @return void
+     */
+    private function seedPendingMatchRaw(string $xref, string $url): void
+    {
+        $this->store()->upsertPending(
+            new StoredMatch(
+                $xref,
+                $url,
+                MatchStatus::Pending,
+                ClassifiedMatch::emptyArray($xref, $url),
+            )
+        );
+    }
+
+    /**
+     * Seeds I1 with the given raw source URL, binds the base request the `route()` helper needs and
+     * renders the individual tab over the booted route, returning the produced HTML.
+     *
+     * @param string $url The raw, pre-normalisation source notice URL the seeded row carries.
+     *
+     * @return string The rendered tab HTML.
+     */
+    private function renderTabFor(string $url): string
+    {
+        $this->seedPendingMatchRaw('I1', $url);
+        $this->bindBaseRequest();
+
+        $individual = $this->individual('I1', $this->tree);
+        self::assertInstanceOf(Individual::class, $individual);
+
+        return view(self::MODULE_NAMESPACE . '::tab', [
+            'individual'  => $individual,
+            'suggestions' => [SuggestionViewModel::fromStoredMatch($this->store()->findByPerson('I1')[0])],
+        ]);
+    }
+
+    /**
+     * Returns the canonical row key for the given source URL, as the tab link and the store both
+     * derive it.
+     *
+     * @param string $url The raw, pre-normalisation source notice URL.
+     *
+     * @return string The canonical row key.
+     */
+    private function rowKeyFor(string $url): string
+    {
+        return StoredMatchKey::fromUrl($url);
+    }
+
+    /**
      * Builds a manager-authenticated GET request carrying the tree and the route attributes. The
      * logged-in administrator from {@see IntegrationTestCase::setUp()} is a manager of every tree.
      *
@@ -544,6 +666,18 @@ final class ReviewScreenHandlerTest extends IntegrationTestCase
     private function nonManagerGetRequest(string $routeName, array $attributes): ServerRequestInterface
     {
         return $this->getRequestAs(new GuestUser(), $routeName, $attributes);
+    }
+
+    /**
+     * Binds a minimal manager request into the container so the `route()` helper the tab template
+     * calls can resolve the base URL when rendering outside the handler. Mirrors what webtrees'
+     * routing middleware sets up for an ordinary request.
+     *
+     * @return void
+     */
+    private function bindBaseRequest(): void
+    {
+        $this->getRequestAs(Auth::user(), ReviewScreenHandler::ROUTE_NAME, ['xref' => 'I1']);
     }
 
     /**
