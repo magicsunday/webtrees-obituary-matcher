@@ -11,10 +11,14 @@ declare(strict_types=1);
 
 namespace MagicSunday\ObituaryMatcher\Test\Ui;
 
+use MagicSunday\ObituaryMatcher\Domain\Band;
 use MagicSunday\ObituaryMatcher\Domain\ClassifiedMatch;
 use MagicSunday\ObituaryMatcher\Matching\MatchStatus;
 use MagicSunday\ObituaryMatcher\Matching\StoredMatch;
+use MagicSunday\ObituaryMatcher\Ui\BandKey;
+use MagicSunday\ObituaryMatcher\Ui\ObituaryDateFormatter;
 use MagicSunday\ObituaryMatcher\Ui\ReviewViewModel;
+use MagicSunday\ObituaryMatcher\Ui\SourceLink;
 use MagicSunday\ObituaryMatcher\Ui\TreePersonView;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\Test;
@@ -37,6 +41,10 @@ use function array_column;
 #[UsesClass(TreePersonView::class)]
 #[UsesClass(StoredMatch::class)]
 #[UsesClass(MatchStatus::class)]
+#[UsesClass(BandKey::class)]
+#[UsesClass(Band::class)]
+#[UsesClass(ObituaryDateFormatter::class)]
+#[UsesClass(SourceLink::class)]
 final class ReviewViewModelTest extends TestCase
 {
     /**

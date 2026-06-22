@@ -11,10 +11,14 @@ declare(strict_types=1);
 
 namespace MagicSunday\ObituaryMatcher\Test\Ui;
 
+use MagicSunday\ObituaryMatcher\Domain\Band;
 use MagicSunday\ObituaryMatcher\Domain\ClassifiedMatch;
 use MagicSunday\ObituaryMatcher\Matching\MatchStatus;
 use MagicSunday\ObituaryMatcher\Matching\StoredMatch;
 use MagicSunday\ObituaryMatcher\Matching\StoredMatchKey;
+use MagicSunday\ObituaryMatcher\Ui\BandKey;
+use MagicSunday\ObituaryMatcher\Ui\ObituaryDateFormatter;
+use MagicSunday\ObituaryMatcher\Ui\SourceLink;
 use MagicSunday\ObituaryMatcher\Ui\SuggestionViewModel;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\Test;
@@ -35,6 +39,10 @@ use PHPUnit\Framework\TestCase;
 #[UsesClass(StoredMatch::class)]
 #[UsesClass(MatchStatus::class)]
 #[UsesClass(StoredMatchKey::class)]
+#[UsesClass(BandKey::class)]
+#[UsesClass(Band::class)]
+#[UsesClass(ObituaryDateFormatter::class)]
+#[UsesClass(SourceLink::class)]
 final class SuggestionViewModelTest extends TestCase
 {
     /**

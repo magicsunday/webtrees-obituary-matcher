@@ -14,14 +14,9 @@ namespace MagicSunday\ObituaryMatcher\Ui;
 use MagicSunday\ObituaryMatcher\Domain\ClassifiedMatch;
 use MagicSunday\ObituaryMatcher\Matching\StoredMatch;
 
-use function in_array;
 use function is_array;
 use function is_int;
 use function is_string;
-use function parse_url;
-use function preg_match;
-
-use const PHP_URL_HOST;
 
 /**
  * A read-only, view-ready projection of a {@see StoredMatch} for the review screen. It exposes the
@@ -38,13 +33,6 @@ use const PHP_URL_HOST;
  */
 final readonly class ReviewViewModel
 {
-    /**
-     * The classification values that may pass through to a CSS class.
-     *
-     * @var list<string>
-     */
-    private const array BANDS = ['strong', 'probable', 'possible', 'weak', 'none'];
-
     /**
      * The normal positive-signal keys rendered in the "why this score" breakdown, in display order.
      *
@@ -104,27 +92,14 @@ final readonly class ReviewViewModel
 
         $score          = self::asInt(self::read($payload, 'score'));
         $classification = self::asString(self::read($payload, 'classification'), 'none');
-        $band           = in_array($classification, self::BANDS, true) ? $classification : 'none';
+        $band           = BandKey::normalise($classification);
         $ambiguous      = self::read($payload, 'ambiguous') === true;
         $hardConflict   = self::read($payload, 'hardConflict') === true;
         $extractedFacts = self::projectFacts(self::read($payload, 'extractedFacts'));
         $signals        = self::read($payload, 'signals');
 
         $url    = $match->obituaryUrl;
-        $isHttp = preg_match('~^https?://~i', $url) === 1;
-
-        $host = null;
-
-        if ($isHttp) {
-            $parsedHost = parse_url($url, PHP_URL_HOST);
-
-            if (
-                is_string($parsedHost)
-                && ($parsedHost !== '')
-            ) {
-                $host = $parsedHost;
-            }
-        }
+        $source = SourceLink::fromUrl($url);
 
         $deathRaw = $extractedFacts['deathDate'] ?? null;
 
@@ -135,9 +110,9 @@ final readonly class ReviewViewModel
             $match->status->value,
             $ambiguous,
             $hardConflict,
-            self::formatDeathDate($deathRaw),
-            $isHttp ? $url : null,
-            $host ?? $url,
+            ObituaryDateFormatter::toGerman($deathRaw),
+            $source->href,
+            $source->host ?? $url,
             $extractedFacts,
             self::projectSignals($signals),
             self::projectConflicts(is_array($signals) ? self::read($signals, 'conflicts') : null),
@@ -326,26 +301,5 @@ final readonly class ReviewViewModel
             'score'          => $runnerUp['score'],
             'classification' => $runnerUp['classification'],
         ];
-    }
-
-    /**
-     * Formats an ISO `YYYY-MM-DD` death date as a German `DD.MM.YYYY` string, passing any other
-     * shape through unchanged.
-     *
-     * @param string|null $raw The raw extracted death date, or null when absent.
-     *
-     * @return string|null The formatted date, the unchanged raw value, or null.
-     */
-    private static function formatDeathDate(?string $raw): ?string
-    {
-        if ($raw === null) {
-            return null;
-        }
-
-        if (preg_match('/^(\d{4})-(\d{2})-(\d{2})$/', $raw, $matches) === 1) {
-            return $matches[3] . '.' . $matches[2] . '.' . $matches[1];
-        }
-
-        return $raw;
     }
 }

@@ -36,7 +36,10 @@ use MagicSunday\ObituaryMatcher\Matching\StoredMatch;
 use MagicSunday\ObituaryMatcher\Matching\StoredMatchKey;
 use MagicSunday\ObituaryMatcher\Matching\TerminalMatchTransitionException;
 use MagicSunday\ObituaryMatcher\Test\Support\RemovesFlatTempStoreTrait;
+use MagicSunday\ObituaryMatcher\Ui\BandKey;
+use MagicSunday\ObituaryMatcher\Ui\ObituaryDateFormatter;
 use MagicSunday\ObituaryMatcher\Ui\ReviewViewModel;
+use MagicSunday\ObituaryMatcher\Ui\SourceLink;
 use MagicSunday\ObituaryMatcher\Ui\SuggestionViewModel;
 use MagicSunday\ObituaryMatcher\Ui\TreePersonView;
 use MagicSunday\ObituaryMatcher\Webtrees\MatchSeeder;
@@ -70,6 +73,9 @@ use function view;
 #[UsesClass(StoredMatch::class)]
 #[UsesClass(StoredMatchKey::class)]
 #[UsesClass(ClassifiedMatch::class)]
+#[UsesClass(BandKey::class)]
+#[UsesClass(ObituaryDateFormatter::class)]
+#[UsesClass(SourceLink::class)]
 final class ReviewScreenHandlerTest extends IntegrationTestCase
 {
     use RemovesFlatTempStoreTrait;
