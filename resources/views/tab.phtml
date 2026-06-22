@@ -1,0 +1,47 @@
+<?php
+
+declare(strict_types=1);
+
+use Fisharebest\Webtrees\I18N;
+use MagicSunday\ObituaryMatcher\Ui\SuggestionViewModel;
+
+/** @var list<SuggestionViewModel> $suggestions */
+
+$bandLabels = [
+    'strong'   => I18N::translate('Strong match'),
+    'probable' => I18N::translate('Probable match'),
+    'possible' => I18N::translate('Possible match'),
+    'weak'     => I18N::translate('Weak match'),
+    'none'     => I18N::translate('No match'),
+];
+
+$bandIcons = [
+    'strong'   => '●',
+    'probable' => '●',
+    'possible' => '◐',
+    'weak'     => '○',
+    'none'     => '○',
+];
+
+$statusLabels = [
+    'pending'   => I18N::translate('Pending'),
+    'uncertain' => I18N::translate('Uncertain'),
+];
+?>
+<div class="wt-obituary-matcher-tab">
+    <p class="om-count"><?= e(I18N::plural('%s open suggestion', '%s open suggestions', count($suggestions), I18N::number(count($suggestions)))) ?></p>
+    <?php foreach ($suggestions as $s) : ?>
+        <div class="om-suggestion om-band-<?= e($s->bandKey) ?>">
+            <span class="om-score"><?= e((string) $s->score) ?></span>
+            <span class="om-band"><span aria-hidden="true"><?= e($bandIcons[$s->bandKey] ?? '○') ?></span> <?= e($bandLabels[$s->bandKey] ?? $s->bandKey) ?></span>
+            <span class="om-status"><?= e($statusLabels[$s->statusKey] ?? $s->statusKey) ?></span>
+            <?php if ($s->deathDate !== null) : ?><span class="om-death">† <?= e($s->deathDate) ?></span><?php endif ?>
+            <?php if ($s->hardConflict) : ?><span class="om-flag" title="<?= e(I18N::translate('Hard conflict')) ?>">⚠</span><?php endif ?>
+            <?php if ($s->ambiguous) : ?><span class="om-flag" title="<?= e(I18N::translate('Ambiguous')) ?>">⚑</span><?php endif ?>
+            <?php if ($s->sourceUrl !== null) : ?>
+                <a href="<?= e($s->sourceUrl) ?>" target="_blank" rel="noopener noreferrer"><?= e($s->sourceHost ?? $s->sourceUrl) ?></a>
+            <?php endif ?>
+            <button type="button" disabled><?= e(I18N::translate('Review')) ?></button>
+        </div>
+    <?php endforeach ?>
+</div>

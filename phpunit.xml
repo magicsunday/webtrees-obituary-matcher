@@ -22,6 +22,8 @@
             <directory>tests/Queue</directory>
             <directory>tests/Scoring</directory>
             <directory>tests/Support</directory>
+            <directory>tests/Ui</directory>
+            <directory>tests/Webtrees</directory>
         </testsuite>
         <testsuite name="integration">
             <directory>tests/Integration</directory>
