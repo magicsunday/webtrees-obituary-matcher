@@ -13,8 +13,11 @@ namespace MagicSunday\ObituaryMatcher\Webtrees;
 
 use Fig\Http\Message\RequestMethodInterface;
 use Fisharebest\Webtrees\Auth;
+use Fisharebest\Webtrees\FlashMessages;
 use Fisharebest\Webtrees\Http\Exceptions\HttpAccessDeniedException;
+use Fisharebest\Webtrees\Http\Exceptions\HttpBadRequestException;
 use Fisharebest\Webtrees\Http\Exceptions\HttpNotFoundException;
+use Fisharebest\Webtrees\Http\RequestHandlers\IndividualPage;
 use Fisharebest\Webtrees\Http\ViewResponseTrait;
 use Fisharebest\Webtrees\I18N;
 use Fisharebest\Webtrees\Individual;
@@ -23,6 +26,8 @@ use Fisharebest\Webtrees\Tree;
 use Fisharebest\Webtrees\Validator;
 use MagicSunday\ObituaryMatcher\Matching\MatchStore;
 use MagicSunday\ObituaryMatcher\Matching\StoredMatch;
+use MagicSunday\ObituaryMatcher\Matching\StoredMatchKey;
+use MagicSunday\ObituaryMatcher\Matching\TerminalMatchTransitionException;
 use MagicSunday\ObituaryMatcher\Ui\ReviewViewModel;
 use MagicSunday\ObituaryMatcher\Ui\TreePersonView;
 use Psr\Http\Message\ResponseInterface;
@@ -30,14 +35,17 @@ use Psr\Http\Message\ServerRequestInterface;
 use Psr\Http\Server\RequestHandlerInterface;
 
 use function preg_match;
+use function redirect;
+use function route;
 use function strip_tags;
 
 /**
  * The review-screen route handler. It renders a read-only split-view of one stored match (tree
  * person versus obituary, the explainable per-signal score and conflicts). It is a separate handler
  * so the module stays a thin adapter. Manager access is enforced here because the route is directly
- * callable. The reject/uncertain POST dispatch arrives in Phase 2d-2 Task 5; until then a non-GET
- * request is refused.
+ * callable. A POST carries a reject/uncertain review decision: the row is mutated and the request
+ * redirects with a flash, and a row finalised by a concurrent reviewer between resolution and
+ * mutation is reported as a warning rather than a 500.
  *
  * @author  Rico Sonntag <mail@ricosonntag.de>
  * @license https://opensource.org/licenses/GPL-3.0 GNU General Public License v3.0
@@ -68,16 +76,16 @@ class ReviewScreenHandler implements RequestHandlerInterface
     }
 
     /**
-     * Handles the review-screen request. GET renders the screen; a non-GET request is refused until
-     * Task 5 adds the review-decision dispatch.
+     * Handles the review-screen request. GET renders the screen; POST applies the carried review
+     * decision (reject or uncertain) and redirects with a flash.
      *
      * @param ServerRequestInterface $request The incoming request.
      *
-     * @return ResponseInterface The rendered review screen.
+     * @return ResponseInterface The rendered review screen, or a redirect for a POST decision.
      *
-     * @throws HttpNotFoundException     When the key is malformed, the row is absent or terminal, or
-     *                                   the method is not GET.
+     * @throws HttpNotFoundException     When the key is malformed, or the row is absent or terminal.
      * @throws HttpAccessDeniedException When the user is not a manager of the tree.
+     * @throws HttpBadRequestException   When a POST carries an unknown decision action.
      */
     public function handle(ServerRequestInterface $request): ResponseInterface
     {
@@ -100,11 +108,11 @@ class ReviewScreenHandler implements RequestHandlerInterface
 
         $row = $this->resolveRow($tree, $xref, $key);
 
-        // POST handling arrives in Task 5; until then this handler renders GET only. The route is
-        // registered with ->allows(POST), so guard non-GET explicitly rather than rendering on POST.
-        // (Task 5 replaces this guard with the reject/uncertain dispatch.)
-        if ($request->getMethod() !== RequestMethodInterface::METHOD_GET) {
-            throw new HttpNotFoundException();
+        // A terminal row already 404'd in resolveRow above, so a POST decision only ever runs against
+        // a non-terminal row. The mid-action terminal race (a concurrent reviewer) is caught inside
+        // applyDecision(), which is the real correctness guarantee — not this pre-check.
+        if ($request->getMethod() === RequestMethodInterface::METHOD_POST) {
+            return $this->applyDecision($request, $tree, $xref, $row);
         }
 
         $vm = ReviewViewModel::fromStoredMatch($row, $this->treePerson($individual));
@@ -116,6 +124,61 @@ class ReviewScreenHandler implements RequestHandlerInterface
             'xref'  => $xref,
             'key'   => $key,
         ]);
+    }
+
+    /**
+     * Applies a non-write-back review decision (reject or uncertain) and redirects with a flash. A
+     * row that turned terminal between resolution and mutation is reported as a warning, not a 500.
+     *
+     * @param ServerRequestInterface $request The incoming POST request.
+     * @param Tree                   $tree    The tree the row belongs to.
+     * @param string                 $xref    The candidate identifier.
+     * @param StoredMatch            $row     The resolved non-terminal row.
+     *
+     * @return ResponseInterface The redirect response.
+     *
+     * @throws HttpBadRequestException When the action is neither reject nor uncertain.
+     */
+    private function applyDecision(ServerRequestInterface $request, Tree $tree, string $xref, StoredMatch $row): ResponseInterface
+    {
+        $action = Validator::parsedBody($request)->string('action');
+        $store  = $this->storeForTree($tree);
+
+        $individualUrl = route(IndividualPage::class, [
+            'tree' => $tree->name(),
+            'xref' => $xref,
+        ]);
+
+        $reviewUrl = route(self::ROUTE_NAME, [
+            'tree' => $tree->name(),
+            'xref' => $xref,
+            'key'  => StoredMatchKey::fromUrl($row->obituaryUrl),
+        ]);
+
+        try {
+            switch ($action) {
+                case 'reject':
+                    $store->markRejected($xref, $row->obituaryUrl, null);
+                    FlashMessages::addMessage(I18N::translate('The match was rejected.'), 'success');
+
+                    return redirect($individualUrl);
+
+                case 'uncertain':
+                    $store->markUncertain($xref, $row->obituaryUrl, null);
+                    FlashMessages::addMessage(I18N::translate('The match was marked uncertain.'), 'success');
+
+                    return redirect($reviewUrl);
+
+                default:
+                    throw new HttpBadRequestException();
+            }
+        } catch (TerminalMatchTransitionException) {
+            // A concurrent reviewer finalised the row between our resolve and this mutation. The
+            // store throw — not the earlier non-terminal check — is the correctness guarantee.
+            FlashMessages::addMessage(I18N::translate('This match was already finalised by someone else.'), 'warning');
+
+            return redirect($individualUrl);
+        }
     }
 
     /**

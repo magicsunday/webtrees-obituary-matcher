@@ -16,6 +16,7 @@ use Aura\Router\RouterContainer;
 use Fig\Http\Message\RequestMethodInterface;
 use Fisharebest\Webtrees\Auth;
 use Fisharebest\Webtrees\Contracts\UserInterface;
+use Fisharebest\Webtrees\FlashMessages;
 use Fisharebest\Webtrees\GuestUser;
 use Fisharebest\Webtrees\Http\Exceptions\HttpAccessDeniedException;
 use Fisharebest\Webtrees\Http\Exceptions\HttpNotFoundException;
@@ -26,10 +27,13 @@ use Fisharebest\Webtrees\Registry;
 use Fisharebest\Webtrees\Services\ModuleService;
 use Fisharebest\Webtrees\Tree;
 use Fisharebest\Webtrees\View;
+use MagicSunday\ObituaryMatcher\Domain\ClassifiedMatch;
 use MagicSunday\ObituaryMatcher\Matching\FileMatchStore;
 use MagicSunday\ObituaryMatcher\Matching\MatchStatus;
 use MagicSunday\ObituaryMatcher\Matching\MatchStore;
+use MagicSunday\ObituaryMatcher\Matching\StoredMatch;
 use MagicSunday\ObituaryMatcher\Matching\StoredMatchKey;
+use MagicSunday\ObituaryMatcher\Matching\TerminalMatchTransitionException;
 use MagicSunday\ObituaryMatcher\Test\Support\RemovesFlatTempStoreTrait;
 use MagicSunday\ObituaryMatcher\Ui\ReviewViewModel;
 use MagicSunday\ObituaryMatcher\Ui\TreePersonView;
@@ -59,7 +63,9 @@ use function str_repeat;
 #[UsesClass(MatchStatus::class)]
 #[UsesClass(ReviewViewModel::class)]
 #[UsesClass(TreePersonView::class)]
+#[UsesClass(StoredMatch::class)]
 #[UsesClass(StoredMatchKey::class)]
+#[UsesClass(ClassifiedMatch::class)]
 final class ReviewScreenHandlerTest extends IntegrationTestCase
 {
     use RemovesFlatTempStoreTrait;
@@ -239,6 +245,214 @@ final class ReviewScreenHandlerTest extends IntegrationTestCase
     }
 
     /**
+     * POST reject moves the row to rejected and redirects to the individual page.
+     *
+     * @return void
+     */
+    #[Test]
+    public function postRejectFinalisesAndRedirects(): void
+    {
+        $key     = $this->seedPendingMatch('I1');
+        $request = $this->managerPostRequest(
+            ReviewScreenHandler::ROUTE_NAME,
+            ['xref'   => 'I1', 'key' => $key],
+            ['action' => 'reject']
+        );
+
+        $response = $this->handler()->handle($request);
+
+        self::assertSame(302, $response->getStatusCode());
+        // Reject is terminal, so the reviewer lands back on the individual page, not the review screen.
+        self::assertStringContainsString('individual', $response->getHeaderLine('Location'));
+        self::assertStringNotContainsString('obituary-review', $response->getHeaderLine('Location'));
+        self::assertSame([], $this->store()->allPending());
+    }
+
+    /**
+     * POST uncertain moves the row to uncertain (still non-terminal) and redirects back to review.
+     *
+     * @return void
+     */
+    #[Test]
+    public function postUncertainKeepsRowAndRedirectsToReview(): void
+    {
+        $key     = $this->seedPendingMatch('I1');
+        $request = $this->managerPostRequest(
+            ReviewScreenHandler::ROUTE_NAME,
+            ['xref'   => 'I1', 'key' => $key],
+            ['action' => 'uncertain']
+        );
+
+        $response = $this->handler()->handle($request);
+
+        self::assertSame(302, $response->getStatusCode());
+        // Uncertain is non-terminal, so it loops back to the review screen (not the individual page).
+        self::assertStringContainsString('obituary-review', $response->getHeaderLine('Location'));
+        self::assertSame(MatchStatus::Uncertain, $this->store()->findOne('I1', $key)?->status);
+    }
+
+    /**
+     * A row already terminal BEFORE the POST is a clean 404 via resolveRow — not reviewable.
+     *
+     * @return void
+     */
+    #[Test]
+    public function postOnPreResolveTerminalRow404s(): void
+    {
+        $key = $this->seedPendingMatch('I1');
+        $this->store()->markRejected('I1', 'https://trauer.example/I1', null);
+
+        $request = $this->managerPostRequest(
+            ReviewScreenHandler::ROUTE_NAME,
+            ['xref'   => 'I1', 'key' => $key],
+            ['action' => 'uncertain']
+        );
+
+        $this->expectException(HttpNotFoundException::class);
+
+        $this->handler()->handle($request);
+    }
+
+    /**
+     * The real TOCTOU: resolveRow sees a pending row, but the store mutation throws because another
+     * manager finalised it in between. The handler catches the throw and redirects (302) with a
+     * warning flash — it does NOT 500. The store seam injects the race.
+     *
+     * @return void
+     */
+    #[Test]
+    public function postOnMidActionRaceRedirectsNot500(): void
+    {
+        $racingStore = new class implements MatchStore {
+            /**
+             * Returns a pending row so resolveRow passes, then markUncertain throws below.
+             *
+             * @param string $personId The candidate identifier.
+             * @param string $rowKey   The canonical row key.
+             *
+             * @return StoredMatch The pending row (covariantly narrowed: this fake never returns null).
+             */
+            public function findOne(string $personId, string $rowKey): StoredMatch
+            {
+                return new StoredMatch(
+                    $personId,
+                    'https://trauer.example/I1',
+                    MatchStatus::Pending,
+                    ClassifiedMatch::emptyArray($personId, 'https://trauer.example/I1'),
+                );
+            }
+
+            /**
+             * Throws to simulate the row turning terminal between resolve and mutate.
+             *
+             * @param string      $personId    The candidate identifier.
+             * @param string      $obituaryUrl The source URL.
+             * @param string|null $reason      The reviewer note.
+             *
+             * @return void
+             */
+            public function markUncertain(string $personId, string $obituaryUrl, ?string $reason): void
+            {
+                throw new TerminalMatchTransitionException('raced');
+            }
+
+            /**
+             * Throws to simulate the row turning terminal between resolve and mutate.
+             *
+             * @param string      $personId    The candidate identifier.
+             * @param string      $obituaryUrl The source URL.
+             * @param string|null $reason      The rejection reason.
+             *
+             * @return void
+             */
+            public function markRejected(string $personId, string $obituaryUrl, ?string $reason): void
+            {
+                throw new TerminalMatchTransitionException('raced');
+            }
+
+            /**
+             * Unused by the race scenario; accepts the write and reports success.
+             *
+             * @param StoredMatch $match The suggestion to store.
+             *
+             * @return bool Always true.
+             */
+            public function upsertPending(StoredMatch $match): bool
+            {
+                return true;
+            }
+
+            /**
+             * Unused by the race scenario; returns no rows.
+             *
+             * @param string $personId The candidate identifier.
+             *
+             * @return list<StoredMatch> The empty result.
+             */
+            public function findByPerson(string $personId): array
+            {
+                return [];
+            }
+
+            /**
+             * Unused by the race scenario; returns no pending rows.
+             *
+             * @return list<StoredMatch> The empty result.
+             */
+            public function allPending(): array
+            {
+                return [];
+            }
+        };
+
+        // A handler subclass that injects the racing store via the storeForTree seam.
+        $handler = new class(self::MODULE_NAMESPACE, $racingStore) extends ReviewScreenHandler {
+            /**
+             * Wraps the handler so the mid-action terminal race fires through the injected store.
+             *
+             * @param string     $namespace   The view namespace the handler renders under.
+             * @param MatchStore $racingStore The store whose mutation throws to simulate the race.
+             */
+            public function __construct(string $namespace, private readonly MatchStore $racingStore)
+            {
+                parent::__construct($namespace);
+            }
+
+            /**
+             * Returns the racing store so the mid-action terminal race fires on mutation.
+             *
+             * @param Tree $tree The tree whose store is requested.
+             *
+             * @return MatchStore The racing store.
+             */
+            protected function storeForTree(Tree $tree): MatchStore
+            {
+                return $this->racingStore;
+            }
+        };
+
+        $key     = str_repeat('a', 64);
+        $request = $this->managerPostRequest(
+            ReviewScreenHandler::ROUTE_NAME,
+            ['xref'   => 'I1', 'key' => $key],
+            ['action' => 'uncertain']
+        );
+
+        $response = $handler->handle($request);
+
+        self::assertSame(302, $response->getStatusCode());
+        // The catch redirects to the individual page; a swallowed exception falling through to the
+        // uncertain success path would instead loop back to the review screen — so the absence of
+        // `obituary-review` (plus the warning flash below) is what proves the catch branch fired.
+        self::assertStringContainsString('individual', $response->getHeaderLine('Location'));
+        self::assertStringNotContainsString('obituary-review', $response->getHeaderLine('Location'));
+
+        $messages = FlashMessages::getMessages();
+        self::assertCount(1, $messages);
+        self::assertSame('warning', $messages[0]->status);
+    }
+
+    /**
      * Builds the handler under test, scoped to this test's temp store via the seam override.
      *
      * @return ReviewScreenHandler The handler whose store points at the temp directory.
@@ -303,6 +517,21 @@ final class ReviewScreenHandlerTest extends IntegrationTestCase
     }
 
     /**
+     * Builds a manager-authenticated POST request carrying the tree, the route attributes and the
+     * given parsed body. The logged-in administrator is a manager of every tree.
+     *
+     * @param string                $routeName  The route name carried on the route attribute.
+     * @param array<string, string> $attributes The route attributes (xref, key).
+     * @param array<string, string> $body       The parsed request body (action).
+     *
+     * @return ServerRequestInterface The request the handler consumes.
+     */
+    private function managerPostRequest(string $routeName, array $attributes, array $body): ServerRequestInterface
+    {
+        return $this->getRequestAs(Auth::user(), $routeName, $attributes, RequestMethodInterface::METHOD_POST, $body);
+    }
+
+    /**
      * Builds a GET request authenticated as a non-manager (a guest, who is neither an administrator
      * nor holds the tree's manager role) so the real {@see Auth::isManager()} deny-branch fires. The
      * guest is attached as the request's `user` attribute exactly as webtrees' middleware would.
@@ -318,11 +547,14 @@ final class ReviewScreenHandlerTest extends IntegrationTestCase
     }
 
     /**
-     * Builds a GET request carrying the tree, the route, and the given user as request attributes.
+     * Builds a request carrying the tree, the route, the given user as request attributes and an
+     * optional parsed body. Defaults to GET with an empty body for the read-only render tests.
      *
      * @param UserInterface         $user       The user attached as the request's `user` attribute.
      * @param string                $routeName  The route name carried on the route attribute.
      * @param array<string, string> $attributes The route attributes (xref, key).
+     * @param string                $method     The HTTP method.
+     * @param array<string, string> $body       The parsed request body.
      *
      * @return ServerRequestInterface The request the handler consumes.
      */
@@ -330,6 +562,8 @@ final class ReviewScreenHandlerTest extends IntegrationTestCase
         UserInterface $user,
         string $routeName,
         array $attributes,
+        string $method = RequestMethodInterface::METHOD_GET,
+        array $body = [],
     ): ServerRequestInterface {
         $factory = Registry::container()->get(ServerRequestFactoryInterface::class);
         self::assertInstanceOf(ServerRequestFactoryInterface::class, $factory);
@@ -338,7 +572,8 @@ final class ReviewScreenHandlerTest extends IntegrationTestCase
         $route->name($routeName);
 
         $request = $factory
-            ->createServerRequest(RequestMethodInterface::METHOD_GET, 'https://webtrees.test/index.php')
+            ->createServerRequest($method, 'https://webtrees.test/index.php')
+            ->withParsedBody($body)
             ->withAttribute('base_url', 'https://webtrees.test')
             ->withAttribute('client-ip', '127.0.0.1')
             ->withAttribute('route', $route)

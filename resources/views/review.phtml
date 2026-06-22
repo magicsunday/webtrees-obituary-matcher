@@ -3,9 +3,16 @@
 declare(strict_types=1);
 
 use Fisharebest\Webtrees\I18N;
+use Fisharebest\Webtrees\Tree;
 use MagicSunday\ObituaryMatcher\Ui\ReviewViewModel;
+use MagicSunday\ObituaryMatcher\Webtrees\ReviewScreenHandler;
 
 /** @var ReviewViewModel $vm */
+/** @var Tree $tree */
+/** @var string $xref */
+/** @var string $key */
+
+$actionUrl = route(ReviewScreenHandler::ROUTE_NAME, ['tree' => $tree->name(), 'xref' => $xref, 'key' => $key]);
 
 $bandLabels = [
     'strong'   => I18N::translate('Strong match'),
@@ -105,6 +112,21 @@ $severityLabels = [
         <?php if ($vm->sourceUrl !== null) : ?>
             <a href="<?= e($vm->sourceUrl) ?>" target="_blank" rel="noopener noreferrer"><?= e(I18N::translate('View source')) ?></a>
         <?php endif ?>
+
+        <form method="post" action="<?= e($actionUrl) ?>">
+            <?= csrf_field() ?>
+            <input type="hidden" name="action" value="reject">
+            <button type="submit"><?= e(I18N::translate('Reject')) ?></button>
+        </form>
+
+        <?php if ($vm->statusKey !== 'uncertain') : ?>
+            <form method="post" action="<?= e($actionUrl) ?>">
+                <?= csrf_field() ?>
+                <input type="hidden" name="action" value="uncertain">
+                <button type="submit"><?= e(I18N::translate('Uncertain')) ?></button>
+            </form>
+        <?php endif ?>
+
         <button type="button" disabled><?= e(I18N::translate('Confirm as source')) ?></button>
     </div>
 </div>
