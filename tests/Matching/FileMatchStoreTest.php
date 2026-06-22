@@ -252,6 +252,34 @@ final class FileMatchStoreTest extends TempDirTestCase
     }
 
     /**
+     * findByPerson filters its sub-directory scan by the requested candidate id as defence-in-depth: a
+     * VALID stored-match row whose CONTENT personId is I2, physically MISPLACED into I1's sub-directory
+     * (a manual-edit / corruption fault), is NOT returned for I1. Only the legit I1 row surfaces (count
+     * one, personId I1). Without the personId equality guard the partition would be trusted blindly and
+     * both rows would be returned — so the exclusion of the misplaced row is the discriminator.
+     *
+     * @return void
+     */
+    #[Test]
+    public function findByPersonExcludesAMisplacedRowFromTheWrongSubDirectory(): void
+    {
+        $store = new FileMatchStore($this->tmp);
+
+        // The legit I1 row lands in I1's own sub-directory.
+        $store->upsertPending($this->pendingMatch('I1', 'https://example.test/a'));
+
+        // Physically write a VALID stored-match JSON whose content personId is I2 INTO I1's sub-directory
+        // at {dir}/sha256('I1')/{64-hex}.json — the manual-misplacement / corruption fault.
+        $misplaced     = $this->pendingMatch('I2', 'https://example.test/b');
+        $misplacedPath = $this->tmp . '/' . hash('sha256', 'I1') . '/' . StoredMatchKey::fromUrl('https://example.test/b') . '.json';
+        file_put_contents($misplacedPath, json_encode($misplaced->toArray(), JSON_THROW_ON_ERROR));
+
+        $rows = $store->findByPerson('I1');
+        self::assertCount(1, $rows, 'the misplaced I2 row in I1\'s sub-directory is filtered out');
+        self::assertSame('I1', $rows[0]->personId);
+    }
+
+    /**
      * allPending recurses one level into the per-person sub-directories: pending rows seeded for two
      * different candidates, each landing in its own sub-directory, both surface — proving the recursive
      * scan walks across persons.

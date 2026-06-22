@@ -35,7 +35,8 @@ use const PATHINFO_EXTENSION;
  * pointing at the same obituary collapse onto one file and no candidate identifier ever reaches the
  * filesystem (avoiding any xref-charset escaping). Because every row for a candidate lives in that
  * candidate's own sub-directory, {@see findByPerson()} scans ONLY that sub-directory — O(rows for the
- * candidate) rather than O(whole store). The tree-wide {@see allPending()} worklist recurses one
+ * candidate) rather than O(whole store) — filtering on the decoded personId as defence-in-depth against
+ * a misplaced/corrupt row in the wrong sub-directory. The tree-wide {@see allPending()} worklist recurses one
  * level across the sub-directories. The candidate identifier and status are persisted inside each
  * row, so the decoded row content carries the authoritative state.
  *
@@ -99,10 +100,19 @@ final readonly class FileMatchStore implements MatchStore
      */
     public function findByPerson(string $personId): array
     {
-        // The candidate's rows all live in its own sub-directory by construction, so scanning ONLY
-        // that sub-directory is O(rows for this candidate) — not a whole-store scan — and every row it
-        // returns already belongs to the candidate (no decoded-personId filter needed).
-        return $this->scanDir($this->dirForPerson($personId));
+        $matches = [];
+
+        // The candidate's rows all live in its own sub-directory by construction, so scanning ONLY that
+        // sub-directory is O(rows for this candidate) — not a whole-store scan. The personId equality is
+        // defence-in-depth: it restores the pre-refactor flat store's filter so a manually-misplaced or
+        // corrupt row sitting in the WRONG sub-directory is never returned as this candidate's.
+        foreach ($this->scanDir($this->dirForPerson($personId)) as $row) {
+            if ($row->personId === $personId) {
+                $matches[] = $row;
+            }
+        }
+
+        return $matches;
     }
 
     /**
