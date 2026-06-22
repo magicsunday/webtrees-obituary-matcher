@@ -54,7 +54,7 @@ use MagicSunday\ObituaryMatcher\Support\NoticeMapper;
 use MagicSunday\ObituaryMatcher\Support\ObituaryNameParser;
 use MagicSunday\ObituaryMatcher\Support\UrlNormalizer;
 /* jscpd:ignore-end */
-use MagicSunday\ObituaryMatcher\Test\Queue\TempDirTestCase;
+use MagicSunday\ObituaryMatcher\Test\Queue\QueueTempDirTestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\Attributes\UsesClass;
@@ -109,7 +109,7 @@ use PHPUnit\Framework\Attributes\UsesClass;
 #[UsesClass(StoredMatch::class)]
 #[UsesClass(UrlNormalizer::class)]
 /* jscpd:ignore-end */
-final class IngestServiceTest extends TempDirTestCase
+final class IngestServiceTest extends QueueTempDirTestCase
 {
     /**
      * Ingests a validated feeder response for a still-held candidate, scores it with the unchanged
