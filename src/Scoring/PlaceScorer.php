@@ -16,6 +16,7 @@ use MagicSunday\ObituaryMatcher\Domain\Place;
 use MagicSunday\ObituaryMatcher\Domain\ScoreConfig;
 use MagicSunday\ObituaryMatcher\Domain\SignalScore;
 use MagicSunday\ObituaryMatcher\Support\Normalizer;
+use MagicSunday\ObituaryMatcher\Support\PlaceHierarchy;
 
 use function min;
 
@@ -100,21 +101,27 @@ final readonly class PlaceScorer
     }
 
     /**
-     * Checks whether a place matches the normalised needle by its primary name or any alias.
+     * Checks whether a place matches the normalised needle by any name segment or any alias.
      *
-     * Aliases capture historical or alternative spellings of the same place, so an alias match
-     * is treated as equivalent to a primary-name match. The needle is already normalised and
-     * guaranteed non-empty by the caller, so an empty alias key can never match it.
+     * A webtrees gedcomName() place is a comma-separated GEDCOM hierarchy of variable depth
+     * ("Bad Hersfeld, Hessen, Deutschland"), while an obituary notice place is usually just the
+     * town. The needle therefore matches if it equals ANY comma-segment of the place name; a
+     * single-segment place still matches exactly as before. Aliases capture historical or
+     * alternative spellings of the same WHOLE place, so they are matched as-is. The needle is
+     * already normalised and guaranteed non-empty by the caller, so an empty segment or alias key
+     * can never match it.
      *
      * @param Place  $place  The candidate place (residence or birth place).
      * @param string $needle The normalised, non-empty notice place key.
      *
-     * @return bool Whether the place's name or one of its aliases equals the needle.
+     * @return bool Whether one of the place name's segments or one of its aliases equals the needle.
      */
     private function matchesPlace(Place $place, string $needle): bool
     {
-        if (Normalizer::normalize($place->name) === $needle) {
-            return true;
+        foreach (PlaceHierarchy::segments($place->name) as $segment) {
+            if (Normalizer::normalize($segment) === $needle) {
+                return true;
+            }
         }
 
         foreach ($place->aliases as $alias) {
