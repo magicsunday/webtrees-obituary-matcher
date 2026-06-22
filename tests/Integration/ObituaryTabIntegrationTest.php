@@ -79,7 +79,7 @@ final class ObituaryTabIntegrationTest extends TestCase
      */
     private function removeTree(string $dir): void
     {
-        if (!is_dir($dir)) {
+        if (($dir === '') || !is_dir($dir)) {
             return;
         }
 

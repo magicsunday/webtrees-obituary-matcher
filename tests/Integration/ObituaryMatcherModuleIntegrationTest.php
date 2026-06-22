@@ -71,13 +71,13 @@ final class ObituaryMatcherModuleIntegrationTest extends IntegrationTestCase
      */
     protected function tearDown(): void
     {
-        $files = glob($this->dir . '/*');
+        if (($this->dir !== '') && is_dir($this->dir)) {
+            $files = glob($this->dir . '/*');
 
-        if ($files !== false) {
-            array_map('unlink', $files);
-        }
+            if ($files !== false) {
+                array_map('unlink', $files);
+            }
 
-        if (is_dir($this->dir)) {
             rmdir($this->dir);
         }
 
