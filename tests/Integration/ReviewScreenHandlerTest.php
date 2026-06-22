@@ -21,12 +21,14 @@ use Fisharebest\Webtrees\GuestUser;
 use Fisharebest\Webtrees\Http\Exceptions\HttpAccessDeniedException;
 use Fisharebest\Webtrees\Http\Exceptions\HttpBadRequestException;
 use Fisharebest\Webtrees\Http\Exceptions\HttpNotFoundException;
+use Fisharebest\Webtrees\Http\Middleware\CheckCsrf;
 use Fisharebest\Webtrees\Http\Routes\WebRoutes;
 use Fisharebest\Webtrees\Individual;
 use Fisharebest\Webtrees\Module\ModuleThemeInterface;
 use Fisharebest\Webtrees\Module\WebtreesTheme;
 use Fisharebest\Webtrees\Registry;
 use Fisharebest\Webtrees\Services\ModuleService;
+use Fisharebest\Webtrees\Session;
 use Fisharebest\Webtrees\Tree;
 use Fisharebest\Webtrees\View;
 use MagicSunday\ObituaryMatcher\Domain\ClassifiedMatch;
@@ -65,6 +67,7 @@ use function view;
  * @link    https://github.com/magicsunday/webtrees-obituary-matcher/
  */
 #[CoversClass(ReviewScreenHandler::class)]
+#[UsesClass(CheckCsrf::class)]
 #[UsesClass(MatchSeeder::class)]
 #[UsesClass(FileMatchStore::class)]
 #[UsesClass(MatchStatus::class)]
@@ -355,6 +358,68 @@ final class ReviewScreenHandlerTest extends IntegrationTestCase
         self::assertStringContainsString('individual', $response->getHeaderLine('Location'));
         self::assertStringNotContainsString('obituary-review', $response->getHeaderLine('Location'));
         self::assertSame([], $this->store()->allPending());
+    }
+
+    /**
+     * A POST carrying a valid CSRF token passes webtrees' router-injected {@see CheckCsrf} middleware
+     * and reaches the handler, which finalises the row and redirects (302). The middleware is the real
+     * contract that guards every matched POST route; a direct {@see RequestHandlerInterface::handle()}
+     * call bypasses it (middleware runs in the router stack, not on the handler), so this test
+     * dispatches the POST THROUGH the middleware with the session token mirrored into the body — exactly
+     * how webtrees' kernel feeds it — proving the valid-token path succeeds (spec §11).
+     *
+     * @return void
+     */
+    #[Test]
+    public function postWithValidCsrfTokenPassesMiddlewareAndSucceeds(): void
+    {
+        $key   = $this->seedPendingMatch('I1');
+        $token = 'a-valid-csrf-token';
+        Session::put('CSRF_TOKEN', $token);
+
+        $request = $this->managerPostRequest(
+            ReviewScreenHandler::ROUTE_NAME,
+            ['xref'   => 'I1', 'key' => $key],
+            ['action' => 'reject', '_csrf' => $token]
+        );
+
+        $response = (new CheckCsrf())->process($request, $this->handler());
+
+        self::assertSame(302, $response->getStatusCode());
+        // A successful pass-through redirects to the individual page (reject is terminal); the row is
+        // finalised, which a CSRF rejection (a redirect back to the same URI, no mutation) would not do.
+        self::assertStringContainsString('individual', $response->getHeaderLine('Location'));
+        self::assertSame([], $this->store()->allPending());
+    }
+
+    /**
+     * A POST WITHOUT a valid CSRF token is rejected by the {@see CheckCsrf} middleware before the
+     * handler runs: it redirects back to the same URI with a flash and never finalises the row (spec
+     * §11). The absent token mismatches the session token, so the middleware short-circuits.
+     *
+     * @return void
+     */
+    #[Test]
+    public function postWithoutValidCsrfTokenIsRejectedByMiddleware(): void
+    {
+        $key = $this->seedPendingMatch('I1');
+        Session::put('CSRF_TOKEN', 'the-session-token');
+
+        // No `_csrf` field in the body: the empty client token mismatches the session token.
+        $request = $this->managerPostRequest(
+            ReviewScreenHandler::ROUTE_NAME,
+            ['xref'   => 'I1', 'key' => $key],
+            ['action' => 'reject']
+        );
+
+        $response = (new CheckCsrf())->process($request, $this->handler());
+
+        self::assertSame(302, $response->getStatusCode());
+        // The middleware redirects back to the same request URI (not the handler's individual-page
+        // target) and the row is untouched — proving the handler never ran.
+        self::assertStringContainsString('index.php', $response->getHeaderLine('Location'));
+        self::assertStringNotContainsString('individual', $response->getHeaderLine('Location'));
+        self::assertCount(1, $this->store()->allPending());
     }
 
     /**
