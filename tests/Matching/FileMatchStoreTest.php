@@ -12,6 +12,7 @@ declare(strict_types=1);
 namespace MagicSunday\ObituaryMatcher\Test\Matching;
 
 use Closure;
+use InvalidArgumentException;
 use MagicSunday\ObituaryMatcher\Domain\Classification;
 use MagicSunday\ObituaryMatcher\Domain\ClassifiedMatch;
 use MagicSunday\ObituaryMatcher\Domain\DateRange;
@@ -44,7 +45,16 @@ use function filemtime;
 use function glob;
 use function hash;
 use function hash_file;
+use function is_dir;
+use function is_file;
+use function json_encode;
 use function mkdir;
+use function restore_error_handler;
+use function set_error_handler;
+use function str_repeat;
+use function symlink;
+
+use const JSON_THROW_ON_ERROR;
 
 /**
  * Behavioural tests for the file-based match store: per-key idempotency through the URL
@@ -213,6 +223,121 @@ final class FileMatchStoreTest extends TempDirTestCase
     }
 
     /**
+     * findByPerson groups each candidate's rows under a per-person sub-directory: it returns only the
+     * requesting candidate's rows, and the row file physically lives at
+     * {dir}/{sha256(personId)}/{rowKey}.json — NOT under the old flat
+     * {dir}/sha256(personId."\0".rowKey).json scheme. This pins the GH-26 layout that makes
+     * findByPerson O(rows-for-this-person) instead of O(whole-store).
+     *
+     * @return void
+     */
+    #[Test]
+    public function findByPersonScansOnlyThePersonSubDirectory(): void
+    {
+        $store = new FileMatchStore($this->tmp);
+
+        $urlOne = 'https://example.test/a';
+        $store->upsertPending($this->storedMatch('I1', $urlOne, MatchStatus::Pending));
+        $store->upsertPending($this->storedMatch('I2', 'https://example.test/b', MatchStatus::Pending));
+
+        $rows = $store->findByPerson('I1');
+        self::assertCount(1, $rows, 'only the requesting candidate\'s rows surface');
+        self::assertSame('I1', $rows[0]->personId);
+
+        // The row lives under the per-person sub-directory keyed by sha256(personId).
+        $rowKey     = StoredMatchKey::fromUrl($urlOne);
+        $subDirPath = $this->tmp . '/' . hash('sha256', 'I1') . '/' . $rowKey . '.json';
+        $flatLegacy = $this->tmp . '/' . hash('sha256', 'I1' . "\0" . $rowKey) . '.json';
+
+        self::assertTrue(is_file($subDirPath), 'the row is stored under {dir}/sha256(personId)/{rowKey}.json');
+        self::assertFalse(is_file($flatLegacy), 'the old flat folded-filename scheme is no longer used');
+    }
+
+    /**
+     * findByPerson filters its sub-directory scan by the requested candidate id as defence-in-depth: a
+     * VALID stored-match row whose CONTENT personId is I2, physically MISPLACED into I1's sub-directory
+     * (a manual-edit / corruption fault), is NOT returned for I1. Only the legit I1 row surfaces (count
+     * one, personId I1). Without the personId equality guard the partition would be trusted blindly and
+     * both rows would be returned — so the exclusion of the misplaced row is the discriminator.
+     *
+     * @return void
+     */
+    #[Test]
+    public function findByPersonExcludesAMisplacedRowFromTheWrongSubDirectory(): void
+    {
+        $store = new FileMatchStore($this->tmp);
+
+        // The legit I1 row lands in I1's own sub-directory.
+        $store->upsertPending($this->pendingMatch('I1', 'https://example.test/a'));
+
+        // Physically write a VALID stored-match JSON whose content personId is I2 INTO I1's sub-directory
+        // at {dir}/sha256('I1')/{64-hex}.json — the manual-misplacement / corruption fault.
+        $misplaced     = $this->pendingMatch('I2', 'https://example.test/b');
+        $misplacedPath = $this->tmp . '/' . hash('sha256', 'I1') . '/' . StoredMatchKey::fromUrl('https://example.test/b') . '.json';
+        file_put_contents($misplacedPath, json_encode($misplaced->toArray(), JSON_THROW_ON_ERROR));
+
+        $rows = $store->findByPerson('I1');
+        self::assertCount(1, $rows, 'the misplaced I2 row in I1\'s sub-directory is filtered out');
+        self::assertSame('I1', $rows[0]->personId);
+    }
+
+    /**
+     * allPending recurses one level into the per-person sub-directories: pending rows seeded for two
+     * different candidates, each landing in its own sub-directory, both surface — proving the recursive
+     * scan walks across persons.
+     *
+     * @return void
+     */
+    #[Test]
+    public function allPendingRecursesAcrossPersonSubDirectories(): void
+    {
+        $store = new FileMatchStore($this->tmp);
+
+        $store->upsertPending($this->storedMatch('I1', 'https://example.test/a', MatchStatus::Pending));
+        $store->upsertPending($this->storedMatch('I2', 'https://example.test/b', MatchStatus::Pending));
+
+        // The rows physically live under per-person sub-directories with NO flat *.json at the root,
+        // so allPending must recurse one level to find them (the old flat scheme would not pass this).
+        self::assertTrue(is_dir($this->tmp . '/' . hash('sha256', 'I1')), 'I1 has its own sub-directory');
+        self::assertTrue(is_dir($this->tmp . '/' . hash('sha256', 'I2')), 'I2 has its own sub-directory');
+        self::assertSame([], glob($this->tmp . '/*.json'), 'no row lives flat at the store root');
+
+        $pending = $store->allPending();
+        self::assertCount(2, $pending, 'allPending walks every per-person sub-directory');
+
+        $personIds = [$pending[0]->personId, $pending[1]->personId];
+        self::assertContains('I1', $personIds);
+        self::assertContains('I2', $personIds);
+    }
+
+    /**
+     * A corrupt *.json planted in one candidate's sub-directory does not hide a valid row in another
+     * candidate's sub-directory: the recursive allPending scan skips the poison row and still surfaces
+     * the well-formed one, and findByPerson of the poisoned candidate tolerates the corrupt row too.
+     *
+     * @return void
+     */
+    #[Test]
+    public function aCorruptRowInOneSubDirectoryDoesNotHideValidRowsAcrossSubDirectories(): void
+    {
+        $store = new FileMatchStore($this->tmp);
+
+        $store->upsertPending($this->storedMatch('I1', 'https://example.test/a', MatchStatus::Pending));
+
+        // Plant a corrupt row inside I2's sub-directory, alongside I1's valid row in its own sub-dir.
+        $corruptDir = $this->tmp . '/' . hash('sha256', 'I2');
+        mkdir($corruptDir, 0o700, true);
+        file_put_contents($corruptDir . '/corrupt.json', '{"not":"a stored match"}');
+
+        $pending = $store->allPending();
+        self::assertCount(1, $pending, 'the poison row in I2 is skipped, I1 survives');
+        self::assertSame('I1', $pending[0]->personId);
+
+        // findByPerson of the poisoned candidate's sub-dir tolerates the corrupt row (returns []).
+        self::assertCount(0, $store->findByPerson('I2'));
+    }
+
+    /**
      * allPending returns every Pending row across candidates and excludes terminal rows.
      *
      * @return void
@@ -351,6 +476,70 @@ final class FileMatchStoreTest extends TempDirTestCase
     }
 
     /**
+     * An in-flight atomic temp file ("<rowKey>.json.tmp.<uniqid>") sitting INSIDE a candidate's
+     * per-person sub-directory — the exact transient AtomicFile creates before the rename — is not
+     * scanned as a row: scanDir's extension filter excludes it because pathinfo() reports the uniqid
+     * as the extension, not "json". The valid row in that same sub-directory still surfaces through
+     * both findByPerson (single sub-dir) and allPending (recursive scan), each returning exactly one
+     * row. The temp file carries a fully VALID, decodable StoredMatch payload for a DIFFERENT URL, so
+     * a regression that stops excluding it would hand it to the JSON decoder, reconstruct it as a
+     * genuine second pending row and push the count to two — the exact count is the discriminator
+     * (an arbitrary/corrupt payload would be swallowed by the poison-tolerant catch and hide the
+     * regression).
+     *
+     * @return void
+     */
+    #[Test]
+    public function anInFlightTempFileInsideAPersonSubDirectoryIsNotScanned(): void
+    {
+        $store = new FileMatchStore($this->tmp);
+        $url   = 'https://example.test/a';
+        $store->upsertPending($this->storedMatch('I1', $url, MatchStatus::Pending));
+
+        // The transient shape AtomicFile writes into the person sub-directory before the rename:
+        // {dir}/sha256('I1')/{rowKey}.json.tmp.<uniqid>. Its extension is the uniqid, not "json". It
+        // carries a VALID payload for a second URL so it would decode into a real second row if the
+        // extension filter ever stopped excluding it (the corrupt-row catch could not mask that).
+        $tempRow  = $this->pendingMatch('I1', 'https://example.test/in-flight');
+        $tempPath = $this->tmp . '/' . hash('sha256', 'I1') . '/' . StoredMatchKey::fromUrl($url) . '.json.tmp.deadbeef';
+        file_put_contents($tempPath, json_encode($tempRow->toArray(), JSON_THROW_ON_ERROR));
+
+        $found = $store->findByPerson('I1');
+        self::assertCount(1, $found, 'the in-flight temp file in the sub-directory is excluded from findByPerson');
+        self::assertSame('I1', $found[0]->personId);
+
+        self::assertCount(1, $store->allPending(), 'the in-flight temp file in the sub-directory is excluded from allPending');
+    }
+
+    /**
+     * A stray non-directory entry at the store root (a leftover flat-scheme "*.json" from before the
+     * GH-26 migration, a ".DS_Store", …) is never decoded as a row: allRows recurses ONE level into
+     * the per-person sub-directories only, treating the store root as a directory-of-directories. The
+     * stray file carries a fully VALID, decodable StoredMatch payload, so it would surface as a genuine
+     * second pending row if allRows ever flattened the scan (for example a recursive-glob rewrite that
+     * dropped the one-level structure) — the exact count of one is the discriminator. The valid pending
+     * row under its proper sub-directory still surfaces.
+     *
+     * @return void
+     */
+    #[Test]
+    public function aStrayNonDirectoryFileAtTheStoreRootIsIgnored(): void
+    {
+        $store = new FileMatchStore($this->tmp);
+        $store->upsertPending($this->storedMatch('I1', 'https://example.test/a', MatchStatus::Pending));
+
+        // A stray file directly at the store root (not inside a per-person sub-directory). It carries a
+        // VALID payload so a flattening regression would reconstruct it into a real second pending row;
+        // the one-level recursion must leave it untouched at the root.
+        $strayRow = $this->pendingMatch('I9', 'https://example.test/stray');
+        file_put_contents($this->tmp . '/stray.json', json_encode($strayRow->toArray(), JSON_THROW_ON_ERROR));
+
+        $pending = $store->allPending();
+        self::assertCount(1, $pending, 'the stray root-level file is not decoded, the valid sub-directory row survives');
+        self::assertSame('I1', $pending[0]->personId);
+    }
+
+    /**
      * A single-key read of a corrupt row stays fail-loud: it throws CorruptMatchRowException rather
      * than being silently skipped, so an upsert/reject against a poisoned key surfaces the problem.
      *
@@ -362,15 +551,14 @@ final class FileMatchStoreTest extends TempDirTestCase
         $store = new FileMatchStore($this->tmp);
 
         // Plant a corrupt row exactly where the key for (I1, url) would resolve, then upsert that key.
-        $match = $this->storedMatch('I1', 'https://example.test/a', MatchStatus::Pending);
+        $url   = 'https://example.test/a';
+        $match = $this->storedMatch('I1', $url, MatchStatus::Pending);
         $store->upsertPending($match);
 
-        // Overwrite the stored row with a malformed payload so the next read of the SAME key fails.
-        $paths = glob($this->tmp . '/*.json');
-
-        foreach (($paths === false) ? [] : $paths as $path) {
-            file_put_contents($path, '{"broken":true}');
-        }
+        // Overwrite the stored row with a malformed payload so the next read of the SAME key fails. The
+        // row lives under the per-person sub-directory {dir}/sha256(personId)/{rowKey}.json.
+        $path = $this->tmp . '/' . hash('sha256', 'I1') . '/' . StoredMatchKey::fromUrl($url) . '.json';
+        file_put_contents($path, '{"broken":true}');
 
         $this->expectException(CorruptMatchRowException::class);
         $store->upsertPending($match);
@@ -410,7 +598,7 @@ final class FileMatchStoreTest extends TempDirTestCase
         $url   = 'https://trauer.example/a';
         $store->upsertPending($this->pendingMatch('I1', $url));
 
-        $path = $this->tmp . '/' . hash('sha256', 'I1' . "\0" . StoredMatchKey::fromUrl($url)) . '.json';
+        $path = $this->tmp . '/' . hash('sha256', 'I1') . '/' . StoredMatchKey::fromUrl($url) . '.json';
         file_put_contents($path, '{"not":"a stored match"}');
 
         $this->expectException(CorruptMatchRowException::class);
@@ -429,6 +617,108 @@ final class FileMatchStoreTest extends TempDirTestCase
         $store = new FileMatchStore($this->tmp);
 
         self::assertNull($store->findOne('I1', StoredMatchKey::fromUrl('https://trauer.example/missing')));
+    }
+
+    /**
+     * findOne rejects a malformed row key at the path sink rather than building a path from it: a
+     * traversal-shaped key, a too-short key, an uppercase-hex key (the guard is lowercase-only) and a
+     * trailing-newline key (which a non-"/D"-anchored "$" would let slip past) all throw
+     * InvalidArgumentException. Without the guard, findOne would build a path from the raw key and
+     * return null (a silent miss / traversal) rather than throw — so the throw is the discriminator.
+     *
+     * @param string $badKey A row key that is not a 64-character lowercase hex string.
+     *
+     * @return void
+     */
+    #[Test]
+    #[DataProvider('malformedRowKeyProvider')]
+    public function findOneRejectsAMalformedRowKey(string $badKey): void
+    {
+        $store = new FileMatchStore($this->tmp);
+
+        $this->expectException(InvalidArgumentException::class);
+
+        $store->findOne('I1', $badKey);
+    }
+
+    /**
+     * Provides row keys that must be rejected by the path-sink guard: each is NOT a 64-character
+     * lowercase hex string.
+     *
+     * @return iterable<string, array{string}> The malformed row keys.
+     */
+    public static function malformedRowKeyProvider(): iterable
+    {
+        yield 'path traversal' => ['../../etc/passwd'];
+        yield 'too short' => ['abc'];
+        yield 'uppercase hex (guard is lowercase-only)' => [str_repeat('A', 64)];
+        yield 'valid hex with a trailing newline' => [str_repeat('a', 64) . "\n"];
+    }
+
+    /**
+     * findOne accepts a valid 64-character lowercase hex row key (the StoredMatchKey shape) and does
+     * NOT throw: it resolves to the row the upsert wrote. This pins the happy path of the path-sink
+     * guard alongside the malformed-key rejections.
+     *
+     * @return void
+     */
+    #[Test]
+    public function findOneAcceptsAValidHexRowKey(): void
+    {
+        $store = new FileMatchStore($this->tmp);
+        $url   = 'https://trauer.example/a';
+        $store->upsertPending($this->pendingMatch('I1', $url));
+
+        $found = $store->findOne('I1', StoredMatchKey::fromUrl($url));
+
+        self::assertInstanceOf(StoredMatch::class, $found);
+        self::assertSame('I1', $found->personId);
+    }
+
+    /**
+     * A symlinked directory planted at the store root is skipped by the recursive worklist scan: the
+     * symlink target is a real directory OUTSIDE the store holding a fully VALID pending row, so it
+     * WOULD surface through allPending if the scan followed the link. allRows now guards "!isDir() ||
+     * isLink()", so the row under the symlink target never surfaces. The valid in-store row still does
+     * — the exact count is the discriminator (without the isLink() guard the count would be two).
+     *
+     * @return void
+     */
+    #[Test]
+    public function allPendingSkipsASymlinkedDirectoryAtTheStoreRoot(): void
+    {
+        $store = new FileMatchStore($this->tmp);
+        $store->upsertPending($this->pendingMatch('I1', 'https://trauer.example/a'));
+
+        // A real directory OUTSIDE the store root, holding a valid pending row, then symlinked INTO the
+        // store root. If allRows followed the link, isDir() (true through the link) would let it scan
+        // the target and surface the row — the !isLink() guard must skip it.
+        $outsideDir = $this->tmp . '-outside';
+        mkdir($outsideDir, 0o700, true);
+        $hiddenRow = $this->pendingMatch('I9', 'https://trauer.example/hidden');
+        file_put_contents(
+            $outsideDir . '/' . StoredMatchKey::fromUrl('https://trauer.example/hidden') . '.json',
+            json_encode($hiddenRow->toArray(), JSON_THROW_ON_ERROR),
+        );
+
+        // Wrap symlink() in the scoped-error-handler idiom (the AtomicFile W4 pattern): a restricted
+        // platform makes symlink() raise an E_WARNING that PHPUnit converts to a thrown exception BEFORE
+        // the "!== true" check, so the markTestSkipped fallback would otherwise be unreachable.
+        set_error_handler(static fn (): bool => true);
+
+        try {
+            $symlinkCreated = symlink($outsideDir, $this->tmp . '/evil');
+        } finally {
+            restore_error_handler();
+        }
+
+        if ($symlinkCreated !== true) {
+            self::markTestSkipped('symlink() is unavailable on this platform.');
+        }
+
+        $pending = $store->allPending();
+        self::assertCount(1, $pending, 'the symlinked directory at the store root is skipped');
+        self::assertSame('I1', $pending[0]->personId);
     }
 
     /**
@@ -461,7 +751,7 @@ final class FileMatchStoreTest extends TempDirTestCase
         $store->upsertPending($this->pendingMatch('I1', $url));
         $store->markUncertain('I1', $url, null);
 
-        $path   = $this->tmp . '/' . hash('sha256', 'I1' . "\0" . StoredMatchKey::fromUrl($url)) . '.json';
+        $path   = $this->tmp . '/' . hash('sha256', 'I1') . '/' . StoredMatchKey::fromUrl($url) . '.json';
         $before = hash_file('sha256', $path);
         clearstatcache(true, $path);
         $mtime = filemtime($path);
@@ -491,7 +781,7 @@ final class FileMatchStoreTest extends TempDirTestCase
 
         $store->markUncertain('I1', $url, 'first');
 
-        $path   = $this->tmp . '/' . hash('sha256', 'I1' . "\0" . StoredMatchKey::fromUrl($url)) . '.json';
+        $path   = $this->tmp . '/' . hash('sha256', 'I1') . '/' . StoredMatchKey::fromUrl($url) . '.json';
         $before = hash_file('sha256', $path);
 
         $store->markUncertain('I1', $url, 'revised');

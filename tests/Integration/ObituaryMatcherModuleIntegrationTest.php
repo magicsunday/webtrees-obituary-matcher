@@ -15,6 +15,7 @@ use Fisharebest\Webtrees\Individual;
 use Fisharebest\Webtrees\Tree;
 use MagicSunday\ObituaryMatcher\Matching\FileMatchStore;
 use MagicSunday\ObituaryMatcher\Matching\MatchStatus;
+use MagicSunday\ObituaryMatcher\Test\Support\RemovesFlatTempStoreTrait;
 use MagicSunday\ObituaryMatcher\Ui\SuggestionTabPresenter;
 use MagicSunday\ObituaryMatcher\Ui\SuggestionViewModel;
 use MagicSunday\ObituaryMatcher\Webtrees\MatchSeeder;
@@ -22,14 +23,6 @@ use MagicSunday\ObituaryMatcher\Webtrees\ObituaryMatcherModule;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\Attributes\UsesClass;
-
-use function array_map;
-use function bin2hex;
-use function glob;
-use function is_dir;
-use function random_bytes;
-use function rmdir;
-use function sys_get_temp_dir;
 
 /**
  * Boots a real webtrees runtime, imports a two-person fixture tree and drives
@@ -58,11 +51,7 @@ use function sys_get_temp_dir;
 #[UsesClass(MatchStatus::class)]
 final class ObituaryMatcherModuleIntegrationTest extends IntegrationTestCase
 {
-    /**
-     * The temporary store directory created per test, removed in {@see tearDown()} so a failing
-     * assertion never leaks a directory under the system temp path.
-     */
-    private string $dir = '';
+    use RemovesFlatTempStoreTrait;
 
     /**
      * Removes the temp store directory and its rows regardless of how the test ended.
@@ -71,15 +60,7 @@ final class ObituaryMatcherModuleIntegrationTest extends IntegrationTestCase
      */
     protected function tearDown(): void
     {
-        if (($this->dir !== '') && is_dir($this->dir)) {
-            $files = glob($this->dir . '/*');
-
-            if ($files !== false) {
-                array_map('unlink', $files);
-            }
-
-            rmdir($this->dir);
-        }
+        $this->removeFlatStoreDir();
 
         parent::tearDown();
     }
@@ -97,8 +78,7 @@ final class ObituaryMatcherModuleIntegrationTest extends IntegrationTestCase
         $gedcom = "0 @I1@ INDI\n1 NAME Otto /Vorbild/\n0 @I2@ INDI\n1 NAME Anna /Beispiel/\n";
         $tree   = $this->importFixtureTree($gedcom);
 
-        $dir       = sys_get_temp_dir() . '/om-mod-' . bin2hex(random_bytes(4));
-        $this->dir = $dir;
+        $dir = $this->makeFlatStoreDir('om-mod-');
         MatchSeeder::seed(new FileMatchStore($dir), 'I1', MatchStatus::Pending, 'strong', '2023-09-04');
 
         $module = new class($dir) extends ObituaryMatcherModule {

@@ -12,6 +12,7 @@ declare(strict_types=1);
 namespace MagicSunday\ObituaryMatcher\Matching;
 
 use FilesystemIterator;
+use InvalidArgumentException;
 use JsonException;
 use MagicSunday\ObituaryMatcher\Domain\ClassifiedMatch;
 use MagicSunday\ObituaryMatcher\Queue\AtomicFile;
@@ -22,17 +23,22 @@ use UnexpectedValueException;
 use function hash;
 use function is_file;
 use function pathinfo;
+use function preg_match;
 use function sprintf;
 
 use const PATHINFO_EXTENSION;
 
 /**
- * A file-based {@see MatchStore}: one atomic JSON file per (candidate, normalised URL) key under a
- * single directory. The file name is a content hash of the candidate identifier and the URL identity
- * key, so two notice links pointing at the same obituary collapse onto one file and no candidate
- * identifier ever reaches the filesystem (avoiding any xref-charset escaping). The candidate
- * identifier and status are persisted inside each row, so {@see findByPerson()} and
- * {@see allPending()} scan the directory and filter on the decoded row content.
+ * A file-based {@see MatchStore}: one atomic JSON file per (candidate, normalised URL) key, grouped
+ * under a per-candidate sub-directory ({@see dirForPerson()}). The sub-directory name is a content
+ * hash of the candidate identifier and the file name is the URL identity key, so two notice links
+ * pointing at the same obituary collapse onto one file and no candidate identifier ever reaches the
+ * filesystem (avoiding any xref-charset escaping). Because every row for a candidate lives in that
+ * candidate's own sub-directory, {@see findByPerson()} scans ONLY that sub-directory — O(rows for the
+ * candidate) rather than O(whole store) — filtering on the decoded personId as defence-in-depth against
+ * a misplaced/corrupt row in the wrong sub-directory. The tree-wide {@see allPending()} worklist recurses one
+ * level across the sub-directories. The candidate identifier and status are persisted inside each
+ * row, so the decoded row content carries the authoritative state.
  *
  * SQL-backed persistence is deferred to Phase 4; this store carries Phase 2c.
  *
@@ -50,7 +56,7 @@ final readonly class FileMatchStore implements MatchStore
     /**
      * Constructor.
      *
-     * @param string $dir The directory holding one JSON row per (candidate, normalised URL) key.
+     * @param string $dir The store root directory holding one per-candidate sub-directory of JSON rows.
      */
     public function __construct(
         private string $dir,
@@ -78,7 +84,7 @@ final readonly class FileMatchStore implements MatchStore
             return false;
         }
 
-        $this->ensureLayout();
+        $this->ensureLayout($match->personId);
 
         AtomicFile::writeJson($path, $match->toArray());
 
@@ -96,7 +102,11 @@ final readonly class FileMatchStore implements MatchStore
     {
         $matches = [];
 
-        foreach ($this->allRows() as $row) {
+        // The candidate's rows all live in its own sub-directory by construction, so scanning ONLY that
+        // sub-directory is O(rows for this candidate) — not a whole-store scan. The personId equality is
+        // defence-in-depth: it restores the pre-refactor flat store's filter so a manually-misplaced or
+        // corrupt row sitting in the WRONG sub-directory is never returned as this candidate's.
+        foreach ($this->scanDir($this->dirForPerson($personId)) as $row) {
             if ($row->personId === $personId) {
                 $matches[] = $row;
             }
@@ -196,7 +206,7 @@ final readonly class FileMatchStore implements MatchStore
             $writeBack,
         );
 
-        $this->ensureLayout();
+        $this->ensureLayout($personId);
 
         AtomicFile::writeJson($path, $rejected->toArray());
     }
@@ -253,24 +263,46 @@ final readonly class FileMatchStore implements MatchStore
             $existing->writeBack,
         );
 
-        $this->ensureLayout();
+        $this->ensureLayout($personId);
 
         AtomicFile::writeJson($path, $uncertain->toArray());
     }
 
     /**
-     * Returns the absolute path of the JSON row for the given (candidate, row key) pair.
+     * Returns the absolute path of the JSON row for the given (candidate, row key) pair: the candidate
+     * keys its own sub-directory ({@see dirForPerson()}) and the bare row key is the file name.
      *
      * @param string $personId The candidate identifier.
      * @param string $rowKey   The canonical row key (SHA-256 of the identity-normalised URL).
      *
      * @return string The absolute row path.
+     *
+     * @throws InvalidArgumentException When the row key is not a 64-character lowercase hex string.
      */
     private function pathForRowKey(string $personId, string $rowKey): string
     {
-        $key = hash('sha256', $personId . "\0" . $rowKey);
+        // Defence-in-depth at the path sink: the candidate identifier is hashed in dirForPerson, but
+        // the row key is used RAW as the file name and is the only untrusted-shaped path component.
+        // Every current caller passes a 64-hex SHA-256 key, so reject anything else here so a future
+        // caller cannot smuggle a traversal sequence (or a trailing newline past "$") into the path.
+        if (preg_match('/^[0-9a-f]{64}$/D', $rowKey) !== 1) {
+            throw new InvalidArgumentException(sprintf('Invalid row key: %s', $rowKey));
+        }
 
-        return sprintf('%s/%s.json', $this->dir, $key);
+        return sprintf('%s/%s.json', $this->dirForPerson($personId), $rowKey);
+    }
+
+    /**
+     * Returns the absolute path of the per-candidate sub-directory holding that candidate's rows. The
+     * candidate identifier is hashed so no raw xref ever reaches the filesystem (no charset escaping).
+     *
+     * @param string $personId The candidate identifier.
+     *
+     * @return string The absolute sub-directory path.
+     */
+    private function dirForPerson(string $personId): string
+    {
+        return sprintf('%s/%s', $this->dir, hash('sha256', $personId));
     }
 
     /**
@@ -303,9 +335,11 @@ final readonly class FileMatchStore implements MatchStore
     }
 
     /**
-     * Reconstructs every stored row in the directory, skipping any single poison row that fails to
-     * reconstruct so one corrupt file cannot hide every valid row. The single-key read paths
-     * ({@see readRow()}) deliberately stay fail-loud; only this directory scan tolerates a poison row.
+     * Reconstructs every stored row across the whole store by recursing ONE level: the store root
+     * holds per-candidate sub-directories ({@see dirForPerson()}), each holding that candidate's rows.
+     * This is the tree-wide worklist path ({@see allPending()}), so an O(store) scan is acceptable here
+     * (unlike {@see findByPerson()}, which scans a single sub-directory). Each sub-directory is scanned
+     * through the same poison-tolerant, temp-file-excluding helper as findByPerson.
      *
      * @return list<StoredMatch> The stored rows, in no guaranteed order.
      */
@@ -316,7 +350,56 @@ final readonly class FileMatchStore implements MatchStore
         try {
             $iterator = new FilesystemIterator($this->dir, FilesystemIterator::SKIP_DOTS);
         } catch (UnexpectedValueException) {
-            // The directory does not exist yet: no rows, matching the previous "no dir → no rows".
+            // The store root does not exist yet: no rows, matching the previous "no dir → no rows".
+            return [];
+        }
+
+        $rows = [];
+
+        foreach ($iterator as $fileInfo) {
+            if (!$fileInfo instanceof SplFileInfo) {
+                continue;
+            }
+
+            if (!$fileInfo->isDir()) {
+                // The store root holds only real per-candidate sub-directories; a stray top-level file
+                // is not a row and is ignored.
+                continue;
+            }
+
+            if ($fileInfo->isLink()) {
+                // A symlink is skipped even when isDir() reports true THROUGH the link: this keeps the
+                // read scan from following a link out of the store, mirroring the cleanup trait's
+                // !isLink() guard.
+                continue;
+            }
+
+            foreach ($this->scanDir($fileInfo->getPathname()) as $row) {
+                $rows[] = $row;
+            }
+        }
+
+        return $rows;
+    }
+
+    /**
+     * Reconstructs every stored row in a SINGLE directory, skipping any single poison row that fails to
+     * reconstruct so one corrupt file cannot hide every valid row. Shared by {@see findByPerson()} (one
+     * sub-directory) and {@see allRows()} (each sub-directory in turn). The single-key read paths
+     * ({@see readRow()}) deliberately stay fail-loud; only this directory scan tolerates a poison row.
+     *
+     * @param string $dir The absolute directory to scan for "*.json" rows.
+     *
+     * @return list<StoredMatch> The stored rows in that directory, in no guaranteed order.
+     */
+    private function scanDir(string $dir): array
+    {
+        // A FilesystemIterator (not glob) so a glob metacharacter (*, ?, [, ]) in the directory path
+        // cannot turn the whole path into a pattern and silently mis-scan or return nothing.
+        try {
+            $iterator = new FilesystemIterator($dir, FilesystemIterator::SKIP_DOTS);
+        } catch (UnexpectedValueException) {
+            // The sub-directory does not exist yet: no rows, matching the previous "no dir → no rows".
             return [];
         }
 
@@ -352,12 +435,15 @@ final readonly class FileMatchStore implements MatchStore
     }
 
     /**
-     * Ensures the store directory exists, creating it on first write.
+     * Ensures the candidate's per-person sub-directory exists, creating it on first write. Reuses
+     * {@see AtomicFile::ensureDirectory()}, whose scoped error handler tolerates the mkdir race.
+     *
+     * @param string $personId The candidate identifier whose sub-directory to ensure.
      *
      * @return void
      */
-    private function ensureLayout(): void
+    private function ensureLayout(string $personId): void
     {
-        AtomicFile::ensureDirectory($this->dir);
+        AtomicFile::ensureDirectory($this->dirForPerson($personId));
     }
 }
