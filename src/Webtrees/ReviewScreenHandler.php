@@ -38,6 +38,8 @@ use Psr\Http\Message\ServerRequestInterface;
 use Psr\Http\Server\RequestHandlerInterface;
 use Throwable;
 
+use function is_array;
+use function is_string;
 use function preg_match;
 use function redirect;
 use function route;
@@ -223,13 +225,20 @@ class ReviewScreenHandler implements RequestHandlerInterface
         // Re-check the FULL gate server-side before any write — the disabled Confirm button is NOT an
         // authorization control, so a hand-crafted POST must not bypass !hardConflict / exact-date /
         // no-tree-death-date. ConfirmGate is the single source of gate truth (shared with the view
-        // model): hardConflict and the exact-date check read the immutable payload (the same source the
+        // model): hardConflict and the exact-date check read the persisted payload (the same source the
         // view model used), treeHasDeathDate is read LIVE. writeDeath's own live re-check below is then
-        // defense-in-depth. The payload is the typed ClassifiedMatchArray, so extractedFacts is an
-        // array<string, string> (the deathDate key may be absent) and hardConflict is a bool — no
-        // defensive shape narrowing needed here, unlike the view model which reads an untyped payload.
-        $iso          = $row->match['extractedFacts']['deathDate'] ?? null;
-        $hardConflict = $row->match['hardConflict'];
+        // defense-in-depth. StoredMatch::fromArray only asserts is_array on the payload (a PHPDoc cast,
+        // no runtime key validation), and the on-disk JSON is untrusted (hand-edited / older schema), so
+        // the two reads are narrowed defensively here EXACTLY as ReviewViewModel narrows them — keeping
+        // the render gate and the write gate reading the payload identically, so a malformed-but-array
+        // row degrades to the graceful warning flash instead of an Undefined-array-key 500. The reads go
+        // through read(), which erases the static ClassifiedMatchArray shape to mixed (as the view model
+        // does) so the per-field narrowing is real defence, not PHPDoc-certain dead code.
+        $factsRaw     = $this->read($row->match, 'extractedFacts');
+        $facts        = is_array($factsRaw) ? $factsRaw : [];
+        $isoRaw       = $facts['deathDate'] ?? null;
+        $iso          = is_string($isoRaw) ? $isoRaw : null;
+        $hardConflict = $this->read($row->match, 'hardConflict') === true;
 
         if (!ConfirmGate::evaluate($hardConflict, $individual->getDeathDate()->isOK(), $iso)->canConfirm) {
             FlashMessages::addMessage(I18N::translate('This match can no longer be confirmed.'), 'warning');
@@ -356,6 +365,24 @@ class ReviewScreenHandler implements RequestHandlerInterface
             $birthPlace === '' ? null : $birthPlace,
             $deathDate->isOK() ? strip_tags($deathDate->display()) : null,
         );
+    }
+
+    /**
+     * Reads a key from the persisted match payload as mixed, erasing the static ClassifiedMatchArray
+     * shape so the confirm gate's per-field defensive narrowing is treated as live code rather than
+     * PHPDoc-certain dead code. The payload was reconstructed from untrusted on-disk JSON
+     * ({@see StoredMatch::fromArray()} only asserts it is an array), so it may be malformed-but-array;
+     * this mirrors {@see ReviewViewModel}'s own read() so the render gate and the write gate narrow the
+     * payload identically and cannot drift.
+     *
+     * @param array<array-key, mixed> $payload The persisted match payload.
+     * @param string                  $key     The key to read.
+     *
+     * @return mixed The raw value, or null when the key is absent.
+     */
+    private function read(array $payload, string $key): mixed
+    {
+        return $payload[$key] ?? null;
     }
 
     /**

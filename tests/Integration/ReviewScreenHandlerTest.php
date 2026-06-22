@@ -869,23 +869,9 @@ final class ReviewScreenHandlerTest extends IntegrationTestCase
     {
         Auth::user()->setPreference(UserInterface::PREF_AUTO_ACCEPT_EDITS, '1');
 
-        $key     = $this->seedConfirmableMatch('I2', '2023-09-04');
-        $request = $this->managerPostRequest(
-            ReviewScreenHandler::ROUTE_NAME,
-            ['xref'   => 'I2', 'key' => $key],
-            ['action' => 'confirm']
-        );
+        $key = $this->seedConfirmableMatch('I2', '2023-09-04');
 
-        $response = $this->handler()->handle($request);
-
-        self::assertSame(302, $response->getStatusCode());
-        // Confirm is terminal, so the reviewer lands on the individual page, not the review screen.
-        self::assertStringContainsString('individual', $response->getHeaderLine('Location'));
-        self::assertStringNotContainsString('obituary-review', $response->getHeaderLine('Location'));
-
-        $messages = FlashMessages::getMessages();
-        self::assertCount(1, $messages);
-        self::assertSame('success', $messages[0]->status);
+        $this->postConfirmAndAssertSuccessRedirect('I2', $key);
 
         // The store row transitioned to Confirmed and persisted the WriteBack from the write. A
         // re-read row reconstructs the write-back as its serialised array shape (StoredMatch::fromArray),
@@ -1028,6 +1014,37 @@ final class ReviewScreenHandlerTest extends IntegrationTestCase
         $this->expectException(HttpAccessDeniedException::class);
 
         $this->handler()->handle($request);
+    }
+
+    /**
+     * Posts a confirm for the given already-seeded row through the real handler and asserts the success
+     * redirect: a 302 to the individual page (not back to review) with exactly one success flash. Shared
+     * by the happy-path confirm test and the malformed-but-array missing-hardConflict test, which each
+     * add their own distinguishing post-success assertions (write-back round-trip / DEAT count).
+     *
+     * @param string $xref The candidate identifier whose row was seeded.
+     * @param string $key  The canonical row key of the seeded row.
+     *
+     * @return void
+     */
+    private function postConfirmAndAssertSuccessRedirect(string $xref, string $key): void
+    {
+        $request = $this->managerPostRequest(
+            ReviewScreenHandler::ROUTE_NAME,
+            ['xref'   => $xref, 'key' => $key],
+            ['action' => 'confirm']
+        );
+
+        $response = $this->handler()->handle($request);
+
+        self::assertSame(302, $response->getStatusCode());
+        // Confirm is terminal, so the reviewer lands on the individual page, not the review screen.
+        self::assertStringContainsString('individual', $response->getHeaderLine('Location'));
+        self::assertStringNotContainsString('obituary-review', $response->getHeaderLine('Location'));
+
+        $messages = FlashMessages::getMessages();
+        self::assertCount(1, $messages);
+        self::assertSame('success', $messages[0]->status);
     }
 
     /**
@@ -1199,6 +1216,108 @@ final class ReviewScreenHandlerTest extends IntegrationTestCase
         $this->store()->upsertPending(new StoredMatch($xref, $url, MatchStatus::Pending, $payload));
 
         return StoredMatchKey::fromUrl($url);
+    }
+
+    /**
+     * Seeds a confirmable row whose `match` payload is malformed-but-array — exactly the hand-edited
+     * file-store JSON / older-schema row {@see StoredMatch::fromArray()} accepts (it only asserts the
+     * payload is an array, never validating its inner keys). The raw row is round-tripped through
+     * {@see StoredMatch::fromArray()} (the same untrusted-JSON boundary the store uses on read), so the
+     * malformed shape survives into {@see ReviewScreenHandler::applyConfirm()} unchanged.
+     *
+     * @param string               $xref  The candidate identifier.
+     * @param array<string, mixed> $match The malformed-but-array match payload to persist verbatim.
+     *
+     * @return string The canonical row key for the seeded row.
+     */
+    private function seedMalformedConfirmableMatch(string $xref, array $match): string
+    {
+        $url = 'https://trauer.example/' . $xref;
+
+        $row = StoredMatch::fromArray([
+            'personId'    => $xref,
+            'obituaryUrl' => $url,
+            'status'      => MatchStatus::Pending->value,
+            'match'       => $match,
+            'reason'      => null,
+            'writeBack'   => null,
+        ]);
+
+        $this->store()->upsertPending($row);
+
+        return StoredMatchKey::fromUrl($url);
+    }
+
+    /**
+     * POST confirm against a malformed-but-array `match` row that is MISSING the `hardConflict` key
+     * (an older-schema / hand-edited file-store JSON row) must not 500: the raw `$row->match['hardConflict']`
+     * read would otherwise raise an Undefined-array-key warning that webtrees' ErrorHandler turns into a
+     * thrown ErrorException — escaping applyConfirm's narrow write-exception catch. The handler narrows
+     * the read like the view model (`(… ?? null) === true`), so an absent key reads as "no hard conflict"
+     * and the gate evaluates cleanly. With I2 carrying no death date and an exact ISO date present the
+     * gate then PASSES, so the confirm completes (a success redirect to the individual, the DEAT written)
+     * — the point being a clean outcome instead of a 500 on the missing key.
+     *
+     * @return void
+     */
+    #[Test]
+    public function postConfirmOnMalformedRowMissingHardConflictDoesNotCrash(): void
+    {
+        Auth::user()->setPreference(UserInterface::PREF_AUTO_ACCEPT_EDITS, '1');
+
+        // A malformed-but-array payload built as a raw map (NOT ClassifiedMatch::emptyArray, whose typed
+        // shape PHPStan would not let us de-key): the `hardConflict` key is absent and an exact ISO death
+        // date is present, so the GET render would show an enabled Confirm button.
+        $match = [
+            'personId'       => 'I2',
+            'obituaryUrl'    => 'https://trauer.example/I2',
+            'extractedFacts' => ['deathDate' => '2023-09-04'],
+        ];
+
+        $key = $this->seedMalformedConfirmableMatch('I2', $match);
+
+        // The missing-key read no longer raises a notice (which webtrees would throw as an ErrorException
+        // escaping the write-only catch → 500): the confirm runs to a clean success redirect …
+        $this->postConfirmAndAssertSuccessRedirect('I2', $key);
+
+        // … and the narrowed gate let the confirm complete: the row is Confirmed and one DEAT was written.
+        self::assertSame(MatchStatus::Confirmed, $this->store()->findOne('I2', $key)?->status);
+
+        $individual = $this->individual('I2', $this->tree);
+        self::assertInstanceOf(Individual::class, $individual);
+        self::assertCount(1, iterator_to_array($individual->facts(['DEAT'], false, null, true)));
+    }
+
+    /**
+     * POST confirm against a malformed-but-array `match` row whose `extractedFacts` is NOT an array (and
+     * whose `deathDate` is therefore unreadable) must not 500 either: the raw chained array access
+     * `$row->match['extractedFacts']['deathDate']` would warn/throw. The handler narrows `extractedFacts`
+     * to an array and `deathDate` to a string exactly as the view model does, so the gate denies on the
+     * absent exact date and the confirm degrades to a warning flash with no write and no transition.
+     *
+     * @return void
+     */
+    #[Test]
+    public function postConfirmOnMalformedRowWithNonArrayExtractedFactsDoesNotCrash(): void
+    {
+        // extractedFacts as a scalar (not an array) and hardConflict a valid bool: the chained
+        // ['extractedFacts']['deathDate'] read is the crash site without the array narrowing.
+        $match = [
+            'personId'       => 'I2',
+            'obituaryUrl'    => 'https://trauer.example/I2',
+            'hardConflict'   => false,
+            'extractedFacts' => 'not-an-array',
+        ];
+
+        $key = $this->seedMalformedConfirmableMatch('I2', $match);
+
+        // The chained read no longer warns/throws (a 500): the gate denies on the unreadable date and the
+        // confirm degrades to a warning flash, the row stays pending and no DEAT is written to the tree.
+        $this->assertConfirmRefusedNoTransition('I2', $key);
+
+        $individual = $this->individual('I2', $this->tree);
+        self::assertInstanceOf(Individual::class, $individual);
+        self::assertCount(0, iterator_to_array($individual->facts(['DEAT'], false, null, true)));
     }
 
     /**

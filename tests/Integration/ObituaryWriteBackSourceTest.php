@@ -13,6 +13,7 @@ namespace MagicSunday\ObituaryMatcher\Test\Integration;
 
 use Fisharebest\Webtrees\Auth;
 use Fisharebest\Webtrees\Contracts\UserInterface;
+use Fisharebest\Webtrees\DB;
 use Fisharebest\Webtrees\Registry;
 use Fisharebest\Webtrees\Services\GedcomImportService;
 use Fisharebest\Webtrees\Services\TreeService;
@@ -115,7 +116,7 @@ final class ObituaryWriteBackSourceTest extends IntegrationTestCase
         $source = $this->writer()->create($tree, 'trauer.example');
 
         self::assertMatchesRegularExpression('/^X\d+$/', $source->xref());
-        self::assertStringContainsString('1 TITL Death notice — trauer.example', $source->gedcom());
+        self::assertStringContainsString('1 TITL Death notice: trauer.example', $source->gedcom());
         self::assertStringContainsString('1 PUBL trauer.example', $source->gedcom());
         self::assertStringContainsString('1 REFN obituary-matcher:portal:trauer.example', $source->gedcom());
         self::assertStringNotContainsString('@@', $source->gedcom());
@@ -234,6 +235,108 @@ final class ObituaryWriteBackSourceTest extends IntegrationTestCase
         // The repository orders the accepted scan by s_id (a VARCHAR column → lexical), so the
         // lexically-smaller xref is the concrete winner; PHP min() on two strings agrees with that order.
         self::assertSame(min($first->xref(), $second->xref()), $found->xref());
+    }
+
+    /**
+     * Appends a raw pending `change` row for the given xref, mirroring webtrees' append-only stack: the
+     * `change` table never updates a prior row, it INSERTs a new one with the same xref, so each call
+     * stacks a higher `change_id` for that xref. A pending DELETE is modelled as an empty `new_gedcom`.
+     *
+     * @param Tree   $tree      The tree the row belongs to.
+     * @param string $xref      The record xref the change targets.
+     * @param string $newGedcom The new gedcom blob (empty for a pending delete).
+     *
+     * @return void
+     */
+    private function appendPendingChange(Tree $tree, string $xref, string $newGedcom): void
+    {
+        DB::table('change')->insert([
+            'gedcom_id'  => $tree->id(),
+            'xref'       => $xref,
+            'old_gedcom' => '',
+            'new_gedcom' => $newGedcom,
+            'status'     => 'pending',
+            'user_id'    => Auth::id() ?? 0,
+        ]);
+    }
+
+    /**
+     * The portal-source REFN gedcom for a host, as createPortalSource would write it (the exact shape
+     * pendingSources filters on).
+     *
+     * @param string $xref The source record xref.
+     * @param string $host The canonical host.
+     *
+     * @return string The portal SOUR gedcom carrying the REFN marker.
+     */
+    private function portalSourceGedcom(string $xref, string $host): string
+    {
+        return "0 @{$xref}@ SOUR\n1 TITL Death notice: {$host}\n1 PUBL {$host}\n1 REFN obituary-matcher:portal:{$host}";
+    }
+
+    /**
+     * A create-then-delete stack for one xref must NOT resurrect the deleted source: the webtrees
+     * `change` table is append-only, so a pending CREATE row (carrying the REFN) followed by a pending
+     * DELETE row (`new_gedcom = ''`) for the same xref means the record's authoritative pending state is
+     * "deleted". The old code returned every REFN-matching row, so the stale create row still matched and
+     * findPortalSource handed back a pending-deleted source; the per-xref fold to the latest change_id
+     * drops it. find() must therefore return null (and a subsequent create makes a fresh, distinct one).
+     *
+     * @return void
+     */
+    #[Test]
+    public function findPortalSourceDoesNotResurrectAPendingDeletedSource(): void
+    {
+        $this->loginManagerWithoutAutoAccept();
+        $tree = $this->tree();
+        $w    = $this->writer();
+
+        // Stack a pending CREATE (carries the REFN) then a pending DELETE (empty new_gedcom) for X9.
+        $this->appendPendingChange($tree, 'X9', $this->portalSourceGedcom('X9', 'trauer.example'));
+        $this->appendPendingChange($tree, 'X9', '');
+
+        // The latest pending state for X9 is "deleted", so the source must not be found.
+        self::assertNull(
+            $w->find($tree, 'trauer.example'),
+            'a pending-deleted portal source must not be resurrected by the stale create row'
+        );
+
+        // A confirm then creates a brand-new source rather than reusing the deleted one.
+        $created = $w->create($tree, 'trauer.example');
+        self::assertNotSame('X9', $created->xref());
+    }
+
+    /**
+     * A create-then-edit stack for one xref must resolve against the LATEST blob, not the stale create:
+     * the append-only `change` table holds a CREATE row for `old.example` and a later EDIT row that
+     * changed the host (and thus the REFN) to `new.example`, both for the same xref. The old code matched
+     * the OLDEST blob first (change_id ASC), so a find() for `old.example` wrongly hit the superseded
+     * row; the per-xref fold means only the latest `new.example` blob survives — `old.example` no longer
+     * matches and `new.example` does.
+     *
+     * @return void
+     */
+    #[Test]
+    public function findPortalSourceResolvesAgainstTheLatestBlobOnAStackedEdit(): void
+    {
+        $this->loginManagerWithoutAutoAccept();
+        $tree = $this->tree();
+        $w    = $this->writer();
+
+        // Stack a pending CREATE for old.example then a pending EDIT moving X9 to new.example.
+        $this->appendPendingChange($tree, 'X9', $this->portalSourceGedcom('X9', 'old.example'));
+        $this->appendPendingChange($tree, 'X9', $this->portalSourceGedcom('X9', 'new.example'));
+
+        // The superseded blob is gone: a find for the old host no longer hits the stale create row.
+        self::assertNull(
+            $w->find($tree, 'old.example'),
+            'the superseded create blob must not match after the stacked edit'
+        );
+
+        // The latest blob is authoritative: the edited host resolves to the same pending record.
+        $found = $w->find($tree, 'new.example');
+        self::assertNotNull($found, 'the latest pending blob must resolve the edited host');
+        self::assertSame('X9', $found->xref());
     }
 
     /**

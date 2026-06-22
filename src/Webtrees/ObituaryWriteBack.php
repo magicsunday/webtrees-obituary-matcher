@@ -263,7 +263,7 @@ class ObituaryWriteBack
         }
 
         $gedcom = sprintf(
-            "0 @@ SOUR\n1 TITL Death notice — %s\n1 PUBL %s\n1 REFN %s%s",
+            "0 @@ SOUR\n1 TITL Death notice: %s\n1 PUBL %s\n1 REFN %s%s",
             $host,
             $host,
             self::REFN_PREFIX,

@@ -68,6 +68,25 @@ final class WriteBackTest extends TestCase
     }
 
     /**
+     * fromArray rejects a present-but-non-bool sourceCreated, covering the `!is_bool($sourceCreated)`
+     * arm of the combined guard (every other rejection row passes a valid boolean, so without this row
+     * the bool branch is never the failing conjunct).
+     *
+     * @return void
+     */
+    #[Test]
+    public function fromArrayRejectsANonBoolSourceCreated(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+
+        WriteBack::fromArray([
+            'deatFactId'    => 'd',
+            'sourceXref'    => 'S1',
+            'sourceCreated' => 1, // an int, not a bool
+        ]);
+    }
+
+    /**
      * fromArray rejects a non-list<string> citationIds.
      *
      * @return void
