@@ -44,6 +44,8 @@ use function filemtime;
 use function glob;
 use function hash;
 use function hash_file;
+use function is_dir;
+use function is_file;
 use function mkdir;
 
 /**
@@ -213,6 +215,93 @@ final class FileMatchStoreTest extends TempDirTestCase
     }
 
     /**
+     * findByPerson groups each candidate's rows under a per-person sub-directory: it returns only the
+     * requesting candidate's rows, and the row file physically lives at
+     * {dir}/{sha256(personId)}/{rowKey}.json — NOT under the old flat
+     * {dir}/sha256(personId."\0".rowKey).json scheme. This pins the GH-26 layout that makes
+     * findByPerson O(rows-for-this-person) instead of O(whole-store).
+     *
+     * @return void
+     */
+    #[Test]
+    public function findByPersonScansOnlyThePersonSubDirectory(): void
+    {
+        $store = new FileMatchStore($this->tmp);
+
+        $urlOne = 'https://example.test/a';
+        $store->upsertPending($this->storedMatch('I1', $urlOne, MatchStatus::Pending));
+        $store->upsertPending($this->storedMatch('I2', 'https://example.test/b', MatchStatus::Pending));
+
+        $rows = $store->findByPerson('I1');
+        self::assertCount(1, $rows, 'only the requesting candidate\'s rows surface');
+        self::assertSame('I1', $rows[0]->personId);
+
+        // The row lives under the per-person sub-directory keyed by sha256(personId).
+        $rowKey     = StoredMatchKey::fromUrl($urlOne);
+        $subDirPath = $this->tmp . '/' . hash('sha256', 'I1') . '/' . $rowKey . '.json';
+        $flatLegacy = $this->tmp . '/' . hash('sha256', 'I1' . "\0" . $rowKey) . '.json';
+
+        self::assertTrue(is_file($subDirPath), 'the row is stored under {dir}/sha256(personId)/{rowKey}.json');
+        self::assertFalse(is_file($flatLegacy), 'the old flat folded-filename scheme is no longer used');
+    }
+
+    /**
+     * allPending recurses one level into the per-person sub-directories: pending rows seeded for two
+     * different candidates, each landing in its own sub-directory, both surface — proving the recursive
+     * scan walks across persons.
+     *
+     * @return void
+     */
+    #[Test]
+    public function allPendingRecursesAcrossPersonSubDirectories(): void
+    {
+        $store = new FileMatchStore($this->tmp);
+
+        $store->upsertPending($this->storedMatch('I1', 'https://example.test/a', MatchStatus::Pending));
+        $store->upsertPending($this->storedMatch('I2', 'https://example.test/b', MatchStatus::Pending));
+
+        // The rows physically live under per-person sub-directories with NO flat *.json at the root,
+        // so allPending must recurse one level to find them (the old flat scheme would not pass this).
+        self::assertTrue(is_dir($this->tmp . '/' . hash('sha256', 'I1')), 'I1 has its own sub-directory');
+        self::assertTrue(is_dir($this->tmp . '/' . hash('sha256', 'I2')), 'I2 has its own sub-directory');
+        self::assertSame([], glob($this->tmp . '/*.json'), 'no row lives flat at the store root');
+
+        $pending = $store->allPending();
+        self::assertCount(2, $pending, 'allPending walks every per-person sub-directory');
+
+        $personIds = [$pending[0]->personId, $pending[1]->personId];
+        self::assertContains('I1', $personIds);
+        self::assertContains('I2', $personIds);
+    }
+
+    /**
+     * A corrupt *.json planted in one candidate's sub-directory does not hide a valid row in another
+     * candidate's sub-directory: the recursive allPending scan skips the poison row and still surfaces
+     * the well-formed one, and findByPerson of the poisoned candidate tolerates the corrupt row too.
+     *
+     * @return void
+     */
+    #[Test]
+    public function aCorruptRowInOneSubDirectoryDoesNotHideValidRowsAcrossSubDirectories(): void
+    {
+        $store = new FileMatchStore($this->tmp);
+
+        $store->upsertPending($this->storedMatch('I1', 'https://example.test/a', MatchStatus::Pending));
+
+        // Plant a corrupt row inside I2's sub-directory, alongside I1's valid row in its own sub-dir.
+        $corruptDir = $this->tmp . '/' . hash('sha256', 'I2');
+        mkdir($corruptDir, 0o700, true);
+        file_put_contents($corruptDir . '/corrupt.json', '{"not":"a stored match"}');
+
+        $pending = $store->allPending();
+        self::assertCount(1, $pending, 'the poison row in I2 is skipped, I1 survives');
+        self::assertSame('I1', $pending[0]->personId);
+
+        // findByPerson of the poisoned candidate's sub-dir tolerates the corrupt row (returns []).
+        self::assertCount(0, $store->findByPerson('I2'));
+    }
+
+    /**
      * allPending returns every Pending row across candidates and excludes terminal rows.
      *
      * @return void
@@ -362,15 +451,14 @@ final class FileMatchStoreTest extends TempDirTestCase
         $store = new FileMatchStore($this->tmp);
 
         // Plant a corrupt row exactly where the key for (I1, url) would resolve, then upsert that key.
-        $match = $this->storedMatch('I1', 'https://example.test/a', MatchStatus::Pending);
+        $url   = 'https://example.test/a';
+        $match = $this->storedMatch('I1', $url, MatchStatus::Pending);
         $store->upsertPending($match);
 
-        // Overwrite the stored row with a malformed payload so the next read of the SAME key fails.
-        $paths = glob($this->tmp . '/*.json');
-
-        foreach (($paths === false) ? [] : $paths as $path) {
-            file_put_contents($path, '{"broken":true}');
-        }
+        // Overwrite the stored row with a malformed payload so the next read of the SAME key fails. The
+        // row lives under the per-person sub-directory {dir}/sha256(personId)/{rowKey}.json.
+        $path = $this->tmp . '/' . hash('sha256', 'I1') . '/' . StoredMatchKey::fromUrl($url) . '.json';
+        file_put_contents($path, '{"broken":true}');
 
         $this->expectException(CorruptMatchRowException::class);
         $store->upsertPending($match);
@@ -410,7 +498,7 @@ final class FileMatchStoreTest extends TempDirTestCase
         $url   = 'https://trauer.example/a';
         $store->upsertPending($this->pendingMatch('I1', $url));
 
-        $path = $this->tmp . '/' . hash('sha256', 'I1' . "\0" . StoredMatchKey::fromUrl($url)) . '.json';
+        $path = $this->tmp . '/' . hash('sha256', 'I1') . '/' . StoredMatchKey::fromUrl($url) . '.json';
         file_put_contents($path, '{"not":"a stored match"}');
 
         $this->expectException(CorruptMatchRowException::class);
@@ -461,7 +549,7 @@ final class FileMatchStoreTest extends TempDirTestCase
         $store->upsertPending($this->pendingMatch('I1', $url));
         $store->markUncertain('I1', $url, null);
 
-        $path   = $this->tmp . '/' . hash('sha256', 'I1' . "\0" . StoredMatchKey::fromUrl($url)) . '.json';
+        $path   = $this->tmp . '/' . hash('sha256', 'I1') . '/' . StoredMatchKey::fromUrl($url) . '.json';
         $before = hash_file('sha256', $path);
         clearstatcache(true, $path);
         $mtime = filemtime($path);
@@ -491,7 +579,7 @@ final class FileMatchStoreTest extends TempDirTestCase
 
         $store->markUncertain('I1', $url, 'first');
 
-        $path   = $this->tmp . '/' . hash('sha256', 'I1' . "\0" . StoredMatchKey::fromUrl($url)) . '.json';
+        $path   = $this->tmp . '/' . hash('sha256', 'I1') . '/' . StoredMatchKey::fromUrl($url) . '.json';
         $before = hash_file('sha256', $path);
 
         $store->markUncertain('I1', $url, 'revised');
