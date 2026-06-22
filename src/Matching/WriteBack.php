@@ -24,6 +24,8 @@ use function is_string;
  * `sourceXref` and `sourceCreated`; `buriFactId` (2d-3b) and `citationIds` (standalone citations)
  * are reserved and stay `null`/`[]` so the persisted shape does not change between slices.
  *
+ * @phpstan-type WriteBackArray array{deatFactId: string, buriFactId: string|null, sourceXref: string, sourceCreated: bool, citationIds: list<string>}
+ *
  * @author  Rico Sonntag <mail@ricosonntag.de>
  * @license https://opensource.org/licenses/GPL-3.0 GNU General Public License v3.0
  * @link    https://github.com/magicsunday/webtrees-obituary-matcher/
@@ -51,7 +53,7 @@ final readonly class WriteBack
     /**
      * Returns the serialisable shape for the on-disk JSON row.
      *
-     * @return array{deatFactId: string, buriFactId: string|null, sourceXref: string, sourceCreated: bool, citationIds: list<string>}
+     * @return WriteBackArray
      */
     public function toArray(): array
     {

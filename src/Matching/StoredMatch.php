@@ -20,9 +20,10 @@ use function sprintf;
 /**
  * A persisted match suggestion: the candidate it belongs to, the source notice URL, its lifecycle
  * status, the trusted scoring payload (a verbatim {@see ClassifiedMatch::toArray()} shape produced
- * by the engine), an optional rejection reason and a Phase-2e write-back placeholder.
+ * by the engine), an optional rejection reason and the confirm write-back (null until confirmed).
  *
  * @phpstan-import-type ClassifiedMatchArray from ClassifiedMatch
+ * @phpstan-import-type WriteBackArray from WriteBack
  *
  * @author  Rico Sonntag <mail@ricosonntag.de>
  * @license https://opensource.org/licenses/GPL-3.0 GNU General Public License v3.0
@@ -33,12 +34,12 @@ final readonly class StoredMatch
     /**
      * Constructor.
      *
-     * @param string                                                                                                $personId    The candidate identifier.
-     * @param string                                                                                                $obituaryUrl The source notice URL (raw, pre-normalisation).
-     * @param MatchStatus                                                                                           $status      The lifecycle status.
-     * @param ClassifiedMatchArray                                                                                  $match       The trusted scoring payload from the engine.
-     * @param string|null                                                                                           $reason      The rejection reason, if any.
-     * @param array{deatFactId?: string, buriFactId?: string, sourceXref?: string, citationIds?: list<string>}|null $writeBack   The Phase-2e write-back placeholder.
+     * @param string               $personId    The candidate identifier.
+     * @param string               $obituaryUrl The source notice URL (raw, pre-normalisation).
+     * @param MatchStatus          $status      The lifecycle status.
+     * @param ClassifiedMatchArray $match       The trusted scoring payload from the engine.
+     * @param string|null          $reason      The rejection reason, if any.
+     * @param WriteBackArray|null  $writeBack   The persisted confirm write-back, or null until confirmed.
      */
     public function __construct(
         public string $personId,
@@ -59,7 +60,7 @@ final readonly class StoredMatch
      *     status: string,
      *     match: ClassifiedMatchArray,
      *     reason: string|null,
-     *     writeBack: array{deatFactId?: string, buriFactId?: string, sourceXref?: string, citationIds?: list<string>}|null
+     *     writeBack: WriteBackArray|null
      * }
      */
     public function toArray(): array
@@ -133,7 +134,7 @@ final readonly class StoredMatch
          */
 
         /**
-         * @var array{deatFactId?: string, buriFactId?: string, sourceXref?: string, citationIds?: list<string>}|null $writeBack
+         * @var WriteBackArray|null $writeBack
          */
 
         return new self(

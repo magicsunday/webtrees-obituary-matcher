@@ -269,6 +269,55 @@ final readonly class FileMatchStore implements MatchStore
     }
 
     /**
+     * {@inheritDoc}
+     *
+     * @param string    $personId    The candidate identifier.
+     * @param string    $obituaryUrl The source notice URL (raw, pre-normalisation).
+     * @param WriteBack $writeBack   The IDs of the records written to the tree.
+     *
+     * @return bool True when the row transitioned; false when already confirmed or absent.
+     *
+     * @throws TerminalMatchTransitionException When the row is already rejected.
+     */
+    public function markConfirmed(string $personId, string $obituaryUrl, WriteBack $writeBack): bool
+    {
+        $path     = $this->pathForRowKey($personId, StoredMatchKey::fromUrl($obituaryUrl));
+        $existing = $this->readRow($path);
+
+        if (!$existing instanceof StoredMatch) {
+            // The row vanished (a concurrent delete). Confirming nothing is a no-op, not a synthetic row.
+            return false;
+        }
+
+        if ($existing->status === MatchStatus::Confirmed) {
+            // Already confirmed: idempotent no-op. The existing write-back is the source of truth for
+            // a later revert and must never be overwritten — terminal stays terminal.
+            return false;
+        }
+
+        if ($existing->status === MatchStatus::Rejected) {
+            throw new TerminalMatchTransitionException(
+                sprintf('Cannot confirm match for person %s: it is already rejected.', $personId)
+            );
+        }
+
+        $confirmed = new StoredMatch(
+            $personId,
+            $obituaryUrl,
+            MatchStatus::Confirmed,
+            $existing->match,
+            $existing->reason,
+            $writeBack->toArray(),
+        );
+
+        $this->ensureLayout($personId);
+
+        AtomicFile::writeJson($path, $confirmed->toArray());
+
+        return true;
+    }
+
+    /**
      * Returns the absolute path of the JSON row for the given (candidate, row key) pair: the candidate
      * keys its own sub-directory ({@see dirForPerson()}) and the bare row key is the file name.
      *

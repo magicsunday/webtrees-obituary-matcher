@@ -38,6 +38,7 @@ use MagicSunday\ObituaryMatcher\Matching\MatchStore;
 use MagicSunday\ObituaryMatcher\Matching\StoredMatch;
 use MagicSunday\ObituaryMatcher\Matching\StoredMatchKey;
 use MagicSunday\ObituaryMatcher\Matching\TerminalMatchTransitionException;
+use MagicSunday\ObituaryMatcher\Matching\WriteBack;
 use MagicSunday\ObituaryMatcher\Test\Support\RemovesFlatTempStoreTrait;
 use MagicSunday\ObituaryMatcher\Ui\BandKey;
 use MagicSunday\ObituaryMatcher\Ui\ObituaryDateFormatter;
@@ -698,6 +699,20 @@ final class ReviewScreenHandlerTest extends IntegrationTestCase
              * @return void
              */
             public function markUncertain(string $personId, string $obituaryUrl, ?string $reason): void
+            {
+                throw new TerminalMatchTransitionException('raced');
+            }
+
+            /**
+             * Throws to simulate the row turning terminal between resolve and mutate.
+             *
+             * @param string    $personId    The candidate identifier.
+             * @param string    $obituaryUrl The source URL.
+             * @param WriteBack $writeBack   The write-back IDs.
+             *
+             * @return bool Never returns; always throws in this race fake.
+             */
+            public function markConfirmed(string $personId, string $obituaryUrl, WriteBack $writeBack): bool
             {
                 throw new TerminalMatchTransitionException('raced');
             }
