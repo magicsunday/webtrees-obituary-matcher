@@ -590,6 +590,29 @@ final class ReviewScreenHandlerTest extends IntegrationTestCase
     }
 
     /**
+     * A POST carrying NO `action` field is a bad request, exactly like an unknown action (Gemini
+     * thread 4): a real pending row is seeded so resolveRow passes, then the defaulted empty action
+     * flows to applyDecision's switch default arm, which throws HttpBadRequestException — so the
+     * handler owns the bad-request semantics uniformly for both the missing and the unknown case.
+     *
+     * @return void
+     */
+    #[Test]
+    public function postWithMissingActionIsBadRequest(): void
+    {
+        $key     = $this->seedPendingMatch('I1');
+        $request = $this->managerPostRequest(
+            ReviewScreenHandler::ROUTE_NAME,
+            ['xref' => 'I1', 'key' => $key],
+            []
+        );
+
+        $this->expectException(HttpBadRequestException::class);
+
+        $this->handler()->handle($request);
+    }
+
+    /**
      * A row already terminal BEFORE the POST is a clean 404 via resolveRow — not reviewable.
      *
      * @return void

@@ -141,7 +141,10 @@ class ReviewScreenHandler implements RequestHandlerInterface
      */
     private function applyDecision(ServerRequestInterface $request, Tree $tree, string $xref, StoredMatch $row): ResponseInterface
     {
-        $action = Validator::parsedBody($request)->string('action');
+        // Default to the empty string so a MISSING action flows to the switch default arm below
+        // (a clean HttpBadRequestException) exactly like an unknown action — the handler owns the
+        // bad-request semantics uniformly, rather than letting Validator::string throw separately.
+        $action = Validator::parsedBody($request)->string('action', '');
         $store  = $this->storeForTree($tree);
 
         $individualUrl = route(IndividualPage::class, [
