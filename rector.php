@@ -14,7 +14,6 @@ use Rector\Config\RectorConfig;
 use Rector\DeadCode\Rector\ClassMethod\RemoveUselessParamTagRector;
 use Rector\DeadCode\Rector\ClassMethod\RemoveUselessReturnTagRector;
 use Rector\DeadCode\Rector\Stmt\RemoveUnreachableStatementRector;
-use Rector\Privatization\Rector\ClassMethod\PrivatizeFinalClassMethodRector;
 use Rector\Set\ValueObject\LevelSetList;
 use Rector\Set\ValueObject\SetList;
 
@@ -78,12 +77,5 @@ return static function (RectorConfig $rectorConfig): void {
         RemoveUnreachableStatementRector::class,
         RemoveUselessParamTagRector::class,
         RemoveUselessReturnTagRector::class,
-
-        // ObituaryMatcherModule::presenterForTree() is a documented `protected` override seam: a
-        // test subclass swaps the on-disk store for an in-memory one. Rector cannot see the
-        // subclass, so it would wrongly privatise the seam away.
-        PrivatizeFinalClassMethodRector::class => [
-            __DIR__ . '/src/Webtrees/ObituaryMatcherModule.php',
-        ],
     ]);
 };

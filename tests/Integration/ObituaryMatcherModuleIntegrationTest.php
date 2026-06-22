@@ -26,6 +26,7 @@ use PHPUnit\Framework\Attributes\UsesClass;
 use function array_map;
 use function bin2hex;
 use function glob;
+use function is_dir;
 use function random_bytes;
 use function rmdir;
 use function sys_get_temp_dir;
@@ -58,6 +59,32 @@ use function sys_get_temp_dir;
 final class ObituaryMatcherModuleIntegrationTest extends IntegrationTestCase
 {
     /**
+     * The temporary store directory created per test, removed in {@see tearDown()} so a failing
+     * assertion never leaks a directory under the system temp path.
+     */
+    private string $dir = '';
+
+    /**
+     * Removes the temp store directory and its rows regardless of how the test ended.
+     *
+     * @return void
+     */
+    protected function tearDown(): void
+    {
+        $files = glob($this->dir . '/*');
+
+        if ($files !== false) {
+            array_map('unlink', $files);
+        }
+
+        if (is_dir($this->dir)) {
+            rmdir($this->dir);
+        }
+
+        parent::tearDown();
+    }
+
+    /**
      * The tab is offered for an individual that has a seeded non-terminal match
      * and hidden for one that has none, decided through the real module path
      * against real webtrees individuals.
@@ -70,7 +97,8 @@ final class ObituaryMatcherModuleIntegrationTest extends IntegrationTestCase
         $gedcom = "0 @I1@ INDI\n1 NAME Otto /Vorbild/\n0 @I2@ INDI\n1 NAME Anna /Beispiel/\n";
         $tree   = $this->importFixtureTree($gedcom);
 
-        $dir = sys_get_temp_dir() . '/om-mod-' . bin2hex(random_bytes(4));
+        $dir       = sys_get_temp_dir() . '/om-mod-' . bin2hex(random_bytes(4));
+        $this->dir = $dir;
         MatchSeeder::seed(new FileMatchStore($dir), 'I1', MatchStatus::Pending, 'strong', '2023-09-04');
 
         $module = new class($dir) extends ObituaryMatcherModule {
@@ -95,9 +123,5 @@ final class ObituaryMatcherModuleIntegrationTest extends IntegrationTestCase
 
         self::assertTrue($module->hasTabContent($withMatch));
         self::assertFalse($module->hasTabContent($withoutMatch));
-
-        $files = glob($dir . '/*');
-        array_map('unlink', $files === false ? [] : $files);
-        rmdir($dir);
     }
 }

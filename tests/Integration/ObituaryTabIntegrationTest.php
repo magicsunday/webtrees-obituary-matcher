@@ -22,14 +22,15 @@ use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\Attributes\UsesClass;
 use PHPUnit\Framework\TestCase;
 
-use function array_map;
 use function bin2hex;
 use function file_put_contents;
 use function glob;
+use function is_dir;
 use function mkdir;
 use function random_bytes;
 use function rmdir;
 use function sys_get_temp_dir;
+use function unlink;
 
 /**
  * Drives the read-only presenter against the real on-disk {@see FileMatchStore}
@@ -51,6 +52,53 @@ use function sys_get_temp_dir;
 final class ObituaryTabIntegrationTest extends TestCase
 {
     /**
+     * The temporary store root created per test, removed recursively in {@see tearDown()} so a
+     * failing assertion never leaks a directory tree under the system temp path.
+     */
+    private string $dir = '';
+
+    /**
+     * Removes the temp store directory tree regardless of how the test ended.
+     *
+     * @return void
+     */
+    protected function tearDown(): void
+    {
+        $this->removeTree($this->dir);
+
+        parent::tearDown();
+    }
+
+    /**
+     * Recursively removes a directory and all of its contents, tolerating a path that was never
+     * created.
+     *
+     * @param string $dir The directory to remove.
+     *
+     * @return void
+     */
+    private function removeTree(string $dir): void
+    {
+        if (!is_dir($dir)) {
+            return;
+        }
+
+        $entries = glob($dir . '/*');
+
+        foreach ($entries === false ? [] : $entries as $entry) {
+            if (is_dir($entry)) {
+                $this->removeTree($entry);
+
+                continue;
+            }
+
+            unlink($entry);
+        }
+
+        rmdir($dir);
+    }
+
+    /**
      * A directory holding one corrupt JSON row alongside a seeded valid row must
      * surface exactly the valid suggestion: the store tolerates the unreadable
      * row instead of letting it crash the read.
@@ -60,16 +108,13 @@ final class ObituaryTabIntegrationTest extends TestCase
     #[Test]
     public function corruptRowIsSkippedValidRowSurfaces(): void
     {
-        $dir = sys_get_temp_dir() . '/om-int-' . bin2hex(random_bytes(4));
+        $dir       = sys_get_temp_dir() . '/om-int-' . bin2hex(random_bytes(4));
+        $this->dir = $dir;
         mkdir($dir, 0777, true);
         file_put_contents($dir . '/bad.json', '{ not json');
         MatchSeeder::seed(new FileMatchStore($dir), 'I1', MatchStatus::Pending, 'strong', '2023-09-04');
 
         self::assertCount(1, (new SuggestionTabPresenter(new FileMatchStore($dir)))->suggestionsFor('I1'));
-
-        $files = glob($dir . '/*');
-        array_map('unlink', $files === false ? [] : $files);
-        rmdir($dir);
     }
 
     /**
@@ -82,14 +127,10 @@ final class ObituaryTabIntegrationTest extends TestCase
     #[Test]
     public function twoTreesWithSameXrefStayIsolated(): void
     {
-        $base = sys_get_temp_dir() . '/om-trees-' . bin2hex(random_bytes(4));
+        $base      = sys_get_temp_dir() . '/om-trees-' . bin2hex(random_bytes(4));
+        $this->dir = $base;
         MatchSeeder::seed(new FileMatchStore($base . '/tree-1'), 'I1', MatchStatus::Pending, 'strong', '2023-01-01');
 
         self::assertFalse((new SuggestionTabPresenter(new FileMatchStore($base . '/tree-2')))->hasContent('I1'));
-
-        $files = glob($base . '/tree-1/*');
-        array_map('unlink', $files === false ? [] : $files);
-        rmdir($base . '/tree-1');
-        rmdir($base);
     }
 }

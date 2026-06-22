@@ -73,14 +73,18 @@ final class TabViewTest extends TestCase
         self::assertStringContainsString('trauer.example', $html);
         self::assertStringContainsString('href="https://trauer.example/a"', $html);
         self::assertStringContainsString('target="_blank"', $html);
-        self::assertStringContainsString('disabled', $html);
+        self::assertStringContainsString('<button type="button" disabled>', $html);
+        self::assertStringContainsString('1 open suggestion', $html);
     }
 
     #[Test]
-    public function nonHttpRowHasNoHref(): void
+    public function nullSourceRowHasNoHref(): void
     {
         $vm = new SuggestionViewModel(80, 'none', null, null, null, 'pending', false, false);
 
-        self::assertStringNotContainsString('href=', $this->renderTab([$vm]));
+        $html = $this->renderTab([$vm]);
+
+        self::assertStringNotContainsString('href=', $html);
+        self::assertStringContainsString('om-suggestion', $html);
     }
 }
