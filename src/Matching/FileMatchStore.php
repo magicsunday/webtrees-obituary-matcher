@@ -126,6 +126,21 @@ final readonly class FileMatchStore implements MatchStore
     /**
      * {@inheritDoc}
      *
+     * @param string $personId The candidate identifier.
+     * @param string $rowKey   The canonical row key.
+     *
+     * @return StoredMatch|null The stored row, or null when absent.
+     */
+    public function findOne(string $personId, string $rowKey): ?StoredMatch
+    {
+        // The fail-loud single-key read (readRow) matches markRejected's semantics: a corrupt target
+        // throws rather than masquerading as "not found".
+        return $this->readRow($this->pathForRowKey($personId, $rowKey));
+    }
+
+    /**
+     * {@inheritDoc}
+     *
      * @param string      $personId    The candidate identifier.
      * @param string      $obituaryUrl The source notice URL (raw, pre-normalisation).
      * @param string|null $reason      The rejection reason, if any.
@@ -184,21 +199,6 @@ final readonly class FileMatchStore implements MatchStore
         $this->ensureLayout();
 
         AtomicFile::writeJson($path, $rejected->toArray());
-    }
-
-    /**
-     * {@inheritDoc}
-     *
-     * @param string $personId The candidate identifier.
-     * @param string $rowKey   The canonical row key.
-     *
-     * @return StoredMatch|null The stored row, or null when absent.
-     */
-    public function findOne(string $personId, string $rowKey): ?StoredMatch
-    {
-        // The fail-loud single-key read (readRow) matches markRejected's semantics: a corrupt target
-        // throws rather than masquerading as "not found".
-        return $this->readRow($this->pathForRowKey($personId, $rowKey));
     }
 
     /**
