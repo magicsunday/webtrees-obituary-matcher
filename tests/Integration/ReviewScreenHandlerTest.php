@@ -371,6 +371,16 @@ final class ReviewScreenHandlerTest extends IntegrationTestCase
         // Uncertain is non-terminal, so it loops back to the review screen (not the individual page).
         self::assertStringContainsString('obituary-review', $response->getHeaderLine('Location'));
         self::assertSame(MatchStatus::Uncertain, $this->store()->findOne('I1', $key)?->status);
+
+        // The redirect loops the manager back to the review route; re-issuing that GET must render the
+        // new uncertain status block — proving the action took visible effect, not just a store mutation
+        // (spec §11 + smoke step 3). A fresh handler over the same temp store reads the mutated row.
+        $reload = $this->handler()->handle(
+            $this->managerGetRequest(ReviewScreenHandler::ROUTE_NAME, ['xref' => 'I1', 'key' => $key])
+        );
+
+        self::assertSame(200, $reload->getStatusCode());
+        self::assertStringContainsString('<span class="om-status">Uncertain</span>', (string) $reload->getBody());
     }
 
     /**
