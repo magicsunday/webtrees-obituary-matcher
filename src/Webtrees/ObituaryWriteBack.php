@@ -11,17 +11,23 @@ declare(strict_types=1);
 
 namespace MagicSunday\ObituaryMatcher\Webtrees;
 
+use Fisharebest\Webtrees\Individual;
 use Fisharebest\Webtrees\Registry;
 use Fisharebest\Webtrees\Source;
 use Fisharebest\Webtrees\Tree;
+use MagicSunday\ObituaryMatcher\Matching\WriteBack;
+use MagicSunday\ObituaryMatcher\Support\GedcomDateConverter;
+use MagicSunday\ObituaryMatcher\Support\MalformedDeathDateException;
 use MagicSunday\ObituaryMatcher\Support\UrlNormalizer;
 
+use function date;
 use function is_string;
 use function mb_strtolower;
 use function parse_url;
 use function preg_match;
 use function preg_quote;
 use function sprintf;
+use function str_contains;
 use function str_starts_with;
 use function substr;
 
@@ -62,6 +68,111 @@ class ObituaryWriteBack
     public function __construct(?PortalSourceRepository $sources = null)
     {
         $this->sources = $sources ?? new PortalSourceRepository();
+    }
+
+    /**
+     * Writes the obituary death date into the individual as a sourced DEAT fact and returns the
+     * write-back IDs. GEDCOM-only — the caller marks the store confirmed after a successful return.
+     *
+     * @param Individual $individual   The tree person to write to.
+     * @param string     $isoDeathDate The exact ISO death date from the obituary.
+     * @param string     $obituaryUrl  The source notice URL (the citation PAGE).
+     *
+     * @return WriteBack The IDs of the written records.
+     *
+     * @throws WriteBackPreconditionException   When the URL is not a clean http(s) single-line value.
+     * @throws MalformedDeathDateException      When the death date is not an exact calendar date.
+     * @throws DeathDateAlreadyPresentException When the person gained a death date before the write.
+     */
+    public function writeDeath(Individual $individual, string $isoDeathDate, string $obituaryUrl): WriteBack
+    {
+        // Precondition: a clean, single-line http(s) URL (no GEDCOM-line injection via 3 PAGE).
+        if (
+            (preg_match('~^https?://~i', $obituaryUrl) !== 1)
+            || (preg_match('/[\x00-\x1F\x7F]/', $obituaryUrl) === 1)
+        ) {
+            throw new WriteBackPreconditionException('The obituary URL is not a clean http(s) single-line value.');
+        }
+
+        $host = $this->canonicalHost($obituaryUrl);
+
+        if ($host === '') {
+            throw new WriteBackPreconditionException('The obituary URL has no parseable host.');
+        }
+
+        // The host is embedded in the SOUR TITL/PUBL/REFN — guard it against GEDCOM-line injection too,
+        // even though normalizeForIdentity/parse_url normally strip control chars.
+        if (preg_match('/[\x00-\x1F\x7F]/', $host) === 1) {
+            throw new WriteBackPreconditionException('The obituary host contains control characters.');
+        }
+
+        // Throws MalformedDeathDateException on a non-exact/calendar-invalid date, before any write.
+        $gedcomDate = GedcomDateConverter::toGedcom($isoDeathDate);
+
+        // Live re-check immediately before the create: the person must still have no death date
+        // (covers DEAT/BURI/CREM). Closes the gate↔write TOCTOU; never silently succeeds.
+        if ($individual->getDeathDate()->isOK()) {
+            throw new DeathDateAlreadyPresentException('The individual already has a death date.');
+        }
+
+        $existing = $this->findPortalSource($individual->tree(), $host);
+
+        if ($existing instanceof Source) {
+            $source        = $existing;
+            $sourceCreated = false;
+        } else {
+            $source        = $this->createPortalSource($individual->tree(), $host);
+            $sourceCreated = true;
+        }
+
+        $sourceXref = $source->xref();
+
+        // The citation recording date in GEDCOM format (uppercase month). date('d M Y') would emit a
+        // mixed-case "Sep"/"Dec" — convert today's ISO through the same converter so 4 DATE is GEDCOM-valid.
+        $confirmDate = GedcomDateConverter::toGedcom(date('Y-m-d'));
+
+        $deatGedcom = sprintf(
+            "1 DEAT\n2 DATE %s\n2 SOUR @%s@\n3 PAGE %s\n3 DATA\n4 DATE %s",
+            $gedcomDate,
+            $sourceXref,
+            $obituaryUrl,
+            $confirmDate
+        );
+
+        $individual->createFact($deatGedcom, true);
+
+        $deatFactId = $this->captureDeatFactId($individual, $gedcomDate, $sourceXref, $obituaryUrl);
+
+        return new WriteBack($deatFactId, $sourceXref, $sourceCreated);
+    }
+
+    /**
+     * Finds the just-written DEAT fact (by its DATE + SOUR + PAGE substrings) and returns its id.
+     *
+     * @param Individual $individual  The individual the fact was written to.
+     * @param string     $gedcomDate  The GEDCOM date written.
+     * @param string     $sourceXref  The cited source xref.
+     * @param string     $obituaryUrl The citation PAGE.
+     *
+     * @return string The fact id.
+     *
+     * @throws WriteBackPreconditionException When the written fact cannot be located (should not happen).
+     */
+    private function captureDeatFactId(Individual $individual, string $gedcomDate, string $sourceXref, string $obituaryUrl): string
+    {
+        foreach ($individual->facts(['DEAT'], false, null, true) as $fact) {
+            $gedcom = $fact->gedcom();
+
+            if (
+                str_contains($gedcom, '2 DATE ' . $gedcomDate)
+                && str_contains($gedcom, '2 SOUR @' . $sourceXref . '@')
+                && str_contains($gedcom, '3 PAGE ' . $obituaryUrl)
+            ) {
+                return $fact->id();
+            }
+        }
+
+        throw new WriteBackPreconditionException('The written DEAT fact could not be located.');
     }
 
     /**
