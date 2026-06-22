@@ -46,7 +46,10 @@ use function hash;
 use function hash_file;
 use function is_dir;
 use function is_file;
+use function json_encode;
 use function mkdir;
+
+use const JSON_THROW_ON_ERROR;
 
 /**
  * Behavioural tests for the file-based match store: per-key idempotency through the URL
@@ -437,6 +440,70 @@ final class FileMatchStoreTest extends TempDirTestCase
         $rows = $store->allPending();
         self::assertCount(1, $rows, 'the in-flight *.json.tmp.* file is excluded from the scan');
         self::assertSame('I1', $rows[0]->personId);
+    }
+
+    /**
+     * An in-flight atomic temp file ("<rowKey>.json.tmp.<uniqid>") sitting INSIDE a candidate's
+     * per-person sub-directory — the exact transient AtomicFile creates before the rename — is not
+     * scanned as a row: scanDir's extension filter excludes it because pathinfo() reports the uniqid
+     * as the extension, not "json". The valid row in that same sub-directory still surfaces through
+     * both findByPerson (single sub-dir) and allPending (recursive scan), each returning exactly one
+     * row. The temp file carries a fully VALID, decodable StoredMatch payload for a DIFFERENT URL, so
+     * a regression that stops excluding it would hand it to the JSON decoder, reconstruct it as a
+     * genuine second pending row and push the count to two — the exact count is the discriminator
+     * (an arbitrary/corrupt payload would be swallowed by the poison-tolerant catch and hide the
+     * regression).
+     *
+     * @return void
+     */
+    #[Test]
+    public function anInFlightTempFileInsideAPersonSubDirectoryIsNotScanned(): void
+    {
+        $store = new FileMatchStore($this->tmp);
+        $url   = 'https://example.test/a';
+        $store->upsertPending($this->storedMatch('I1', $url, MatchStatus::Pending));
+
+        // The transient shape AtomicFile writes into the person sub-directory before the rename:
+        // {dir}/sha256('I1')/{rowKey}.json.tmp.<uniqid>. Its extension is the uniqid, not "json". It
+        // carries a VALID payload for a second URL so it would decode into a real second row if the
+        // extension filter ever stopped excluding it (the corrupt-row catch could not mask that).
+        $tempRow  = $this->pendingMatch('I1', 'https://example.test/in-flight');
+        $tempPath = $this->tmp . '/' . hash('sha256', 'I1') . '/' . StoredMatchKey::fromUrl($url) . '.json.tmp.deadbeef';
+        file_put_contents($tempPath, json_encode($tempRow->toArray(), JSON_THROW_ON_ERROR));
+
+        $found = $store->findByPerson('I1');
+        self::assertCount(1, $found, 'the in-flight temp file in the sub-directory is excluded from findByPerson');
+        self::assertSame('I1', $found[0]->personId);
+
+        self::assertCount(1, $store->allPending(), 'the in-flight temp file in the sub-directory is excluded from allPending');
+    }
+
+    /**
+     * A stray non-directory entry at the store root (a leftover flat-scheme "*.json" from before the
+     * GH-26 migration, a ".DS_Store", …) is never decoded as a row: allRows recurses ONE level into
+     * the per-person sub-directories only, treating the store root as a directory-of-directories. The
+     * stray file carries a fully VALID, decodable StoredMatch payload, so it would surface as a genuine
+     * second pending row if allRows ever flattened the scan (for example a recursive-glob rewrite that
+     * dropped the one-level structure) — the exact count of one is the discriminator. The valid pending
+     * row under its proper sub-directory still surfaces.
+     *
+     * @return void
+     */
+    #[Test]
+    public function aStrayNonDirectoryFileAtTheStoreRootIsIgnored(): void
+    {
+        $store = new FileMatchStore($this->tmp);
+        $store->upsertPending($this->storedMatch('I1', 'https://example.test/a', MatchStatus::Pending));
+
+        // A stray file directly at the store root (not inside a per-person sub-directory). It carries a
+        // VALID payload so a flattening regression would reconstruct it into a real second pending row;
+        // the one-level recursion must leave it untouched at the root.
+        $strayRow = $this->pendingMatch('I9', 'https://example.test/stray');
+        file_put_contents($this->tmp . '/stray.json', json_encode($strayRow->toArray(), JSON_THROW_ON_ERROR));
+
+        $pending = $store->allPending();
+        self::assertCount(1, $pending, 'the stray root-level file is not decoded, the valid sub-directory row survives');
+        self::assertSame('I1', $pending[0]->personId);
     }
 
     /**
