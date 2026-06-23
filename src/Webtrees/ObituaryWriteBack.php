@@ -204,8 +204,11 @@ class ObituaryWriteBack
     /**
      * Finds an existing per-portal source for the host across BOTH accepted sources and this tree's
      * pending changes, so a source created earlier in the same (auto-accept-off) session is reused
-     * rather than duplicated. On a pre-existing duplicate REFN the first match (accepted before
-     * pending, each in id/change order) wins.
+     * rather than duplicated. A pending edit overlays the accepted record (pending-wins), mirroring
+     * {@see \Fisharebest\Webtrees\Factories\SourceFactory::make}: an accepted source whose xref also
+     * carries a pending change is matched on its PENDING blob, never the stale accepted one. On a
+     * pre-existing duplicate REFN the first match (accepted-non-superseded before pending, each in
+     * id/change order) wins.
      *
      * @param Tree   $tree The tree to search.
      * @param string $host The canonical host.
@@ -216,7 +219,22 @@ class ObituaryWriteBack
     {
         $refn = self::REFN_PREFIX . $host;
 
+        // The set of xrefs that carry ANY pending change (edit, create OR delete). An accepted source
+        // whose xref is in this set is superseded — its authoritative current state is the pending one,
+        // so the accepted scan must skip it (pending-wins overlay) and resolution happens in the pending
+        // match loop instead. This includes a pending DELETE of an accepted source: its xref is in the
+        // set (so the accepted blob is skipped) but absent from the filtered pendingSources() match set
+        // below (so it is never resurrected), leaving find() to return null as core's overlay would.
+        $pendingXrefs = $this->sources->pendingXrefs($tree);
+
         foreach ($this->sources->acceptedSources($tree, $refn) as $row) {
+            // Skip an accepted row superseded by a pending change: its authoritative current state is the
+            // pending blob, which the pending loop resolves under the (possibly changed) host — or nothing,
+            // when the pending change is a delete.
+            if (isset($pendingXrefs[$row['xref']])) {
+                continue;
+            }
+
             if (!$this->gedcomHasRefn($row['gedcom'], $refn)) {
                 continue;
             }

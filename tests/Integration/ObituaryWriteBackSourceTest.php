@@ -414,6 +414,94 @@ final class ObituaryWriteBackSourceTest extends IntegrationTestCase
     }
 
     /**
+     * An accepted portal source superseded by a PENDING edit must resolve against the pending blob, not
+     * the stale accepted record (pending-wins overlay, mirroring {@see \Fisharebest\Webtrees\Factories\SourceFactory::make}).
+     * The source is accepted for `hostA.example` (so it lands in the `sources` table), then a pending EDIT
+     * for the SAME xref moves its host/REFN to `hostB.example`. The old accepted-loop-first logic still
+     * matched the stale accepted blob and returned the source under `hostA.example`; the overlay skips an
+     * accepted row whose xref has a pending edit, so `hostA.example` no longer matches and `hostB.example`
+     * resolves through the pending loop.
+     *
+     * @return void
+     */
+    #[Test]
+    public function findPortalSourcePrefersPendingEditOverAcceptedBlob(): void
+    {
+        $this->loginManagerWithAutoAccept();
+        $tree = $this->tree();
+        $w    = $this->writer();
+
+        // Accept a portal source for hostA so it lands in the `sources` table.
+        $accepted = $w->create($tree, 'hosta.example');
+        $xref     = $accepted->xref();
+
+        // Positive control: hostA resolves while purely accepted, so the post-edit assertNull proves the
+        // overlay SKIPPED a live accepted row rather than passing because the create never persisted.
+        $beforeEdit = $w->find($tree, 'hosta.example');
+        self::assertNotNull($beforeEdit, 'the accepted source must resolve under hostA before the pending edit');
+        self::assertSame($xref, $beforeEdit->xref());
+
+        // Stack a PENDING edit for the SAME xref that moves the host/REFN to hostB.
+        $this->loginManagerWithoutAutoAccept();
+        $this->appendPendingChange($tree, $xref, $this->portalSourceGedcom($xref, 'hostb.example'));
+
+        // The accepted blob is superseded by the pending edit: hostA is no longer the source's current state.
+        self::assertNull(
+            $w->find($tree, 'hosta.example'),
+            'the accepted blob superseded by a pending edit must not match its stale host'
+        );
+
+        // The pending blob is authoritative: the edited host resolves to the same record. Only the
+        // xref is asserted (and consumed by writeDeath, which cites `2 SOUR @xref@`): a deeper
+        // gedcom-content assertion is defeated by webtrees' per-request record memoization — the
+        // positive-control find(hostA) above caches the Source under this xref, so a later 3-arg
+        // make() returns the cached (hostA-blob) instance regardless of the pending blob passed. The
+        // returned record's gedcom is never read by the write-back, so the xref is the contract here.
+        $found = $w->find($tree, 'hostb.example');
+        self::assertNotNull($found, 'the pending edit host must resolve the superseded source');
+        self::assertSame($xref, $found->xref());
+    }
+
+    /**
+     * An ACCEPTED portal source superseded by a pending DELETE must NOT be resurrected: the record's
+     * authoritative current state is "deleted", so find() must return null even though the stale accepted
+     * blob still carries the REFN. The overlay skips an accepted row whose xref has ANY pending change —
+     * including a pending delete, which {@see PortalSourceRepository::pendingSources} drops from its match
+     * set — so the accepted blob is never matched, mirroring how {@see \Fisharebest\Webtrees\Factories\SourceFactory::make}
+     * builds the source with its (deleted) pending state.
+     *
+     * @return void
+     */
+    #[Test]
+    public function findPortalSourceDoesNotResurrectAnAcceptedSourcePendingDelete(): void
+    {
+        $this->loginManagerWithAutoAccept();
+        $tree = $this->tree();
+        $w    = $this->writer();
+
+        // Accept a portal source so it lands in the `sources` table.
+        $accepted = $w->create($tree, 'trauer.example');
+        $xref     = $accepted->xref();
+
+        // Positive control: the accepted source IS matchable before the pending delete, so the final
+        // assertNull proves the overlay suppressed a live accepted row rather than passing because the
+        // create never landed in `sources`.
+        $before = $w->find($tree, 'trauer.example');
+        self::assertNotNull($before, 'the accepted portal source must be matchable before the pending delete');
+        self::assertSame($xref, $before->xref());
+
+        // Stack a pending DELETE (empty new_gedcom) for that accepted xref.
+        $this->loginManagerWithoutAutoAccept();
+        $this->appendPendingChange($tree, $xref, '');
+
+        // The latest pending state is "deleted", so the stale accepted blob must not be matched.
+        self::assertNull(
+            $w->find($tree, 'trauer.example'),
+            'an accepted source with a pending delete must not be resurrected by its stale accepted blob'
+        );
+    }
+
+    /**
      * A valid host is accepted: createPortalSource produces a clean source with no injected sub-record,
      * the positive control proving the guard discriminates rather than rejecting everything.
      *

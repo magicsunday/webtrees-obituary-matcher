@@ -153,4 +153,39 @@ final readonly class PortalSourceRepository
 
         return $sources;
     }
+
+    /**
+     * Returns the set of every xref carrying ANY pending change in the tree, regardless of the change's
+     * latest blob — a pending edit, a pending create, OR a pending delete (empty `new_gedcom`) all count.
+     *
+     * This is the overlay key {@see ObituaryWriteBack::findPortalSource} uses to decide whether an
+     * accepted source is superseded by a pending change: unlike {@see self::pendingSources}, it does NOT
+     * drop the pending-delete / non-SOUR rows, because an accepted source with a pending DELETE must still
+     * be skipped (its authoritative state is "deleted") even though it never appears in the match set.
+     *
+     * @param Tree $tree The tree to read.
+     *
+     * @return array<string, true> The set of xrefs with a pending change, keyed by xref.
+     */
+    public function pendingXrefs(Tree $tree): array
+    {
+        // pluck($value, $key) keyed by xref collapses the append-only stack to one entry per xref and,
+        // like the sibling scans, never exposes an Eloquent stdClass: the result is array<xref, scalar>.
+        $rows = DB::table('change')
+            ->where('gedcom_id', '=', $tree->id())
+            ->where('status', '=', 'pending')
+            ->pluck('xref', 'xref')
+            ->all();
+
+        $set = [];
+
+        foreach ($rows as $xref => $ignored) {
+            // A purely numeric XREF (valid GEDCOM, common in imported trees) arrives as an int array key
+            // because PHP casts numeric-string keys: cast back to string so it matches the accepted
+            // scan's string xref rather than being dropped by an is_string() guard.
+            $set[(string) $xref] = true;
+        }
+
+        return $set;
+    }
 }
