@@ -21,9 +21,10 @@ use function sprintf;
 
 /**
  * Builds the on-disk paths of the file-drop queue and creates its directory layout. The queue is a
- * shared directory with four state sub-directories (queued/running/done/failed); a job moves
- * between states by an atomic rename of its file. Every method that accepts a jobId guards it
- * against path traversal so a hostile jobId can never escape the queue root.
+ * shared directory with seven state sub-directories: the worker-side queued/running/done/failed and
+ * the module-side ingesting/ingested/failed-ingest. A job moves between states by an atomic rename of
+ * its directory. Every method that accepts a jobId guards it against path traversal so a hostile
+ * jobId can never escape the queue root.
  *
  * @author  Rico Sonntag <mail@ricosonntag.de>
  * @license https://opensource.org/licenses/GPL-3.0 GNU General Public License v3.0
@@ -50,6 +51,21 @@ final readonly class QueuePaths
      * @var string The "failed" state directory name.
      */
     private const string STATE_FAILED = 'failed';
+
+    /**
+     * @var string The "ingesting" state directory name (a module-claimed done job).
+     */
+    private const string STATE_INGESTING = 'ingesting';
+
+    /**
+     * @var string The "ingested" state directory name (the module finished ingesting the response).
+     */
+    private const string STATE_INGESTED = 'ingested';
+
+    /**
+     * @var string The "failed-ingest" state directory name (the module failed to ingest the response).
+     */
+    private const string STATE_FAILED_INGEST = 'failed-ingest';
 
     /**
      * @var string Regular expression a jobId must match to be accepted (path-traversal guard).
@@ -115,6 +131,52 @@ final readonly class QueuePaths
     }
 
     /**
+     * Returns the absolute path to a job's directory in the "ingesting" state (a module-claimed done
+     * job). A thin wrapper over {@see self::stateDir()} so the module-side states carry the same
+     * validateJobId-guarded, named builders as the worker-side states.
+     *
+     * @param string $jobId The validated job identifier.
+     *
+     * @return string
+     *
+     * @throws InvalidArgumentException When the jobId does not match the allowed pattern.
+     */
+    public function ingestingDir(string $jobId): string
+    {
+        return $this->stateDir(JobState::Ingesting, $jobId);
+    }
+
+    /**
+     * Returns the absolute path to a job's directory in the "ingested" state (the module finished
+     * ingesting the response). A thin wrapper over {@see self::stateDir()}.
+     *
+     * @param string $jobId The validated job identifier.
+     *
+     * @return string
+     *
+     * @throws InvalidArgumentException When the jobId does not match the allowed pattern.
+     */
+    public function ingestedDir(string $jobId): string
+    {
+        return $this->stateDir(JobState::Ingested, $jobId);
+    }
+
+    /**
+     * Returns the absolute path to a job's directory in the "failed-ingest" state (the module failed
+     * to ingest the response). A thin wrapper over {@see self::stateDir()}.
+     *
+     * @param string $jobId The validated job identifier.
+     *
+     * @return string
+     *
+     * @throws InvalidArgumentException When the jobId does not match the allowed pattern.
+     */
+    public function failedIngestDir(string $jobId): string
+    {
+        return $this->stateDir(JobState::FailedIngest, $jobId);
+    }
+
+    /**
      * Returns the absolute path to a job's directory under the given state. The jobId is validated
      * against the path-traversal guard, so a hostile jobId can never escape the queue root.
      *
@@ -143,10 +205,10 @@ final readonly class QueuePaths
     }
 
     /**
-     * Locates which of the four states a job currently lives in by probing each state directory in
-     * the authoritative {@see JobState::cases()} order (queued → running → done → failed). Returns
-     * the first matching state, or null when the job exists in no state. The jobId is validated once up
-     * front, so a hostile jobId can never escape the queue root.
+     * Locates which state a job currently lives in by probing each state directory in the
+     * authoritative {@see JobState::cases()} order (queued → running → done → failed → ingesting →
+     * ingested → failed-ingest). Returns the first matching state, or null when the job exists in no
+     * state. The jobId is validated once up front, so a hostile jobId can never escape the queue root.
      *
      * @param string $jobId The job identifier to locate.
      *
@@ -176,7 +238,7 @@ final readonly class QueuePaths
     }
 
     /**
-     * Creates the four state directories under the queue root if they do not yet exist. The create is
+     * Creates the seven state directories under the queue root if they do not yet exist. The create is
      * race-safe: a concurrent process winning the mkdir between the is_dir probe and the create leaves
      * the directory present, which counts as success; only a genuine failure (the directory still does
      * not exist afterwards) raises.
@@ -187,7 +249,17 @@ final readonly class QueuePaths
      */
     public function ensureLayout(): void
     {
-        foreach ([self::STATE_QUEUED, self::STATE_RUNNING, self::STATE_DONE, self::STATE_FAILED] as $state) {
+        $states = [
+            self::STATE_QUEUED,
+            self::STATE_RUNNING,
+            self::STATE_DONE,
+            self::STATE_FAILED,
+            self::STATE_INGESTING,
+            self::STATE_INGESTED,
+            self::STATE_FAILED_INGEST,
+        ];
+
+        foreach ($states as $state) {
             AtomicFile::ensureDirectory($this->stateRoot($state));
         }
     }

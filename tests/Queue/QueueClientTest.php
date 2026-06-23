@@ -227,6 +227,98 @@ final class QueueClientTest extends TempDirTestCase
     }
 
     /**
+     * A done job is claimed for ingest by an atomic done → ingesting rename: the first caller wins and
+     * the job is observed in the ingesting state, and a second caller loses the now-vanished done
+     * directory and returns false. This mirrors the queued → running {@see QueueClient::claim()}
+     * synchronisation point exactly, so the lost claim never surfaces as a warning.
+     */
+    #[Test]
+    public function claimForIngestIsAtomicAndExclusive(): void
+    {
+        $client = new QueueClient(new QueuePaths($this->tmp));
+        $client->enqueue($this->request('job-1'));
+        self::assertTrue($client->claim('job-1'));
+        $client->markDone('job-1', ['notices' => 1]);          // queued → running → done
+
+        self::assertTrue($client->claimForIngest('job-1'));    // first rename wins
+        self::assertSame(JobState::Ingesting, $client->status('job-1')->state);
+        self::assertFalse($client->claimForIngest('job-1'));   // already claimed → fails
+    }
+
+    /**
+     * An ingesting job is marked ingested: the published ingested directory already carries its
+     * status.json and no status.json lingers in the ingesting state, so the status file moves WITH the
+     * terminal rename (mirroring {@see QueueClient::markDone()}). The counts round-trip back through
+     * {@see QueueClient::status()}.
+     */
+    #[Test]
+    public function markIngestedPublishesStatusAtomicallyWithTheTerminalRename(): void
+    {
+        $client = new QueueClient(new QueuePaths($this->tmp));
+        $client->enqueue($this->request('job-1'));
+        self::assertTrue($client->claim('job-1'));
+        $client->markDone('job-1', ['notices' => 3]);
+        self::assertTrue($client->claimForIngest('job-1'));
+
+        $counts = ['noticesRead' => 3, 'candidatesFound' => 2, 'matchesStored' => 1];
+        $client->markIngested('job-1', $counts, ['one notice could not be matched']);
+
+        self::assertFileExists($this->tmp . '/ingested/job-1/status.json');
+        self::assertFileDoesNotExist($this->tmp . '/ingesting/job-1/status.json');
+
+        $status = $client->status('job-1');
+        self::assertSame(JobState::Ingested, $status->state);
+        self::assertSame($counts, $status->counts);
+        self::assertSame(['one notice could not be matched'], $status->warnings);
+    }
+
+    /**
+     * An ingesting job is marked failed-ingest: the published failed-ingest directory already carries
+     * its status.json and no status.json lingers in the ingesting state, so the failure record moves
+     * WITH the terminal rename. The persisted reason surfaces through {@see QueueClient::status()} as
+     * the job's error.
+     */
+    #[Test]
+    public function markFailedIngestPublishesStatusAtomicallyWithTheTerminalRename(): void
+    {
+        $client = new QueueClient(new QueuePaths($this->tmp));
+        $client->enqueue($this->request('job-1'));
+        self::assertTrue($client->claim('job-1'));
+        $client->markDone('job-1', ['notices' => 3]);
+        self::assertTrue($client->claimForIngest('job-1'));
+
+        $client->markFailedIngest('job-1', 'response-validation', ['a malformed notice was dropped']);
+
+        self::assertFileExists($this->tmp . '/failed-ingest/job-1/status.json');
+        self::assertFileDoesNotExist($this->tmp . '/ingesting/job-1/status.json');
+
+        $status = $client->status('job-1');
+        self::assertSame(JobState::FailedIngest, $status->state);
+        self::assertSame('response-validation', $status->error);
+        self::assertSame(['a malformed notice was dropped'], $status->warnings);
+    }
+
+    /**
+     * An ingesting job is released back to the done state by an atomic ingesting → done rename, so a
+     * crashed or retrying ingest can re-claim it. The release returns true on success and the job is
+     * observed back in the done state; a second release of the now-vanished ingesting directory
+     * returns false without surfacing a warning.
+     */
+    #[Test]
+    public function releaseIngestingReturnsTheJobToTheDoneState(): void
+    {
+        $client = new QueueClient(new QueuePaths($this->tmp));
+        $client->enqueue($this->request('job-1'));
+        self::assertTrue($client->claim('job-1'));
+        $client->markDone('job-1', ['notices' => 3]);
+        self::assertTrue($client->claimForIngest('job-1'));
+
+        self::assertTrue($client->releaseIngesting('job-1'));
+        self::assertSame(JobState::Done, $client->status('job-1')->state);
+        self::assertFalse($client->releaseIngesting('job-1'));  // already released → fails
+    }
+
+    /**
      * Enqueuing a second job with an identifier already present in the queued state is refused.
      */
     #[Test]
