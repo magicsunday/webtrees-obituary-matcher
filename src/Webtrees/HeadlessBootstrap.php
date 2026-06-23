@@ -1,0 +1,183 @@
+<?php
+
+/**
+ * This file is part of the package magicsunday/webtrees-obituary-matcher.
+ *
+ * For the full copyright and license information, please read the
+ * LICENSE file that was distributed with this source code.
+ */
+
+declare(strict_types=1);
+
+namespace MagicSunday\ObituaryMatcher\Webtrees;
+
+use Fisharebest\Webtrees\Auth;
+use Fisharebest\Webtrees\DB;
+use Fisharebest\Webtrees\Gedcom;
+use Fisharebest\Webtrees\I18N;
+use Fisharebest\Webtrees\Registry;
+use Fisharebest\Webtrees\Services\UserService;
+use Fisharebest\Webtrees\Webtrees;
+use RuntimeException;
+use Throwable;
+
+use function is_array;
+use function is_file;
+use function is_scalar;
+use function parse_ini_file;
+use function realpath;
+
+/**
+ * A reusable headless webtrees bootstrap for CLI entry points (the queue drain) that have no HTTP
+ * request to ride on. It mirrors the exact production boot sequence the integration harness performs
+ * — {@see I18N::init()}, a {@see DB::connect()} against the sibling install's `config.ini.php`,
+ * {@see Webtrees::bootstrap()} (the DI container) and the element-factory tag registration the
+ * routing middleware normally binds — so a CLI sees the same runtime a request does.
+ *
+ * The boot is guarded by a process-wide static so a re-entry (the test harness boots its own schema
+ * first, then re-enters) is a no-op; it also refuses to clobber an already-established database
+ * connection, so booting on top of a harness-connected in-memory schema leaves that schema intact.
+ *
+ * @author  Rico Sonntag <mail@ricosonntag.de>
+ * @license https://opensource.org/licenses/GPL-3.0 GNU General Public License v3.0
+ * @link    https://github.com/magicsunday/webtrees-obituary-matcher/
+ */
+final class HeadlessBootstrap
+{
+    /**
+     * Whether the headless boot has already run in this process. The first call performs the full
+     * sequence; every later call is a no-op so a re-entry under the test harness (or a second CLI
+     * stage) does not re-run the connect and clobber the live connection.
+     */
+    private static bool $booted = false;
+
+    /**
+     * Boots the webtrees runtime for a headless (request-less) CLI process exactly once. The sequence
+     * mirrors {@see \Fisharebest\Webtrees\Cli\Console::bootstrap()} and the integration harness:
+     * translations, the database connection against the sibling install's config, the DI container
+     * and the GEDCOM element-factory tags. An already-established connection (the test harness
+     * connected its own in-memory schema first) is left untouched.
+     *
+     * @return void
+     */
+    public static function boot(): void
+    {
+        if (self::$booted) {
+            return;
+        }
+
+        self::$booted = true;
+
+        I18N::init('en-US', true);
+
+        // Only connect when no connection is already established. The integration harness connects an
+        // in-memory schema before this boot runs; re-connecting against the sibling config would
+        // clobber it (and a CLI run with no harness simply connects here for real).
+        if (!self::databaseIsConnected()) {
+            self::connectDatabase();
+        }
+
+        (new Webtrees())->bootstrap();
+        (new Gedcom())->registerTags(Registry::elementFactory(), true);
+    }
+
+    /**
+     * Logs the first available administrator in as the ambient {@see Auth} principal, so the drain —
+     * which reads the ambient user to decide candidate visibility — sees every candidate rather than
+     * the no-access guest visitor. There is deliberately NO guest fallback: a headless drain with no
+     * administrator account is a misconfiguration that must fail loudly.
+     *
+     * @param UserService $users The user service used to resolve the administrators (injected so the
+     *                           no-admin path is unit-testable with a stub).
+     *
+     * @return void
+     *
+     * @throws RuntimeException When no administrator account is available.
+     */
+    public static function loginSystemPrincipal(UserService $users): void
+    {
+        $admin = $users->administrators()->first();
+
+        if ($admin === null) {
+            throw new RuntimeException('No admin user available for the headless drain');
+        }
+
+        Auth::login($admin);
+    }
+
+    /**
+     * Reports whether a usable database connection is already established. Probing the PDO handle is
+     * the only reliable signal: an unconnected facade throws when the connection is resolved.
+     *
+     * @return bool
+     */
+    private static function databaseIsConnected(): bool
+    {
+        try {
+            DB::connection()->getPdo();
+
+            return true;
+        } catch (Throwable) {
+            return false;
+        }
+    }
+
+    /**
+     * Connects the database from the sibling webtrees install's `config.ini.php`, mirroring the field
+     * names {@see \Fisharebest\Webtrees\Cli\Console::bootstrap()} reads. The install root is the
+     * sibling `fisharebest/webtrees` directory, NOT this module's working directory, so the config is
+     * resolved relative to this file rather than via {@see Webtrees::CONFIG_FILE} (which only resolves
+     * when the cwd is the webtrees root).
+     *
+     * @return void
+     *
+     * @throws RuntimeException When the sibling config cannot be located or parsed.
+     */
+    private static function connectDatabase(): void
+    {
+        $configFile = realpath(__DIR__ . '/../../../../fisharebest/webtrees/data/config.ini.php');
+
+        if (($configFile === false) || !is_file($configFile)) {
+            throw new RuntimeException('Could not locate the sibling webtrees config for the headless drain');
+        }
+
+        $config = parse_ini_file($configFile);
+
+        if (!is_array($config)) {
+            throw new RuntimeException('Could not parse the sibling webtrees config for the headless drain');
+        }
+
+        DB::connect(
+            driver: self::configString($config, 'dbtype', DB::MYSQL),
+            host: self::configString($config, 'dbhost', ''),
+            port: self::configString($config, 'dbport', ''),
+            database: self::configString($config, 'dbname', ''),
+            username: self::configString($config, 'dbuser', ''),
+            password: self::configString($config, 'dbpass', ''),
+            prefix: self::configString($config, 'tblpfx', ''),
+            key: self::configString($config, 'dbkey', ''),
+            certificate: self::configString($config, 'dbcert', ''),
+            ca: self::configString($config, 'dbca', ''),
+            verify_certificate: (bool) self::configString($config, 'dbverify', ''),
+        );
+    }
+
+    /**
+     * Reads a single scalar setting from the parsed config as a string, falling back to the supplied
+     * default when the key is absent or holds a non-scalar (a sectioned value array `parse_ini_file`
+     * would never produce for these flat keys, guarded defensively so the connect arguments stay
+     * typed strings rather than `mixed`).
+     *
+     * @param array<int|string, mixed> $config  The parsed `config.ini.php` contents.
+     * @param string                   $key     The setting name to read.
+     * @param string                   $default The value to use when the setting is absent or non-scalar.
+     *
+     * @return string
+     */
+    private static function configString(array $config, string $key, string $default): string
+    {
+        $value = $config[$key] ?? null;
+
+        return is_scalar($value) ? (string) $value : $default;
+    }
+}

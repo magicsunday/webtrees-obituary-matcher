@@ -12,6 +12,7 @@ declare(strict_types=1);
 namespace MagicSunday\ObituaryMatcher\Test\Architecture;
 
 use Fisharebest\Webtrees\DB;
+use MagicSunday\ObituaryMatcher\Webtrees\HeadlessBootstrap;
 use PHPat\Selector\Selector;
 use PHPat\Test\Attributes\TestRule;
 use PHPat\Test\Builder\Rule;
@@ -266,23 +267,32 @@ final class ArchitectureTest
     }
 
     /**
-     * Database access is the exclusive responsibility of repositories. The marker
+     * Query ISSUANCE is the exclusive responsibility of repositories. The marker
      * covers both the entry point — webtrees' `DB` query-builder facade
-     * (`DB::table(...)`) — and the underlying `Illuminate\Database` query layer it
-     * returns (`Builder`, `Expression`, `Capsule\Manager`, `ConnectionInterface`),
-     * so a class cannot escape the rule by taking a query builder directly instead
-     * of through the facade. The six pure layers already cannot touch the framework
-     * at all (see {@see self::pureLayersDoNotDependOnWebtrees()}), so the net effect
-     * of this rule lands inside the `Webtrees` adapter: only a `*Repository` may
-     * issue SQL, never the value-object adapter, the date mapper, or a future
-     * module/controller/review-UI. Scattering `DB::table(...)` across the adapter
-     * would spread query-shape decisions over every class and make it impossible to
-     * reason about which class touches which table.
+     * (`DB::table(...)`/`DB::query(...)`) — and the underlying `Illuminate\Database`
+     * query layer it returns (`Builder`, `Expression`, `Capsule\Manager`,
+     * `ConnectionInterface`), so a class cannot escape the rule by taking a query
+     * builder directly instead of through the facade. The six pure layers already
+     * cannot touch the framework at all (see {@see self::pureLayersDoNotDependOnWebtrees()}),
+     * so the net effect of this rule lands inside the `Webtrees` adapter: only a
+     * `*Repository` may issue SQL, never the value-object adapter, the date mapper,
+     * or a future module/controller/review-UI. Scattering `DB::table(...)` across
+     * the adapter would spread query-shape decisions over every class and make it
+     * impossible to reason about which class touches which table.
      *
      * Repositories are selected by the `*Repository` class-name suffix rather than
      * a dedicated namespace because the single repository lives in the `Webtrees`
      * adapter alongside the non-querying adapter classes; the suffix keeps any
      * future repository automatically exempt without a namespace move.
+     *
+     * The single {@see HeadlessBootstrap} composition root is the one narrow
+     * exemption: as the request-less CLI bootstrap it must call `DB::connect()` /
+     * `DB::connection()` to ESTABLISH the connection (the connection bootstrap plus
+     * the no-clobber probe), but it issues no query — no `DB::table()`/`DB::query()`,
+     * no Eloquent. Confining connection setup to the composition root is exactly the
+     * intent of a composition root, so exempting only that one class keeps query
+     * issuance confined to `*Repository` while letting the bootstrap wire the
+     * connection every repository then queries through.
      */
     #[TestRule]
     public function databaseAccessIsConfinedToRepositories(): Rule
@@ -292,6 +302,7 @@ final class ArchitectureTest
                 Selector::AllOf(
                     Selector::inNamespace(self::NAMESPACE_ROOT),
                     Selector::Not(Selector::classname('#Repository$#', true)),
+                    Selector::Not(Selector::classname(HeadlessBootstrap::class)),
                     Selector::Not(Selector::inNamespace(self::NAMESPACE_ROOT . '\\Test')),
                 ),
             )
@@ -300,6 +311,6 @@ final class ArchitectureTest
                 Selector::classname(DB::class),
                 Selector::inNamespace('Illuminate\\Database'),
             )
-            ->because('Raw database access is confined to repositories; no other class may issue SQL through the webtrees DB facade or the Illuminate query layer');
+            ->because('Query issuance (DB::table/DB::query/Eloquent) is confined to repositories; no other class may issue SQL through the webtrees DB facade or the Illuminate query layer. The HeadlessBootstrap composition root is exempted only to call DB::connect/DB::connection for connection bootstrap — it issues no query');
     }
 }
