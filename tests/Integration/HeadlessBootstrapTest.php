@@ -42,8 +42,18 @@ final class HeadlessBootstrapTest extends IntegrationTestCase
     public function bootIsIdempotentAndLeavesTheDatabaseUsable(): void
     {
         // The parent setUp already booted webtrees and connected the schema; a re-entry must no-op
-        // rather than re-run the connect sequence and clobber the live connection.
+        // rather than re-run the connect sequence and clobber the live connection. Pin the connection
+        // identity: a dropped idempotency guard would re-run DB::connect() and swap in a fresh PDO, so
+        // the SAME PDO instance surviving the second boot is the real proof the no-op held.
+        $pdoBefore = DB::connection()->getPdo();
+
         HeadlessBootstrap::boot();
+
+        self::assertSame(
+            $pdoBefore,
+            DB::connection()->getPdo(),
+            'second boot() must not replace the live PDO connection',
+        );
 
         // The schema is still queryable after the second boot — the admin row the parent seeded is
         // readable, proving the connection survived.

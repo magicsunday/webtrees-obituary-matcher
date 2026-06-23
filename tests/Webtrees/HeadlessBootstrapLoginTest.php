@@ -22,6 +22,8 @@ use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
 use RuntimeException;
 
+use function preg_quote;
+
 /**
  * Unit coverage for {@see HeadlessBootstrap::loginSystemPrincipal()} — the system-principal login the
  * headless drain runs so it sees every candidate. Both branches are exercised without a database: the
@@ -75,9 +77,20 @@ final class HeadlessBootstrapLoginTest extends TestCase
         $users = self::createStub(UserService::class);
         $users->method('administrators')->willReturn(new Collection());
 
-        $this->expectException(RuntimeException::class);
+        try {
+            HeadlessBootstrap::loginSystemPrincipal($users);
 
-        HeadlessBootstrap::loginSystemPrincipal($users);
+            self::fail('loginSystemPrincipal() must refuse when no administrator account exists.');
+        } catch (RuntimeException $exception) {
+            self::assertMatchesRegularExpression(
+                '/' . preg_quote('No admin user available', '/') . '/',
+                $exception->getMessage(),
+            );
+        }
+
+        // The refuse path must establish NO principal — not even a partial/guest one — so a later
+        // drain stage cannot run with the no-access visitor masquerading as the system principal.
+        self::assertNull(Auth::id(), 'no guest principal established on the refuse path');
     }
 
     /**
@@ -98,7 +111,9 @@ final class HeadlessBootstrapLoginTest extends TestCase
 
         HeadlessBootstrap::loginSystemPrincipal($users);
 
+        // Auth::id() reads the session id Auth::login() wrote, so it proves the right principal (42)
+        // was actually logged in. Asserting Auth::isAdmin($admin) would be tautological — it re-reads
+        // the SAME stub's getPreference rather than the established session principal.
         self::assertSame(42, Auth::id());
-        self::assertTrue(Auth::isAdmin($admin));
     }
 }

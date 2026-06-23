@@ -98,11 +98,23 @@ $limit = (is_string($limitOption) && ctype_digit($limitOption) && ((int) $limitO
 // Boot the request-less webtrees runtime and log in the system principal so the drain sees every
 // candidate. A boot failure (missing config, no admin account, …) is unrecoverable: report the
 // category WITHOUT leaking the DSN/credentials and exit non-zero.
+//
+// HeadlessBootstrap's OWN RuntimeException messages are fixed, config-free strings ("No admin user
+// available…", "Could not locate/parse the sibling webtrees config…"), so they MAY be printed. Any
+// OTHER Throwable is the DB::connect()/PDO path, whose message embeds the db host + username (e.g.
+// "Access denied for user 'wt'@'host'"); cron captures STDERR, so that message must NEVER reach it.
+// Print a fixed category instead and route the detail to error_log (the boot may have no DB or DI
+// container yet, so error_log is the only safe sink).
 try {
     HeadlessBootstrap::boot();
     HeadlessBootstrap::loginSystemPrincipal(new UserService());
-} catch (Throwable $exception) {
+} catch (RuntimeException $exception) {
     fwrite(STDERR, 'Headless drain bootstrap failed: ' . $exception->getMessage() . PHP_EOL);
+
+    exit(1);
+} catch (Throwable $exception) {
+    fwrite(STDERR, 'Headless drain bootstrap failed: database connection error.' . PHP_EOL);
+    error_log('Headless drain bootstrap failed: ' . $exception->getMessage());
 
     exit(1);
 }
