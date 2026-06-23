@@ -20,6 +20,7 @@ use MagicSunday\ObituaryMatcher\Domain\PersonName;
 use MagicSunday\ObituaryMatcher\Domain\Place;
 use MagicSunday\ObituaryMatcher\Matching\FileMatchStore;
 use MagicSunday\ObituaryMatcher\Matching\IngestService;
+use MagicSunday\ObituaryMatcher\Queue\AtomicFile;
 use MagicSunday\ObituaryMatcher\Queue\QueueClient;
 use MagicSunday\ObituaryMatcher\Queue\QueuePaths;
 use MagicSunday\ObituaryMatcher\Queue\ResponseReader;
@@ -95,6 +96,13 @@ final class FeederWorkerContractTest extends TempDirTestCase
     private const string FIXTURE_FILE = 'obituary_portal_result.html';
 
     /**
+     * @var int The numeric tree id stamped onto the enqueued request. It is asserted to round-trip
+     *          unchanged into the on-disk request.json, so the build-site and the contract assertion
+     *          share one source and cannot silently drift.
+     */
+    private const int REQUEST_TREE_ID = 11;
+
+    /**
      * Drives the full request → real worker → response → ingest chain and asserts a pending
      * suggestion for the recorded obituary is stored.
      *
@@ -126,9 +134,22 @@ final class FeederWorkerContractTest extends TempDirTestCase
             new DateTimeImmutable('2026-06-21T00:00:00+00:00'),
             'de-DE',
             [$candidate],
-            11,
+            self::REQUEST_TREE_ID,
         );
         $jobId = $client->enqueue($request);
+
+        // 1a. Pin the REQUEST contract the Python feeder consumes. Task 1 bumped the request payload to
+        //     schemaVersion 2 and added the numeric `treeId` field (so the drain can resolve the target
+        //     tree without trusting the worker). Assert both against the request as ENQUEUED on disk —
+        //     the exact bytes the worker reads — not just the in-memory object.
+        //
+        //     CONTRACT: the private Python feeder's request parser MUST tolerate `schemaVersion` 2 and
+        //     the new `treeId` field (carry it through opaquely into the response flow) before this
+        //     schema bump ships, or the worker will reject every request this module now enqueues.
+        $enqueued = AtomicFile::readJsonCapped($paths->queuedDir($jobId) . '/request.json', 1_048_576);
+
+        self::assertSame(2, $enqueued['schemaVersion']);
+        self::assertSame(self::REQUEST_TREE_ID, $enqueued['treeId']);
 
         // 2. The REAL Python worker drains the queue against this test's recorded HTML fixture.
         $this->runWorker($worker);
