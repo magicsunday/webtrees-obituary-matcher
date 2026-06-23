@@ -121,15 +121,7 @@ final readonly class CandidateRepository
                 continue;
             }
 
-            $individual = Registry::individualFactory()->make($xref, $tree);
-
-            if (!$individual instanceof Individual) {
-                continue;
-            }
-
-            // PersonCandidateAdapter drops a record the current user may not see (null),
-            // which is the package's single privacy gate.
-            $candidate = PersonCandidateAdapter::fromIndividual($individual);
+            $candidate = $this->resolveCandidate($tree, $xref);
 
             if (!$candidate instanceof PersonCandidate) {
                 continue;
@@ -143,6 +135,57 @@ final readonly class CandidateRepository
         }
 
         return $candidates;
+    }
+
+    /**
+     * Rebuild the candidates for an explicit xref set, keyed by id, bypassing the
+     * age/death selection filter {@see findCandidates()} applies. Unlike a fresh selection
+     * this rebuilds whoever was requested — a draining caller already holds the xrefs and
+     * needs their live candidate shape, not a re-evaluation of who qualifies. An xref with
+     * no individual, or one the current user may not see, is silently omitted.
+     *
+     * @param Tree         $tree  The tree the xrefs belong to.
+     * @param list<string> $xrefs The xrefs to rebuild candidates for.
+     *
+     * @return array<string, PersonCandidate> The surviving candidates, keyed by their id.
+     */
+    public function findByXrefs(Tree $tree, array $xrefs): array
+    {
+        $candidates = [];
+
+        foreach ($xrefs as $xref) {
+            $candidate = $this->resolveCandidate($tree, $xref);
+
+            if (!$candidate instanceof PersonCandidate) {
+                continue;
+            }
+
+            $candidates[$candidate->id] = $candidate;
+        }
+
+        return $candidates;
+    }
+
+    /**
+     * Resolve a single xref to a pure {@see PersonCandidate} through the package's one
+     * webtrees seam: materialise the individual, then map it via {@see PersonCandidateAdapter}
+     * — which returns null for a record the current user may not see, the package's single
+     * privacy gate. Returns null when no individual exists or the privacy gate hides it.
+     *
+     * @param Tree   $tree The tree the xref belongs to.
+     * @param string $xref The xref to resolve.
+     *
+     * @return PersonCandidate|null The mapped candidate, or null when it cannot be built.
+     */
+    private function resolveCandidate(Tree $tree, string $xref): ?PersonCandidate
+    {
+        $individual = Registry::individualFactory()->make($xref, $tree);
+
+        if (!$individual instanceof Individual) {
+            return null;
+        }
+
+        return PersonCandidateAdapter::fromIndividual($individual);
     }
 
     /**
