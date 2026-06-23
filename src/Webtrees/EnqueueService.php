@@ -31,10 +31,8 @@ use function array_keys;
 use function array_slice;
 use function count;
 use function is_dir;
-use function preg_match;
 use function scandir;
 use function sort;
-use function str_starts_with;
 use function usort;
 
 use const SCANDIR_SORT_NONE;
@@ -57,12 +55,6 @@ use const SORT_STRING;
  */
 class EnqueueService
 {
-    /**
-     * @var string Path-traversal guard for a discovered in-flight job directory; mirrors
-     *             {@see QueuePaths}'s own pattern so a hostile/foreign dir name is skipped before any read.
-     */
-    private const string JOB_ID_PATTERN = '/^[A-Za-z0-9_-]{1,64}$/';
-
     /**
      * Constructor.
      *
@@ -263,19 +255,7 @@ class EnqueueService
             }
 
             foreach ($entries as $entry) {
-                if ($entry === '.') {
-                    continue;
-                }
-
-                if ($entry === '..') {
-                    continue;
-                }
-
-                if (str_starts_with($entry, '.tmp-')) {
-                    continue;
-                }
-
-                if (preg_match(self::JOB_ID_PATTERN, $entry) !== 1) {
+                if (!$this->paths->isJobDirectoryName($entry)) {
                     continue;
                 }
 

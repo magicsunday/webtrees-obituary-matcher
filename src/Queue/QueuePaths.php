@@ -18,6 +18,7 @@ use function clearstatcache;
 use function is_dir;
 use function preg_match;
 use function sprintf;
+use function str_starts_with;
 
 /**
  * Builds the on-disk paths of the file-drop queue and creates its directory layout. The queue is a
@@ -262,6 +263,33 @@ final readonly class QueuePaths
         foreach ($states as $state) {
             AtomicFile::ensureDirectory($this->stateRoot($state));
         }
+    }
+
+    /**
+     * Reports whether a scanned directory entry is a real, claimable job directory name: not the `.`
+     * or `..` pseudo-entries, not a reserved `.tmp-`-prefixed enqueue temporary, and matching the
+     * job-id path-traversal guard. The single authoritative predicate for the producer's in-flight
+     * scan and the drain's discovery, so a hostile or foreign directory name is skipped before any
+     * read or claim against the same pattern the path builders validate every transition with.
+     *
+     * @param string $entry The raw directory entry from a state-directory scan.
+     *
+     * @return bool True when the entry is a valid job directory name, false otherwise.
+     */
+    public function isJobDirectoryName(string $entry): bool
+    {
+        if (
+            ($entry === '.')
+            || ($entry === '..')
+        ) {
+            return false;
+        }
+
+        if (str_starts_with($entry, '.tmp-')) {
+            return false;
+        }
+
+        return preg_match(self::JOB_ID_PATTERN, $entry) === 1;
     }
 
     /**

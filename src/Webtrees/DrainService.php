@@ -29,10 +29,8 @@ use function array_slice;
 use function array_values;
 use function count;
 use function is_dir;
-use function preg_match;
 use function scandir;
 use function sort;
-use function str_starts_with;
 
 use const SCANDIR_SORT_NONE;
 use const SORT_NATURAL;
@@ -56,14 +54,6 @@ use const SORT_NATURAL;
  */
 class DrainService
 {
-    /**
-     * @var string Regular expression a discovered done-directory entry must match to be a claimable
-     *             job. It mirrors {@see QueuePaths}'s own path-traversal guard, so a hostile or
-     *             foreign directory name is skipped before any claim is attempted; the path builders
-     *             remain the authoritative validators on every transition.
-     */
-    private const string JOB_ID_PATTERN = '/^[A-Za-z0-9_-]{1,64}$/';
-
     /**
      * Constructor.
      *
@@ -253,10 +243,7 @@ class DrainService
 
         $jobIds = array_filter(
             $entries,
-            static fn (string $entry): bool => ($entry !== '.')
-                && ($entry !== '..')
-                && !str_starts_with($entry, '.tmp-')
-                && (preg_match(self::JOB_ID_PATTERN, $entry) === 1),
+            $this->paths->isJobDirectoryName(...),
         );
 
         // Oldest-first by job id: the producer mints time-prefixed ids (a fixed-width UTC
@@ -295,10 +282,7 @@ class DrainService
 
         $jobs = array_filter(
             $entries,
-            static fn (string $entry): bool => ($entry !== '.')
-                && ($entry !== '..')
-                && !str_starts_with($entry, '.tmp-')
-                && (preg_match(self::JOB_ID_PATTERN, $entry) === 1),
+            $this->paths->isJobDirectoryName(...),
         );
 
         return count($jobs);
