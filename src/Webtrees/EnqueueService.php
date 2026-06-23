@@ -137,10 +137,13 @@ class EnqueueService
             }
         }
 
-        $jobId   = JobId::mint($this->now());
+        // Read the clock ONCE and stamp both the jobId and the createdAt from the same instant, so the
+        // two can never straddle a one-second boundary across two separate now() reads.
+        $now     = $this->now();
+        $jobId   = JobId::mint($now);
         $request = $this->requestFactory->build(
             $jobId,
-            $this->now(),
+            $now,
             $locale,
             $eligible,
             $treeId,
