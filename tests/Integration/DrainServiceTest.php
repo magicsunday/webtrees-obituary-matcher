@@ -11,6 +11,9 @@ declare(strict_types=1);
 
 namespace MagicSunday\ObituaryMatcher\Test\Integration;
 
+use Fisharebest\Webtrees\Auth;
+use Fisharebest\Webtrees\Individual;
+use Fisharebest\Webtrees\Registry;
 use Fisharebest\Webtrees\Services\GedcomImportService;
 use Fisharebest\Webtrees\Services\TreeService;
 use Fisharebest\Webtrees\Tree;
@@ -32,7 +35,6 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\Attributes\UsesClass;
 
-use function count;
 use function is_dir;
 use function mkdir;
 use function rmdir;
@@ -129,7 +131,7 @@ final class DrainServiceTest extends IntegrationTestCase
         self::assertSame(1, $summary->ingested);
         self::assertSame(0, $summary->skipped);
         self::assertSame(0, $summary->failed);
-        self::assertGreaterThanOrEqual(1, $summary->stored);
+        self::assertSame(1, $summary->stored);
 
         // Queue end-state: the job finalised to ingested/, not left in done/ or ingesting/.
         self::assertSame(JobState::Ingested, $this->paths()->stateOf($job));
@@ -154,7 +156,10 @@ final class DrainServiceTest extends IntegrationTestCase
         $job  = $this->seedDoneJob('job-001', $tree->id(), 'I1', 'Otto Searchable');
 
         $this->drainService()->drain(null, 20);
-        $countAfterFirst = $this->storeFor($tree)->allPending();
+
+        // Anchor the baseline: the first run stored exactly one row, so the no-op assertion
+        // below is a real delta-of-zero rather than a trivial pass against an empty store.
+        self::assertCount(1, $this->storeFor($tree)->allPending(), 'first run stored exactly one suggestion');
 
         $summary = $this->drainService()->drain(null, 20);
 
@@ -163,7 +168,7 @@ final class DrainServiceTest extends IntegrationTestCase
         self::assertSame(JobState::Ingested, $this->paths()->stateOf($job));
 
         // Store delta: the second run added no row.
-        self::assertCount(count($countAfterFirst), $this->storeFor($tree)->allPending());
+        self::assertCount(1, $this->storeFor($tree)->allPending(), 'second run added no row');
     }
 
     /**
@@ -186,18 +191,49 @@ final class DrainServiceTest extends IntegrationTestCase
             'Ghost Person',
         );
 
-        $summary = $this->drainService()->drain(null, 20);
+        // The held I1 is stored; the ghost person's notice (an unknown xref) persisted nothing.
+        $this->assertOnlyI1Stored($tree, $job);
+    }
 
-        self::assertSame(1, $summary->ingested);
-        self::assertSame(0, $summary->failed);
+    /**
+     * A requested person the drain's principal may NOT see (a privacy-suppressed but existing
+     * confidential individual) is excluded by {@see CandidateRepository::findByXrefs()}'s privacy
+     * gate exactly like an unknown xref: the job still finalises, and only the visible person's
+     * notice is stored. This exercises the second of findByXrefs' two exclusion sub-paths
+     * (`!canShow()`), distinct from the unknown-xref path above, proving the gate discriminates at
+     * the drain level — the drain runs without a logged-in user (a CLI/cron visitor), so a
+     * confidential record is genuinely invisible to its principal.
+     */
+    #[Test]
+    public function aPrivacySuppressedCandidateIsSkippedWhileTheVisibleOneIsStored(): void
+    {
+        $tree = $this->ottoTreeWithConfidential('fixture-a');
 
-        // stored reflects ONLY the held I1 — the ghost person's notice persisted nothing.
-        self::assertSame(1, $summary->stored);
-        self::assertSame(JobState::Ingested, $this->paths()->stateOf($job));
+        // The request names the public, dead I1 plus the confidential, living I7.
+        $job = $this->seedDoneJobWithTwoPersons(
+            'job-001',
+            $tree->id(),
+            'I1',
+            'Otto Searchable',
+            'I7',
+            'Ida Private',
+        );
 
-        $pending = $this->storeFor($tree)->allPending();
-        self::assertCount(1, $pending);
-        self::assertSame('I1', $pending[0]->personId);
+        // Positive control: as the seeded admin BOTH records are visible, so the visitor-context
+        // skip below is a real privacy discriminator rather than a vacuous pass against an
+        // already-invisible record.
+        self::assertTrue($this->requireIndividual('I1', $tree)->canShow());
+        self::assertTrue($this->requireIndividual('I7', $tree)->canShow());
+
+        // Drop to a visitor — the principal a CLI/cron drain runs as. The confidential I7 is now
+        // hidden by the privacy gate, while the dead/public I1 stays visible.
+        Auth::logout();
+
+        self::assertTrue($this->requireIndividual('I1', $tree)->canShow());
+        self::assertFalse($this->requireIndividual('I7', $tree)->canShow());
+
+        // The visible I1 is stored; the privacy-suppressed I7's notice persisted nothing.
+        $this->assertOnlyI1Stored($tree, $job);
     }
 
     /**
@@ -328,6 +364,33 @@ final class DrainServiceTest extends IntegrationTestCase
     }
 
     /**
+     * Drain the seeded two-person job and assert the discriminating outcome shared by the
+     * exclusion sub-paths: one job ingested with no failure, exactly the visible I1 persisted as
+     * the sole row, and the job finalised to ingested/. The OTHER requested person is excluded by
+     * {@see CandidateRepository::findByXrefs()} — whether because its xref is unknown or because
+     * the drain's principal may not see it — so the assertions are identical, only the setup
+     * differs.
+     *
+     * @param Tree   $tree The tree whose store is read.
+     * @param string $job  The seeded job id expected to finalise.
+     *
+     * @return void
+     */
+    private function assertOnlyI1Stored(Tree $tree, string $job): void
+    {
+        $summary = $this->drainService()->drain(null, 20);
+
+        self::assertSame(1, $summary->ingested);
+        self::assertSame(0, $summary->failed);
+        self::assertSame(1, $summary->stored);
+        self::assertSame(JobState::Ingested, $this->paths()->stateOf($job));
+
+        $pending = $this->storeFor($tree)->allPending();
+        self::assertCount(1, $pending);
+        self::assertSame('I1', $pending[0]->personId);
+    }
+
+    /**
      * Build the {@see DrainService} through the SAME dependency wiring the CLI entry point assembles,
      * so the test drives the real composition rather than a hand-rolled stand-in. The only seam used
      * is {@see DrainService::storeForTree()}, redirected to a per-tree store under this test's
@@ -427,6 +490,69 @@ final class DrainServiceTest extends IntegrationTestCase
             . "0 TRLR\n";
 
         return $this->importFixtureTree($gedcom, $name);
+    }
+
+    /**
+     * Import a two-person tree for the privacy sub-path: the public, dead I1 from {@see ottoTree()}
+     * plus a confidential (`RESN confidential`), still-living I7 whose {@see Individual::canShow()}
+     * is true for the seeded admin but false for a visitor. The privacy preferences make the gate
+     * actually bite for a visitor.
+     *
+     * @param string $name The unique tree name.
+     *
+     * @return Tree The imported tree.
+     */
+    private function ottoTreeWithConfidential(string $name): Tree
+    {
+        $gedcom = "0 HEAD\n"
+            . "1 SOUR obituary-matcher-tests\n"
+            . "1 GEDC\n"
+            . "2 VERS 5.5.1\n"
+            . "1 CHAR UTF-8\n"
+            . "0 @I1@ INDI\n"
+            . "1 NAME Otto /Searchable/\n"
+            . "2 GIVN Otto\n"
+            . "2 SURN Searchable\n"
+            . "1 SEX M\n"
+            . "1 BIRT\n"
+            . "2 DATE 17 MAR 1930\n"
+            . "0 @I7@ INDI\n"
+            . "1 NAME Ida /Private/\n"
+            . "2 GIVN Ida\n"
+            . "2 SURN Private\n"
+            . "1 SEX F\n"
+            . "1 RESN confidential\n"
+            . "1 BIRT\n"
+            . "2 DATE 4 APR 1990\n"
+            . "0 TRLR\n";
+
+        $tree = $this->importFixtureTree($gedcom, $name);
+
+        // Make the privacy gate bite for a visitor: hide the dead behind privacy and cap the alive
+        // age so the 1990-born I7 is treated as living (and thus confidential), while the 1930-born
+        // I1 is dead and public.
+        $tree->setPreference('SHOW_DEAD_PEOPLE', (string) Auth::PRIV_PRIVATE);
+        $tree->setPreference('MAX_ALIVE_AGE', '80');
+
+        return $tree;
+    }
+
+    /**
+     * Materialise an individual by xref, failing the test when the fixture lacks it — so the
+     * canShow() controls assert against a real record, never a silent null.
+     *
+     * @param string $xref The xref to resolve.
+     * @param Tree   $tree The tree the xref belongs to.
+     *
+     * @return Individual The resolved individual.
+     */
+    private function requireIndividual(string $xref, Tree $tree): Individual
+    {
+        $individual = Registry::individualFactory()->make($xref, $tree);
+
+        self::assertInstanceOf(Individual::class, $individual);
+
+        return $individual;
     }
 
     /**
