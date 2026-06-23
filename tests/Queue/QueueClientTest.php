@@ -270,6 +270,9 @@ final class QueueClientTest extends TempDirTestCase
         self::assertSame(JobState::Ingested, $status->state);
         self::assertSame($counts, $status->counts);
         self::assertSame(['one notice could not be matched'], $status->warnings);
+        // The ingested transition fabricates no wall-clock timestamp: finishedAt is written as null
+        // and must round-trip back as null, never a synthesised value.
+        self::assertNull($status->finishedAt);
     }
 
     /**
@@ -316,6 +319,49 @@ final class QueueClientTest extends TempDirTestCase
         self::assertTrue($client->releaseIngesting('job-1'));
         self::assertSame(JobState::Done, $client->status('job-1')->state);
         self::assertFalse($client->releaseIngesting('job-1'));  // already released → fails
+    }
+
+    /**
+     * A failed-ingest status.json that carries BOTH a worker-side `error` and a module-side `reason`
+     * surfaces the `error` value through {@see QueueClient::status()}, proving the documented
+     * `$data['error'] ?? $data['reason']` precedence: the worker-side message outranks the reason
+     * category. Seeded exactly as {@see markFailedIngest} publishes (status.json written into the
+     * failed-ingest directory), so the read exercises the real terminal-status path.
+     */
+    #[Test]
+    public function statusPrefersTheWorkerErrorOverTheReasonCategory(): void
+    {
+        $paths  = new QueuePaths($this->tmp);
+        $client = new QueueClient($paths);
+
+        AtomicFile::ensureDirectory($paths->failedIngestDir('job-1'));
+        AtomicFile::writeJson(
+            $paths->failedIngestDir('job-1') . '/status.json',
+            [
+                'state'  => JobState::FailedIngest->value,
+                'error'  => 'worker said no',
+                'reason' => 'response-validation',
+            ]
+        );
+
+        self::assertSame('worker said no', $client->status('job-1')->error);
+    }
+
+    /**
+     * Claiming a job whose done directory is absent returns false without throwing: the
+     * {@see QueueClient::claimForIngest()} `!is_dir` guard short-circuits before the rename, so a
+     * caller probing a non-existent job gets a clean false rather than a warning. Likewise releasing a
+     * job that is not in the ingesting state returns false, pinning the `!is_dir` guard rather than
+     * only the lost-rename race the existing tests already cover.
+     */
+    #[Test]
+    public function claimAndReleaseReturnFalseWhenTheSourceDirectoryIsAbsent(): void
+    {
+        $paths = new QueuePaths($this->tmp);
+        $paths->ensureLayout();
+
+        self::assertFalse((new QueueClient($paths))->claimForIngest('ghost'));
+        self::assertFalse((new QueueClient($paths))->releaseIngesting('ghost'));
     }
 
     /**

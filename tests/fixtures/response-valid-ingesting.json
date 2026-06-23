@@ -1,0 +1,22 @@
+{
+  "jobId": "job-1",
+  "schemaVersion": 1,
+  "results": {
+    "I1": [
+      {
+        "noticeType": "obituary",
+        "name": "Hans Beispiel geb. Schmidt",
+        "birth": "1940",
+        "death": "15.05.2024",
+        "place": "Beispielstadt",
+        "cemetery": "Hauptfriedhof Beispielstadt",
+        "age": 84,
+        "funeralDate": "22.05.2024",
+        "relatives": [{"name": "Greta Beispiel", "relationGuess": "spouse", "confidence": 0.9}],
+        "url": "https://example.test/traueranzeige/hans",
+        "source": "example.test",
+        "fetchedAt": "2024-05-20T10:00:00+00:00"
+      }
+    ]
+  }
+}

@@ -93,6 +93,28 @@ final class ResponseReaderTest extends QueueTempDirTestCase
     }
 
     /**
+     * The $fromState parameter actually ROUTES the read: with a DIFFERENT valid response in both
+     * done/ and ingesting/, a read passed {@see JobState::Ingesting} returns the ingesting fixture's
+     * notice, not the done one. This discriminates the routing the single-state ingesting test cannot:
+     * seeding only ingesting/ would pass even if the parameter were ignored and the reader always read
+     * done/ (it would then find nothing and fail differently), so the two divergent seeds prove the
+     * parameter selects the source directory.
+     */
+    #[Test]
+    public function readRoutesToTheStateDirectoryNamedByFromState(): void
+    {
+        $this->placeResponse('job-1', 'response-valid.json', JobState::Done);
+        $this->placeResponse('job-1', 'response-valid-ingesting.json', JobState::Ingesting);
+
+        $byPerson = (new ResponseReader(new QueuePaths($this->tmp)))->read('job-1', ['I1'], JobState::Ingesting);
+
+        $notice = self::firstNotice($byPerson, 'I1');
+        self::assertInstanceOf(DeathNoticeRecord::class, $notice);
+        // The ingesting fixture's name, not the done fixture's "Erika Mustermann geb. Mueller".
+        self::assertSame('Hans Beispiel geb. Schmidt', $notice->name);
+    }
+
+    /**
      * A notice whose name is missing/empty-after-trim is dropped (not coerced to an empty name and
      * not aborting the whole response), while a sibling valid notice for the same person is kept: the
      * person ends up with exactly the one usable notice.
