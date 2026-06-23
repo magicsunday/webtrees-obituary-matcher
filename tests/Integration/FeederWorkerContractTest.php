@@ -24,7 +24,7 @@ use MagicSunday\ObituaryMatcher\Queue\QueueClient;
 use MagicSunday\ObituaryMatcher\Queue\QueuePaths;
 use MagicSunday\ObituaryMatcher\Queue\ResponseReader;
 use MagicSunday\ObituaryMatcher\Scoring\Classifier;
-use MagicSunday\ObituaryMatcher\Scoring\MatchEngine;
+use MagicSunday\ObituaryMatcher\Scoring\EnrichedMatchEngine;
 use MagicSunday\ObituaryMatcher\Support\FeederRequestFactory;
 use MagicSunday\ObituaryMatcher\Support\QueryGenerator;
 use MagicSunday\ObituaryMatcher\Test\Support\TempDirTestCase;
@@ -136,20 +136,23 @@ final class FeederWorkerContractTest extends TempDirTestCase
         // 3. The worker published a terminal done job carrying its response.json.
         self::assertFileExists($paths->doneDir($jobId) . '/response.json');
 
-        // 4. The production read + ingest pipeline consumes the untrusted response.json.
+        // 4. The module claims the done job into the ingesting state — the drain reads the CLAIMED
+        //    response, so the claim must win before the ingest can find it.
+        self::assertTrue($client->claimForIngest($jobId));
+
+        // 5. The production read + ingest pipeline consumes the untrusted response.json.
         $store   = new FileMatchStore($this->tmp . '/store');
         $service = new IngestService(
             new ResponseReader($paths),
-            new MatchEngine(),
+            new EnrichedMatchEngine(),
             new Classifier(),
-            $store,
         );
-        $stored = $service->ingest($jobId, [$candidate->id], [$candidate->id => $candidate]);
+        $result = $service->ingest($jobId, [$candidate->id], [$candidate->id => $candidate], $store);
 
-        // 5. The fixture pins exactly two notices (Erika with dates, Max without), so the chain
+        // 6. The fixture pins exactly two notices (Erika with dates, Max without), so the chain
         //    persists exactly two pending suggestions for the requested person — a dropped or
         //    collapsed notice fails this, which a loose ">= 1" lower bound would not catch.
-        self::assertSame(2, $stored);
+        self::assertSame(2, $result->matchesStored);
 
         $pending = $store->allPending();
         self::assertCount(2, $pending);
@@ -173,6 +176,11 @@ final class FeederWorkerContractTest extends TempDirTestCase
         // round-trip as a real positive classification, proving the SCORE survived the cross-process
         // boundary intact — not merely that the plumbing carried a URL.
         self::assertContains($byUrl[$erikaUrl]->match['classification'], ['strong', 'probable', 'possible']);
+
+        // The enriched engine harvests the notice's exact death date directly off the cross-process
+        // response (the recorded Erika notice died 07.08.2025), proving the harvested fact survived
+        // the whole chain — a Phase-1 obituary down-map or a dropped harvest would fail this.
+        self::assertSame('2025-08-07', $byUrl[$erikaUrl]->match['extractedFacts']['deathDate']);
     }
 
     /**
