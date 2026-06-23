@@ -43,16 +43,28 @@ final readonly class PortalSourceRepository
     /**
      * Returns every accepted source of the tree as an `{xref, gedcom}` tuple, in stable id order.
      *
-     * @param Tree $tree The tree to read.
+     * When a `$refn` is supplied the rows are narrowed in SQL to those whose gedcom contains the marker
+     * substring, so a large tree's tens of thousands of unrelated accepted sources never enter PHP
+     * memory. The constraint is a coarse pre-filter — the caller still confirms the marker on an anchored
+     * `1 REFN` line, so a substring false positive is rejected there, not loaded as a match.
+     *
+     * @param Tree        $tree The tree to read.
+     * @param string|null $refn The REFN marker to pre-filter on, or null to read every accepted source.
      *
      * @return list<array{xref: string, gedcom: string}> The accepted source rows.
      */
-    public function acceptedSources(Tree $tree): array
+    public function acceptedSources(Tree $tree, ?string $refn = null): array
     {
+        $query = DB::table('sources')
+            ->where('s_file', '=', $tree->id());
+
+        if ($refn !== null) {
+            $query->where('s_gedcom', 'LIKE', '%' . $refn . '%');
+        }
+
         // pluck()->all() keys the accepted gedcom by xref without ever exposing an Eloquent stdClass
         // row to this layer: the result is a plain array<string, scalar> the loop narrows to strings.
-        $rows = DB::table('sources')
-            ->where('s_file', '=', $tree->id())
+        $rows = $query
             ->orderBy('s_id')
             ->pluck('s_gedcom', 's_id')
             ->all();

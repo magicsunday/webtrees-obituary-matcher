@@ -216,7 +216,7 @@ class ObituaryWriteBack
     {
         $refn = self::REFN_PREFIX . $host;
 
-        foreach ($this->sources->acceptedSources($tree) as $row) {
+        foreach ($this->sources->acceptedSources($tree, $refn) as $row) {
             if (!$this->gedcomHasRefn($row['gedcom'], $refn)) {
                 continue;
             }

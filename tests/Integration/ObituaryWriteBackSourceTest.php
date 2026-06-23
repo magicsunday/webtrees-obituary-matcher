@@ -18,9 +18,12 @@ use Fisharebest\Webtrees\Registry;
 use Fisharebest\Webtrees\Services\GedcomImportService;
 use Fisharebest\Webtrees\Services\TreeService;
 use Fisharebest\Webtrees\Tree;
+use MagicSunday\ObituaryMatcher\Webtrees\PortalSourceRepository;
 use MagicSunday\ObituaryMatcher\Webtrees\WriteBackPreconditionException;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
+
+use function array_map;
 
 /**
  * Integration tests for the pending-aware portal-source find-or-create.
@@ -120,6 +123,30 @@ final class ObituaryWriteBackSourceTest extends IntegrationTestCase
         self::assertStringContainsString('1 PUBL trauer.example', $source->gedcom());
         self::assertStringContainsString('1 REFN obituary-matcher:portal:trauer.example', $source->gedcom());
         self::assertStringNotContainsString('@@', $source->gedcom());
+    }
+
+    /**
+     * acceptedSources filters at the database level when a REFN is supplied: only rows whose gedcom
+     * carries the marker substring are loaded, so a large tree's unrelated accepted sources never enter
+     * PHP memory. The unrelated accepted source is excluded by the SQL constraint; the portal source is
+     * returned. Without the constraint the method would hand back every accepted source of the tree.
+     *
+     * @return void
+     */
+    #[Test]
+    public function acceptedSourcesFiltersByRefnAtTheDatabaseLevel(): void
+    {
+        $this->loginManagerWithAutoAccept();
+        $tree = $this->tree();
+
+        $portal = $this->writer()->create($tree, 'trauer.example');
+        $tree->createRecord("0 @@ SOUR\n1 TITL Unrelated"); // accepted, no portal REFN marker
+
+        $rows  = (new PortalSourceRepository())->acceptedSources($tree, 'obituary-matcher:portal:trauer.example');
+        $xrefs = array_map(static fn (array $row): string => $row['xref'], $rows);
+
+        self::assertContains($portal->xref(), $xrefs, 'the portal source must be returned');
+        self::assertCount(1, $rows, 'only the REFN-matching source is loaded; the unrelated one is filtered in SQL');
     }
 
     /**
