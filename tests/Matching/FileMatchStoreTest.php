@@ -28,6 +28,7 @@ use MagicSunday\ObituaryMatcher\Matching\MatchStatus;
 use MagicSunday\ObituaryMatcher\Matching\StoredMatch;
 use MagicSunday\ObituaryMatcher\Matching\StoredMatchKey;
 use MagicSunday\ObituaryMatcher\Matching\TerminalMatchTransitionException;
+use MagicSunday\ObituaryMatcher\Matching\WriteBack;
 use MagicSunday\ObituaryMatcher\Parsing\ObituaryDateParser;
 use MagicSunday\ObituaryMatcher\Queue\AtomicFile;
 use MagicSunday\ObituaryMatcher\Scoring\Classifier;
@@ -76,6 +77,7 @@ use const JSON_THROW_ON_ERROR;
 #[UsesClass(MatchExplanation::class)]
 #[UsesClass(Classifier::class)]
 #[UsesClass(StoredMatchKey::class)]
+#[UsesClass(WriteBack::class)]
 final class FileMatchStoreTest extends TempDirTestCase
 {
     /**
@@ -879,6 +881,122 @@ final class FileMatchStoreTest extends TempDirTestCase
             'runnerUp'       => null,
             'review'         => null,
         ]);
+    }
+
+    /**
+     * markConfirmed moves a pending row to confirmed, persists the write-back, and returns true.
+     *
+     * @return void
+     */
+    #[Test]
+    public function markConfirmedTransitionsAndPersistsWriteBack(): void
+    {
+        $store = new FileMatchStore($this->tmp);
+        $url   = 'https://trauer.example/a';
+        $store->upsertPending($this->pendingMatch('I1', $url));
+
+        $transitioned = $store->markConfirmed('I1', $url, new WriteBack('deat-1', 'S5', true));
+
+        self::assertTrue($transitioned);
+        $row = $store->findOne('I1', StoredMatchKey::fromUrl($url));
+        self::assertInstanceOf(StoredMatch::class, $row);
+        self::assertSame(MatchStatus::Confirmed, $row->status);
+        self::assertSame(['deatFactId' => 'deat-1', 'buriFactId' => null, 'sourceXref' => 'S5', 'sourceCreated' => true, 'citationIds' => []], $row->writeBack);
+    }
+
+    /**
+     * markConfirmed on uncertain transitions too.
+     *
+     * @return void
+     */
+    #[Test]
+    public function markConfirmedTransitionsFromUncertain(): void
+    {
+        $store = new FileMatchStore($this->tmp);
+        $url   = 'https://trauer.example/a';
+        $store->upsertPending($this->pendingMatch('I1', $url));
+        $store->markUncertain('I1', $url, null);
+
+        self::assertTrue($store->markConfirmed('I1', $url, new WriteBack('d', 'S1', false)));
+
+        $row = $store->findOne('I1', StoredMatchKey::fromUrl($url));
+        self::assertInstanceOf(StoredMatch::class, $row);
+        self::assertSame(MatchStatus::Confirmed, $row->status);
+        // The from-uncertain branch must also persist the supplied write-back, not only flip the status.
+        self::assertIsArray($row->writeBack);
+        self::assertSame('d', $row->writeBack['deatFactId']);
+        self::assertSame('S1', $row->writeBack['sourceXref']);
+    }
+
+    /**
+     * markConfirmed on an already-confirmed row is a no-op, returns false, and never rewrites the
+     * existing write-back (content + mtime unchanged) even with a different WriteBack.
+     *
+     * @return void
+     */
+    #[Test]
+    public function markConfirmedIsIdempotentNoOpWithoutRewrite(): void
+    {
+        $store = new FileMatchStore($this->tmp);
+        $url   = 'https://trauer.example/a';
+        $store->upsertPending($this->pendingMatch('I1', $url));
+        $store->markConfirmed('I1', $url, new WriteBack('first', 'S1', true));
+
+        // Locate the single stored row file WITHOUT re-implementing the store's path scheme in the test
+        // (the layout is one per-person sub-dir deep: {tmp}/{hash}/{rowKey}.json). Exactly one row seeded.
+        $files = glob($this->tmp . '/*/*.json');
+        self::assertIsArray($files);
+        self::assertCount(1, $files);
+        $path   = $files[0];
+        $before = hash_file('sha256', $path);
+        clearstatcache(true, $path);
+        $mtime = filemtime($path);
+
+        $second = $store->markConfirmed('I1', $url, new WriteBack('second', 'S9', false));
+
+        clearstatcache(true, $path);
+        self::assertFalse($second, 'a second confirm must report no transition');
+        self::assertSame($before, hash_file('sha256', $path), 'the confirmed write-back must not be overwritten');
+        self::assertSame($mtime, filemtime($path));
+
+        $row = $store->findOne('I1', StoredMatchKey::fromUrl($url));
+        self::assertInstanceOf(StoredMatch::class, $row);
+        self::assertIsArray($row->writeBack);
+        self::assertSame('first', $row->writeBack['deatFactId']);
+    }
+
+    /**
+     * markConfirmed on a rejected row throws.
+     *
+     * @return void
+     */
+    #[Test]
+    public function markConfirmedThrowsOnRejected(): void
+    {
+        $store = new FileMatchStore($this->tmp);
+        $url   = 'https://trauer.example/a';
+        $store->upsertPending($this->pendingMatch('I1', $url));
+        $store->markRejected('I1', $url, null);
+
+        $this->expectException(TerminalMatchTransitionException::class);
+
+        $store->markConfirmed('I1', $url, new WriteBack('d', 'S1', false));
+    }
+
+    /**
+     * markConfirmed on a vanished row is a no-op returning false (no synthetic row).
+     *
+     * @return void
+     */
+    #[Test]
+    public function markConfirmedOnMissingRowIsANoOp(): void
+    {
+        $store = new FileMatchStore($this->tmp);
+
+        self::assertFalse($store->markConfirmed('I1', 'https://trauer.example/missing', new WriteBack('d', 'S1', false)));
+
+        // The "no synthetic row" half of the contract: the call must not have written a confirmed row.
+        self::assertNull($store->findOne('I1', StoredMatchKey::fromUrl('https://trauer.example/missing')));
     }
 
     /**

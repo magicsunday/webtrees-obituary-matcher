@@ -90,4 +90,19 @@ interface MatchStore
      *                                          (Confirmed or Rejected): you cannot un-terminal a row.
      */
     public function markUncertain(string $personId, string $obituaryUrl, ?string $reason): void;
+
+    /**
+     * Marks the row for the given candidate and source URL as confirmed, persisting the GEDCOM
+     * write-back IDs. Confirmation is terminal.
+     *
+     * @param string    $personId    The candidate identifier.
+     * @param string    $obituaryUrl The source notice URL (raw, pre-normalisation).
+     * @param WriteBack $writeBack   The IDs of the records written to the tree.
+     *
+     * @return bool True when the row actually transitioned; false when it was already confirmed
+     *              (an idempotent no-op that does NOT overwrite the existing write-back) or absent.
+     *
+     * @throws TerminalMatchTransitionException When the row is already rejected.
+     */
+    public function markConfirmed(string $personId, string $obituaryUrl, WriteBack $writeBack): bool;
 }

@@ -14,6 +14,7 @@ namespace MagicSunday\ObituaryMatcher\Test\Ui;
 use MagicSunday\ObituaryMatcher\Matching\MatchStatus;
 use MagicSunday\ObituaryMatcher\Matching\MatchStore;
 use MagicSunday\ObituaryMatcher\Matching\StoredMatch;
+use MagicSunday\ObituaryMatcher\Matching\WriteBack;
 use MagicSunday\ObituaryMatcher\Ui\SuggestionTabPresenter;
 use MagicSunday\ObituaryMatcher\Ui\SuggestionViewModel;
 use PHPUnit\Framework\Attributes\CoversClass;
@@ -133,6 +134,20 @@ final class SuggestionTabPresenterTest extends TestCase
              */
             public function markUncertain(string $personId, string $obituaryUrl, ?string $reason): void
             {
+            }
+
+            /**
+             * Marks the row confirmed (no-op in this fake).
+             *
+             * @param string    $personId    The candidate identifier.
+             * @param string    $obituaryUrl The source notice URL.
+             * @param WriteBack $writeBack   The write-back IDs.
+             *
+             * @return bool Always false in this fake.
+             */
+            public function markConfirmed(string $personId, string $obituaryUrl, WriteBack $writeBack): bool
+            {
+                return false;
             }
         };
     }
@@ -310,6 +325,20 @@ final class SuggestionTabPresenterTest extends TestCase
             public function markUncertain(string $personId, string $obituaryUrl, ?string $reason): void
             {
             }
+
+            /**
+             * Marks the row confirmed (no-op in this fake).
+             *
+             * @param string    $personId    The candidate identifier.
+             * @param string    $obituaryUrl The source notice URL.
+             * @param WriteBack $writeBack   The write-back IDs.
+             *
+             * @return bool Always false in this fake.
+             */
+            public function markConfirmed(string $personId, string $obituaryUrl, WriteBack $writeBack): bool
+            {
+                return false;
+            }
         };
 
         $presenter = new SuggestionTabPresenter($store);
@@ -411,6 +440,20 @@ final class SuggestionTabPresenterTest extends TestCase
              */
             public function markUncertain(string $personId, string $obituaryUrl, ?string $reason): void
             {
+            }
+
+            /**
+             * Marks the row confirmed (no-op in this fake).
+             *
+             * @param string    $personId    The candidate identifier.
+             * @param string    $obituaryUrl The source notice URL.
+             * @param WriteBack $writeBack   The write-back IDs.
+             *
+             * @return bool Always false in this fake.
+             */
+            public function markConfirmed(string $personId, string $obituaryUrl, WriteBack $writeBack): bool
+            {
+                return false;
             }
         };
 

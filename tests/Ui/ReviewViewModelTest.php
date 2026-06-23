@@ -15,6 +15,9 @@ use MagicSunday\ObituaryMatcher\Domain\Band;
 use MagicSunday\ObituaryMatcher\Domain\ClassifiedMatch;
 use MagicSunday\ObituaryMatcher\Matching\MatchStatus;
 use MagicSunday\ObituaryMatcher\Matching\StoredMatch;
+use MagicSunday\ObituaryMatcher\Support\ConfirmDecision;
+use MagicSunday\ObituaryMatcher\Support\ConfirmGate;
+use MagicSunday\ObituaryMatcher\Support\GedcomDateConverter;
 use MagicSunday\ObituaryMatcher\Ui\BandKey;
 use MagicSunday\ObituaryMatcher\Ui\ObituaryDateFormatter;
 use MagicSunday\ObituaryMatcher\Ui\ReviewViewModel;
@@ -45,6 +48,9 @@ use function array_column;
 #[UsesClass(Band::class)]
 #[UsesClass(ObituaryDateFormatter::class)]
 #[UsesClass(SourceLink::class)]
+#[UsesClass(ConfirmDecision::class)]
+#[UsesClass(ConfirmGate::class)]
+#[UsesClass(GedcomDateConverter::class)]
 final class ReviewViewModelTest extends TestCase
 {
     /**
@@ -333,5 +339,33 @@ final class ReviewViewModelTest extends TestCase
 
         self::assertSame('https:///path-only', $vm->sourceUrl);
         self::assertSame('https:///path-only', $vm->sourceText);
+    }
+
+    /**
+     * The view model exposes the confirm gate decision (allowed + each disabled reason).
+     *
+     * @return void
+     */
+    #[Test]
+    public function exposesTheConfirmGate(): void
+    {
+        // person with no death date, exact extracted date, no conflict → allowed
+        $allowed = ReviewViewModel::fromStoredMatch($this->match(), $this->person());
+        self::assertTrue($allowed->canConfirm);
+        self::assertNull($allowed->confirmDisabledReason);
+
+        // tree already has a death date → disabled with that reason
+        $withDate = ReviewViewModel::fromStoredMatch($this->match(), new TreePersonView('I1', 'X', null, null, '01.01.1980'));
+        self::assertFalse($withDate->canConfirm);
+        self::assertSame('tree_already_has_death_date', $withDate->confirmDisabledReason);
+
+        // imprecise extracted date → disabled
+        $imprecise = ReviewViewModel::fromStoredMatch($this->match(['extractedFacts' => ['deathDate' => '2023-09']]), $this->person());
+        self::assertFalse($imprecise->canConfirm);
+        self::assertSame('no_exact_death_date', $imprecise->confirmDisabledReason);
+
+        // hard conflict wins
+        $conflict = ReviewViewModel::fromStoredMatch($this->match(['hardConflict' => true]), $this->person());
+        self::assertSame('hard_conflict', $conflict->confirmDisabledReason);
     }
 }

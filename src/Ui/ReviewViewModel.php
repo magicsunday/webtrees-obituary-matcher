@@ -13,6 +13,7 @@ namespace MagicSunday\ObituaryMatcher\Ui;
 
 use MagicSunday\ObituaryMatcher\Domain\ClassifiedMatch;
 use MagicSunday\ObituaryMatcher\Matching\StoredMatch;
+use MagicSunday\ObituaryMatcher\Support\ConfirmGate;
 
 use function is_array;
 use function is_int;
@@ -43,19 +44,21 @@ final readonly class ReviewViewModel
     /**
      * Constructor.
      *
-     * @param TreePersonView                                                                                             $person         The live tree-person projection.
-     * @param int                                                                                                        $score          The match score.
-     * @param string                                                                                                     $bandKey        The normalised classification band.
-     * @param string                                                                                                     $statusKey      The lifecycle status backing value.
-     * @param bool                                                                                                       $ambiguous      Whether the match is ambiguous.
-     * @param bool                                                                                                       $hardConflict   Whether a hard conflict is present.
-     * @param string|null                                                                                                $deathDate      The German-formatted extracted death date, or null.
-     * @param string|null                                                                                                $sourceUrl      The HTTP(S) source URL, or null when refused.
-     * @param string                                                                                                     $sourceText     The host for an HTTP(S) URL, else the raw value.
-     * @param array<string, string>                                                                                      $extractedFacts The extracted facts, key => value.
-     * @param list<array{key: string, score: int, max: int, reasons: list<string>}>                                      $signals        The normal positive signals.
-     * @param list<array{field: string, treeValue: string, obituaryValue: string, severity: string}>                     $conflicts      The conflict reasons.
-     * @param array{name: string, birthYear: int|null, birthPlace: string|null, score: int, classification: string}|null $runnerUp       The runner-up summary, or null.
+     * @param TreePersonView                                                                                             $person                The live tree-person projection.
+     * @param int                                                                                                        $score                 The match score.
+     * @param string                                                                                                     $bandKey               The normalised classification band.
+     * @param string                                                                                                     $statusKey             The lifecycle status backing value.
+     * @param bool                                                                                                       $ambiguous             Whether the match is ambiguous.
+     * @param bool                                                                                                       $hardConflict          Whether a hard conflict is present.
+     * @param string|null                                                                                                $deathDate             The German-formatted extracted death date, or null.
+     * @param string|null                                                                                                $sourceUrl             The HTTP(S) source URL, or null when refused.
+     * @param string                                                                                                     $sourceText            The host for an HTTP(S) URL, else the raw value.
+     * @param array<string, string>                                                                                      $extractedFacts        The extracted facts, key => value.
+     * @param list<array{key: string, score: int, max: int, reasons: list<string>}>                                      $signals               The normal positive signals.
+     * @param list<array{field: string, treeValue: string, obituaryValue: string, severity: string}>                     $conflicts             The conflict reasons.
+     * @param array{name: string, birthYear: int|null, birthPlace: string|null, score: int, classification: string}|null $runnerUp              The runner-up summary, or null.
+     * @param bool                                                                                                       $canConfirm            Whether the match may be confirmed and written back.
+     * @param string|null                                                                                                $confirmDisabledReason The highest-priority reason key when confirm is disabled, else null.
      */
     public function __construct(
         public TreePersonView $person,
@@ -71,6 +74,8 @@ final readonly class ReviewViewModel
         public array $signals,
         public array $conflicts,
         public ?array $runnerUp,
+        public bool $canConfirm,
+        public ?string $confirmDisabledReason,
     ) {
     }
 
@@ -106,6 +111,12 @@ final readonly class ReviewViewModel
         // raw under an untranslated "deathDate" key, once formatted). Read it out, then drop the key
         // from the facts map the view iterates.
         $deathRaw = $extractedFacts['deathDate'] ?? null;
+
+        // The confirm gate is evaluated on the raw ISO death date (before it is dropped from the
+        // iterated facts) and the DTO's tree death date, so the review screen's Confirm button and the
+        // handler's pre-write re-check share one decision (see ConfirmGate).
+        $confirm = ConfirmGate::evaluate($hardConflict, $person->deathDate !== null, $deathRaw);
+
         unset($extractedFacts['deathDate']);
 
         return new self(
@@ -122,6 +133,8 @@ final readonly class ReviewViewModel
             self::projectSignals($signals),
             self::projectConflicts(is_array($signals) ? self::read($signals, 'conflicts') : null),
             self::projectRunnerUp(self::read($payload, 'runnerUp')),
+            $confirm->canConfirm,
+            $confirm->reasonKey,
         );
     }
 

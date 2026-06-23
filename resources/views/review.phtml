@@ -147,6 +147,24 @@ $severityLabels = [
             </form>
         <?php endif ?>
 
-        <button type="button" disabled><?= e(I18N::translate('Confirm as source')) ?></button>
+        <?php if ($vm->canConfirm) : ?>
+            <form method="post" action="<?= e($actionUrl) ?>">
+                <?= csrf_field() ?>
+                <input type="hidden" name="action" value="confirm">
+                <button type="submit"><?= e(I18N::translate('Confirm as source')) ?></button>
+            </form>
+        <?php else : ?>
+            <?php
+            $confirmReasons = [
+                'hard_conflict'               => I18N::translate('A hard conflict prevents confirming. Review it manually.'),
+                'tree_already_has_death_date' => I18N::translate('This individual already has a death date.'),
+                'no_exact_death_date'         => I18N::translate('No exact (day-level) death date was extracted.'),
+            ];
+            ?>
+            <button type="button" disabled title="<?= e($confirmReasons[$vm->confirmDisabledReason] ?? '') ?>"><?= e(I18N::translate('Confirm as source')) ?></button>
+            <?php if ($vm->confirmDisabledReason !== null) : ?>
+                <span class="om-confirm-reason"><?= e($confirmReasons[$vm->confirmDisabledReason] ?? $vm->confirmDisabledReason) ?></span>
+            <?php endif ?>
+        <?php endif ?>
     </div>
 </div>

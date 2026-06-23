@@ -21,6 +21,7 @@ use Fisharebest\Webtrees\Http\RequestHandlers\IndividualPage;
 use Fisharebest\Webtrees\Http\ViewResponseTrait;
 use Fisharebest\Webtrees\I18N;
 use Fisharebest\Webtrees\Individual;
+use Fisharebest\Webtrees\Log;
 use Fisharebest\Webtrees\Registry;
 use Fisharebest\Webtrees\Tree;
 use Fisharebest\Webtrees\Validator;
@@ -28,12 +29,17 @@ use MagicSunday\ObituaryMatcher\Matching\MatchStore;
 use MagicSunday\ObituaryMatcher\Matching\StoredMatch;
 use MagicSunday\ObituaryMatcher\Matching\StoredMatchKey;
 use MagicSunday\ObituaryMatcher\Matching\TerminalMatchTransitionException;
+use MagicSunday\ObituaryMatcher\Support\ConfirmGate;
+use MagicSunday\ObituaryMatcher\Support\MalformedDeathDateException;
 use MagicSunday\ObituaryMatcher\Ui\ReviewViewModel;
 use MagicSunday\ObituaryMatcher\Ui\TreePersonView;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use Psr\Http\Server\RequestHandlerInterface;
+use Throwable;
 
+use function is_array;
+use function is_string;
 use function preg_match;
 use function redirect;
 use function route;
@@ -43,9 +49,10 @@ use function strip_tags;
  * The review-screen route handler. It renders a read-only split-view of one stored match (tree
  * person versus obituary, the explainable per-signal score and conflicts). It is a separate handler
  * so the module stays a thin adapter. Manager access is enforced here because the route is directly
- * callable. A POST carries a reject/uncertain review decision: the row is mutated and the request
- * redirects with a flash, and a row finalised by a concurrent reviewer between resolution and
- * mutation is reported as a warning rather than a 500.
+ * callable. A POST carries a reject/uncertain/confirm review decision: the row is mutated and the
+ * request redirects with a flash, and a row finalised by a concurrent reviewer between resolution and
+ * mutation is reported as a warning rather than a 500. Confirm additionally writes a sourced DEAT
+ * fact to the tree person before transitioning the store (a separate, non-atomic persistence).
  *
  * @author  Rico Sonntag <mail@ricosonntag.de>
  * @license https://opensource.org/licenses/GPL-3.0 GNU General Public License v3.0
@@ -112,7 +119,7 @@ class ReviewScreenHandler implements RequestHandlerInterface
         // a non-terminal row. The mid-action terminal race (a concurrent reviewer) is caught inside
         // applyDecision(), which is the real correctness guarantee — not this pre-check.
         if ($request->getMethod() === RequestMethodInterface::METHOD_POST) {
-            return $this->applyDecision($request, $tree, $xref, $row);
+            return $this->applyDecision($request, $tree, $xref, $individual, $row);
         }
 
         $vm = ReviewViewModel::fromStoredMatch($row, $this->treePerson($individual));
@@ -127,20 +134,26 @@ class ReviewScreenHandler implements RequestHandlerInterface
     }
 
     /**
-     * Applies a non-write-back review decision (reject or uncertain) and redirects with a flash. A
+     * Applies a carried review decision (reject, uncertain or confirm) and redirects with a flash. A
      * row that turned terminal between resolution and mutation is reported as a warning, not a 500.
      *
-     * @param ServerRequestInterface $request The incoming POST request.
-     * @param Tree                   $tree    The tree the row belongs to.
-     * @param string                 $xref    The candidate identifier.
-     * @param StoredMatch            $row     The resolved non-terminal row.
+     * @param ServerRequestInterface $request    The incoming POST request.
+     * @param Tree                   $tree       The tree the row belongs to.
+     * @param string                 $xref       The candidate identifier.
+     * @param Individual             $individual The tree person under review.
+     * @param StoredMatch            $row        The resolved non-terminal row.
      *
      * @return ResponseInterface The redirect response.
      *
-     * @throws HttpBadRequestException When the action is neither reject nor uncertain.
+     * @throws HttpBadRequestException When the action is none of reject, uncertain or confirm.
      */
-    private function applyDecision(ServerRequestInterface $request, Tree $tree, string $xref, StoredMatch $row): ResponseInterface
-    {
+    private function applyDecision(
+        ServerRequestInterface $request,
+        Tree $tree,
+        string $xref,
+        Individual $individual,
+        StoredMatch $row,
+    ): ResponseInterface {
         // Default to the empty string so a MISSING action flows to the switch default arm below
         // (a clean HttpBadRequestException) exactly like an unknown action — the handler owns the
         // bad-request semantics uniformly, rather than letting Validator::string throw separately.
@@ -172,6 +185,9 @@ class ReviewScreenHandler implements RequestHandlerInterface
 
                     return redirect($reviewUrl);
 
+                case 'confirm':
+                    return $this->applyConfirm($tree, $xref, $individual, $row, $individualUrl, $reviewUrl);
+
                 default:
                     throw new HttpBadRequestException();
             }
@@ -182,6 +198,107 @@ class ReviewScreenHandler implements RequestHandlerInterface
 
             return redirect($individualUrl);
         }
+    }
+
+    /**
+     * Confirms a match: writes the sourced DEAT fact, then marks the store confirmed. The GEDCOM
+     * write and the store write are separate persistences (spec §9) — a write error aborts cleanly
+     * with no transition; a store error AFTER a successful write is surfaced (the fact is orphaned).
+     *
+     * @param Tree        $tree          The tree the row belongs to.
+     * @param string      $xref          The candidate identifier.
+     * @param Individual  $individual    The tree person.
+     * @param StoredMatch $row           The resolved non-terminal row.
+     * @param string      $individualUrl The redirect URL to the individual.
+     * @param string      $reviewUrl     The redirect URL back to the review screen.
+     *
+     * @return ResponseInterface The redirect response.
+     */
+    private function applyConfirm(
+        Tree $tree,
+        string $xref,
+        Individual $individual,
+        StoredMatch $row,
+        string $individualUrl,
+        string $reviewUrl,
+    ): ResponseInterface {
+        // Re-check the FULL gate server-side before any write — the disabled Confirm button is NOT an
+        // authorization control, so a hand-crafted POST must not bypass !hardConflict / exact-date /
+        // no-tree-death-date. ConfirmGate is the single source of gate truth (shared with the view
+        // model): hardConflict and the exact-date check read the persisted payload (the same source the
+        // view model used), treeHasDeathDate is read LIVE. writeDeath's own live re-check below is then
+        // defense-in-depth. StoredMatch::fromArray only asserts is_array on the payload (a PHPDoc cast,
+        // no runtime key validation), and the on-disk JSON is untrusted (hand-edited / older schema), so
+        // the two reads are narrowed defensively here EXACTLY as ReviewViewModel narrows them — keeping
+        // the render gate and the write gate reading the payload identically, so a malformed-but-array
+        // row degrades to the graceful warning flash instead of an Undefined-array-key 500. The reads go
+        // through read(), which erases the static ClassifiedMatchArray shape to mixed (as the view model
+        // does) so the per-field narrowing is real defence, not PHPDoc-certain dead code.
+        $factsRaw     = $this->read($row->match, 'extractedFacts');
+        $facts        = is_array($factsRaw) ? $factsRaw : [];
+        $isoRaw       = $facts['deathDate'] ?? null;
+        $iso          = is_string($isoRaw) ? $isoRaw : null;
+        $hardConflict = $this->read($row->match, 'hardConflict') === true;
+
+        if (!ConfirmGate::evaluate($hardConflict, $individual->getDeathDate()->isOK(), $iso)->canConfirm) {
+            FlashMessages::addMessage(I18N::translate('This match can no longer be confirmed.'), 'warning');
+
+            return redirect($reviewUrl);
+        }
+
+        // Block A — the GEDCOM write. Any precondition/date failure aborts with no store transition, so
+        // the tree and the store both stay in their pre-confirm state.
+        try {
+            // $iso is guaranteed an exact ISO date by the gate above, so it is a string here.
+            $writeBack = $this->obituaryWriteBack()->writeDeath($individual, (string) $iso, $row->obituaryUrl);
+        } catch (DeathDateAlreadyPresentException) {
+            FlashMessages::addMessage(I18N::translate('This individual already has a death date; nothing was written.'), 'warning');
+
+            return redirect($reviewUrl);
+        } catch (WriteBackPreconditionException|MalformedDeathDateException) {
+            FlashMessages::addMessage(I18N::translate('The obituary did not carry a writable death date.'), 'warning');
+
+            return redirect($reviewUrl);
+        }
+
+        // Block B — the store transition AFTER a successful write. This is the orphan-risk path: the
+        // DEAT is already in the tree, so a transition failure here leaves the fact written but
+        // unrecorded. The two persistences are deliberately non-atomic (spec §9); a failure is surfaced
+        // (error flash + log), never reported as success.
+        try {
+            $transitioned = $this->storeForTree($tree)->markConfirmed($xref, $row->obituaryUrl, $writeBack);
+        } catch (TerminalMatchTransitionException) {
+            FlashMessages::addMessage(I18N::translate('This match was already finalised by someone else.'), 'warning');
+
+            return redirect($individualUrl);
+        } catch (Throwable $throwable) {
+            // The DEAT is already in the tree but the store did not record the confirm — log the orphan
+            // for an administrator to reconcile (webtrees' DB error log, not stdout), then surface it.
+            Log::addErrorLog('Obituary matcher: confirm wrote the DEAT but the store transition failed: ' . $throwable->getMessage());
+            FlashMessages::addMessage(I18N::translate('The death fact was written but could not be recorded; please review it.'), 'danger');
+
+            return redirect($individualUrl);
+        }
+
+        if (!$transitioned) {
+            FlashMessages::addMessage(I18N::translate('This match was already finalised by someone else.'), 'warning');
+
+            return redirect($individualUrl);
+        }
+
+        FlashMessages::addMessage(I18N::translate('The match was confirmed and the death date was written.'), 'success');
+
+        return redirect($individualUrl);
+    }
+
+    /**
+     * Builds the GEDCOM write-back writer. The seam lets a test inject a throwing or spy writer.
+     *
+     * @return ObituaryWriteBack The write-back writer.
+     */
+    protected function obituaryWriteBack(): ObituaryWriteBack
+    {
+        return new ObituaryWriteBack();
     }
 
     /**
@@ -248,6 +365,24 @@ class ReviewScreenHandler implements RequestHandlerInterface
             $birthPlace === '' ? null : $birthPlace,
             $deathDate->isOK() ? strip_tags($deathDate->display()) : null,
         );
+    }
+
+    /**
+     * Reads a key from the persisted match payload as mixed, erasing the static ClassifiedMatchArray
+     * shape so the confirm gate's per-field defensive narrowing is treated as live code rather than
+     * PHPDoc-certain dead code. The payload was reconstructed from untrusted on-disk JSON
+     * ({@see StoredMatch::fromArray()} only asserts it is an array), so it may be malformed-but-array;
+     * this mirrors {@see ReviewViewModel}'s own read() so the render gate and the write gate narrow the
+     * payload identically and cannot drift.
+     *
+     * @param array<array-key, mixed> $payload The persisted match payload.
+     * @param string                  $key     The key to read.
+     *
+     * @return mixed The raw value, or null when the key is absent.
+     */
+    private function read(array $payload, string $key): mixed
+    {
+        return $payload[$key] ?? null;
     }
 
     /**
