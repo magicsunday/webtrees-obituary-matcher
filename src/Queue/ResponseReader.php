@@ -36,7 +36,8 @@ use function trim;
 use const PHP_URL_SCHEME;
 
 /**
- * Reads and validates the UNTRUSTED response.json a feeder writes into done/<jobId>/, then decodes
+ * Reads and validates the UNTRUSTED response.json a feeder writes into a job's state directory
+ * (done/<jobId>/ by default, or the claimed ingesting/<jobId>/ when draining), then decodes
  * each notice into a {@see DeathNoticeRecord}. The file is scraped from external obituary sites, so
  * NOTHING in it is trusted: the decoded payload is narrowed field by field with is_* guards before
  * any value object is constructed, and any failure throws {@see ResponseValidationException}
@@ -88,7 +89,7 @@ final readonly class ResponseReader
     /**
      * Constructor.
      *
-     * @param QueuePaths $paths    The queue path builder used to locate the job's done directory.
+     * @param QueuePaths $paths    The queue path builder used to locate the job's state directory.
      * @param int        $maxBytes The maximum accepted size of the response file in bytes.
      */
     public function __construct(
@@ -105,14 +106,19 @@ final readonly class ResponseReader
      * @param list<string> $expectedPersonIds The person ids that were in the request for this job
      *                                        (the job-ownership boundary; a result for any other id
      *                                        is rejected).
+     * @param JobState     $fromState         The state directory the response is read from. Defaults to
+     *                                        {@see JobState::Done} (the unclaimed done job); the module
+     *                                        draining a claimed job passes {@see JobState::Ingesting}.
      *
      * @return array<string, list<DeathNoticeRecord>> The decoded notices keyed by personId.
      *
      * @throws ResponseValidationException When the response fails any validation check.
      */
-    public function read(string $jobId, array $expectedPersonIds): array
+    public function read(string $jobId, array $expectedPersonIds, JobState $fromState = JobState::Done): array
     {
-        $path = $this->paths->doneDir($jobId) . '/response.json';
+        // stateDir validates the jobId against the path-traversal guard (the same guard doneDir applied
+        // before this read was generalised), so a hostile jobId can never escape the queue root.
+        $path = $this->paths->stateDir($fromState, $jobId) . '/response.json';
 
         // AtomicFile already rejects symlinks, non-regular/unreadable files, oversize files and
         // decode errors; an IO failure surfaces as a plain RuntimeException, not a validation one.

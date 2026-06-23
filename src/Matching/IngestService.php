@@ -15,21 +15,25 @@ use MagicSunday\ObituaryMatcher\Domain\ClassifiedMatch;
 use MagicSunday\ObituaryMatcher\Domain\DeathNoticeRecord;
 use MagicSunday\ObituaryMatcher\Domain\MatchExplanation;
 use MagicSunday\ObituaryMatcher\Domain\PersonCandidate;
+use MagicSunday\ObituaryMatcher\Queue\JobState;
 use MagicSunday\ObituaryMatcher\Queue\ResponseReader;
 use MagicSunday\ObituaryMatcher\Scoring\Classifier;
-use MagicSunday\ObituaryMatcher\Scoring\MatchEngine;
-use MagicSunday\ObituaryMatcher\Support\NoticeMapper;
+use MagicSunday\ObituaryMatcher\Scoring\EnrichedMatchEngine;
 use MagicSunday\ObituaryMatcher\Support\UrlNormalizer;
 
-use function array_intersect_key;
+use function array_key_exists;
 use function array_map;
+use function count;
+use function sprintf;
 use function usort;
 
 /**
- * The Phase-2c vertical slice that turns a validated feeder response into persisted pending
- * suggestions. For every requested person who still has a held candidate, it maps each scraped
- * notice onto a Phase-1 obituary record, scores it with the UNCHANGED engine, classifies the best
- * result against the per-notice set and persists it as a pending match.
+ * The Phase-2 vertical slice that turns a validated feeder response into persisted pending
+ * suggestions. It reads the CLAIMED (ingesting) job's response, and for every requested person who
+ * still has a held candidate scores each scraped notice DIRECTLY with the enriched engine,
+ * classifies the best result against the per-notice set and persists it to the passed store as a
+ * pending match. The run is summarised into a typed {@see IngestResult} whose per-metric counts and
+ * non-fatal warnings the caller records via {@see \MagicSunday\ObituaryMatcher\Queue\QueueClient::markIngested()}.
  *
  * @author  Rico Sonntag <mail@ricosonntag.de>
  * @license https://opensource.org/licenses/GPL-3.0 GNU General Public License v3.0
@@ -40,22 +44,20 @@ final readonly class IngestService
     /**
      * Constructor.
      *
-     * @param ResponseReader $reader     The validating reader for the feeder's response.json.
-     * @param MatchEngine    $engine     The unchanged Phase-1 scoring engine.
-     * @param Classifier     $classifier The band/ambiguity classifier.
-     * @param MatchStore     $store      The persistence boundary for pending suggestions.
+     * @param ResponseReader      $reader     The validating reader for the feeder's response.json.
+     * @param EnrichedMatchEngine $engine     The enriched scoring engine that harvests the notice's facts.
+     * @param Classifier          $classifier The band/ambiguity classifier.
      */
     public function __construct(
         private ResponseReader $reader,
-        private MatchEngine $engine,
+        private EnrichedMatchEngine $engine,
         private Classifier $classifier,
-        private MatchStore $store,
     ) {
     }
 
     /**
-     * Reads the job's validated response, scores every notice belonging to a still-held candidate
-     * and persists the best result per notice as a pending suggestion.
+     * Reads the CLAIMED job's validated response, scores every notice belonging to a still-held
+     * candidate and persists the best result per notice as a pending suggestion in the passed store.
      *
      * @param string                         $jobId              The job whose response is ingested.
      * @param list<string>                   $requestedPersonIds The person ids that were in the request
@@ -63,28 +65,53 @@ final readonly class IngestService
      *                                                           strict job-ownership boundary).
      * @param array<string, PersonCandidate> $candidatesById     The candidates the module currently
      *                                                           holds, keyed by person id. A requested
-     *                                                           person with no entry here (e.g. now
-     *                                                           private or deleted) is skipped, not an
-     *                                                           error.
+     *                                                           person with a notice but no entry here
+     *                                                           (e.g. now private or deleted) is not an
+     *                                                           error: it stores nothing and is reported
+     *                                                           as a warning.
+     * @param MatchStore                     $store              The persistence boundary the suggestions
+     *                                                           are written to (passed per call so the
+     *                                                           service stays store-agnostic).
      *
-     * @return int The number of pending suggestions stored.
+     * @return IngestResult The per-metric counts and non-fatal warnings of this run.
      */
-    public function ingest(string $jobId, array $requestedPersonIds, array $candidatesById): int
-    {
-        // Ownership stays strict: the reader rejects any result for a person not in the request.
-        $byPerson = $this->reader->read($jobId, $requestedPersonIds);
+    public function ingest(
+        string $jobId,
+        array $requestedPersonIds,
+        array $candidatesById,
+        MatchStore $store,
+    ): IngestResult {
+        // The drain reads the job it has CLAIMED into the ingesting state; ownership stays strict:
+        // the reader rejects any result for a person not in the request.
+        $byPerson = $this->reader->read($jobId, $requestedPersonIds, JobState::Ingesting);
 
-        $stored = 0;
+        $noticesRead = 0;
+        $stored      = 0;
+
+        /** @var list<string> $warnings */
+        $warnings = [];
 
         // Tracks the identity keys persisted this run so two notices whose URLs collapse onto one
         // key (e.g. utm-variant links for the same person) count once, matching the single row that
         // last-write-wins de-dup actually leaves on disk.
         $seenKeys = [];
 
-        // Iterating the intersection makes the skip-vanished-candidate behaviour structural: a
-        // requested person whose candidate is no longer held simply never enters this loop.
-        foreach (array_intersect_key($byPerson, $candidatesById) as $personId => $notices) {
+        foreach ($byPerson as $personId => $notices) {
+            $noticesRead += count($notices);
+
             if ($notices === []) {
+                continue;
+            }
+
+            // A requested person whose candidate is no longer held this run is not dropped silently:
+            // its notices store nothing but surface a non-fatal warning so the drain can record why.
+            if (!array_key_exists($personId, $candidatesById)) {
+                $warnings[] = sprintf(
+                    'Person %s has %d notice(s) but no held candidate this run; skipped.',
+                    $personId,
+                    count($notices),
+                );
+
                 continue;
             }
 
@@ -101,10 +128,10 @@ final readonly class IngestService
                 // no-op over a terminal (Confirmed/Rejected) row, and two within-response notices
                 // that collapse onto one key write twice but persist one row — counting either case
                 // unconditionally would overstate the number persisted. This count is destined for a
-                // single named entry of the per-metric counts map that QueueClient::markDone records
-                // (not a bare scalar), so it must stay an exact persisted-row tally.
+                // single named entry of the per-metric counts map that QueueClient::markIngested
+                // records (not a bare scalar), so it must stay an exact persisted-row tally.
                 if (
-                    $this->store->upsertPending($match)
+                    $store->upsertPending($match)
                     && !isset($seenKeys[$key])
                 ) {
                     $seenKeys[$key] = true;
@@ -113,14 +140,15 @@ final readonly class IngestService
             }
         }
 
-        return $stored;
+        return new IngestResult($noticesRead, count($candidatesById), $stored, $warnings);
     }
 
     /**
-     * Orchestrates the per-notice pipeline: maps the notice onto an obituary record, scores it with
-     * the unchanged engine, sorts the best-of-set result, classifies it against the per-notice set
-     * and wraps the outcome into a pending stored match. The name avoids colliding with the injected
-     * {@see Classifier::classify()}, which is only one step of this orchestration.
+     * Orchestrates the per-notice pipeline: scores the notice DIRECTLY with the enriched engine (no
+     * Phase-1 obituary down-map, so the harvested burial facts survive), sorts the best-of-set
+     * result, classifies it against the per-notice set and wraps the outcome into a pending stored
+     * match. The name avoids colliding with the injected {@see Classifier::classify()}, which is only
+     * one step of this orchestration.
      *
      * @param PersonCandidate   $candidate The held candidate for this person.
      * @param DeathNoticeRecord $notice    The scraped notice to score.
@@ -129,13 +157,11 @@ final readonly class IngestService
      */
     private function buildPendingMatch(PersonCandidate $candidate, DeathNoticeRecord $notice): StoredMatch
     {
-        $obituary = NoticeMapper::toObituaryRecord($notice);
-
         // The notice is scored against the single held candidate; the best-of-set selection mirrors
         // EngineWorkedExampleTest so a future multi-candidate set is handled identically (and there
         // is no runner-up to carry when exactly one candidate is in the set).
         $results = array_map(
-            fn (PersonCandidate $person): MatchExplanation => $this->engine->score($person, $obituary),
+            fn (PersonCandidate $person): MatchExplanation => $this->engine->score($person, $notice),
             [$candidate],
         );
 

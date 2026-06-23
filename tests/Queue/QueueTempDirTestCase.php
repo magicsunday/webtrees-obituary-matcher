@@ -12,6 +12,7 @@ declare(strict_types=1);
 namespace MagicSunday\ObituaryMatcher\Test\Queue;
 
 use MagicSunday\ObituaryMatcher\Queue\AtomicFile;
+use MagicSunday\ObituaryMatcher\Queue\JobState;
 use MagicSunday\ObituaryMatcher\Queue\QueuePaths;
 use MagicSunday\ObituaryMatcher\Test\Support\TempDirTestCase;
 use RuntimeException;
@@ -34,17 +35,19 @@ use const JSON_THROW_ON_ERROR;
 abstract class QueueTempDirTestCase extends TempDirTestCase
 {
     /**
-     * Writes the decoded fixture bytes into done/<jobId>/response.json, simulating the feeder's
-     * final state after a successful scrape.
+     * Writes the decoded fixture bytes into <state>/<jobId>/response.json, simulating the feeder's
+     * final state after a successful scrape. Defaults to the done state the reader reads by default; a
+     * caller draining a claimed job passes {@see JobState::Ingesting}.
      *
-     * @param string $jobId   The job identifier whose done directory receives the response.
-     * @param string $fixture The fixture file name under tests/fixtures.
+     * @param string   $jobId   The job identifier whose state directory receives the response.
+     * @param string   $fixture The fixture file name under tests/fixtures.
+     * @param JobState $state   The state directory to seed the response into (defaults to done).
      *
      * @return void
      */
-    protected function placeResponse(string $jobId, string $fixture): void
+    protected function placeResponse(string $jobId, string $fixture, JobState $state = JobState::Done): void
     {
-        $path = (new QueuePaths($this->tmp))->doneDir($jobId) . '/response.json';
+        $path = (new QueuePaths($this->tmp))->stateDir($state, $jobId) . '/response.json';
 
         AtomicFile::ensureDirectory(dirname($path));
 

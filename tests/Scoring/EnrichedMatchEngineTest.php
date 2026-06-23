@@ -88,6 +88,27 @@ final class EnrichedMatchEngineTest extends TestCase
     }
 
     /**
+     * The enriched engine harvests the notice's burial facts independently: the exact death date and
+     * the cemetery (the funeral date stays absent because the notice's funeral range is unknown).
+     */
+    #[Test]
+    public function enrichedProfileHarvestsCemeteryAlongsideTheDeathDate(): void
+    {
+        $explanation = (new EnrichedMatchEngine())->score(
+            $this->workedExampleCandidate(),
+            $this->workedExampleNotice(),
+        );
+
+        self::assertSame(
+            [
+                'deathDate' => '2024-03-01',
+                'cemetery'  => 'Waldfriedhof Musterstadt',
+            ],
+            $explanation->extractedFacts,
+        );
+    }
+
+    /**
      * Driven with the list-level profile, the enriched signals are capped at 0 (fully gated).
      */
     #[Test]

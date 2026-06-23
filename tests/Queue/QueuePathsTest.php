@@ -127,10 +127,13 @@ final class QueuePathsTest extends TempDirTestCase
         $paths->ensureLayout();
 
         $directories = [
-            JobState::Queued->value  => $paths->queuedDir('job-1'),
-            JobState::Running->value => $paths->runningDir('job-2'),
-            JobState::Done->value    => $paths->doneDir('job-3'),
-            JobState::Failed->value  => $paths->failedDir('job-4'),
+            JobState::Queued->value       => $paths->queuedDir('job-1'),
+            JobState::Running->value      => $paths->runningDir('job-2'),
+            JobState::Done->value         => $paths->doneDir('job-3'),
+            JobState::Failed->value       => $paths->failedDir('job-4'),
+            JobState::Ingesting->value    => $paths->ingestingDir('job-5'),
+            JobState::Ingested->value     => $paths->ingestedDir('job-6'),
+            JobState::FailedIngest->value => $paths->failedIngestDir('job-7'),
         ];
 
         foreach ($directories as $directory) {
@@ -141,6 +144,25 @@ final class QueuePathsTest extends TempDirTestCase
         self::assertSame(JobState::Running, $paths->stateOf('job-2'));
         self::assertSame(JobState::Done, $paths->stateOf('job-3'));
         self::assertSame(JobState::Failed, $paths->stateOf('job-4'));
+        self::assertSame(JobState::Ingesting, $paths->stateOf('job-5'));
+        self::assertSame(JobState::Ingested, $paths->stateOf('job-6'));
+        self::assertSame(JobState::FailedIngest, $paths->stateOf('job-7'));
+    }
+
+    /**
+     * A job whose directory lives under the "ingested/" state root resolves to {@see JobState::Ingested}
+     * through the module-owned {@see QueuePaths::ingestedDir()} builder, proving the new module-side
+     * state directory is matched by stateOf without a near-duplicate path method.
+     */
+    #[Test]
+    public function stateOfResolvesAnIngestedJob(): void
+    {
+        $paths = new QueuePaths($this->tmp);
+        $paths->ensureLayout();
+
+        mkdir($paths->ingestedDir('job-1'), 0o700, true);
+
+        self::assertSame(JobState::Ingested, $paths->stateOf('job-1'));
     }
 
     /**

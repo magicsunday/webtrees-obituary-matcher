@@ -145,7 +145,7 @@ final readonly class EnrichedMatchEngine
             $total,
             $signals,
             $conflicts,
-            DeathFactHarvester::harvest($record),
+            DeathFactHarvester::harvestFromNotice($notice),
         );
     }
 }

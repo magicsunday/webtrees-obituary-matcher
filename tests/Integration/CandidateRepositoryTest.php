@@ -23,6 +23,7 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\Attributes\UsesClass;
 
+use function array_keys;
 use function array_map;
 use function file_get_contents;
 use function sort;
@@ -111,6 +112,23 @@ final class CandidateRepositoryTest extends IntegrationTestCase
     }
 
     /**
+     * Reduce a keyed candidate map to its sorted key list, so membership is asserted
+     * without coupling to the insertion order findByXrefs happens to produce.
+     *
+     * @param array<string, PersonCandidate> $candidates The keyed candidate map to reduce.
+     *
+     * @return list<string> The sorted key set.
+     */
+    private function keys(array $candidates): array
+    {
+        $keys = array_keys($candidates);
+
+        sort($keys);
+
+        return $keys;
+    }
+
+    /**
      * Finds old candidates without a death date and excludes individuals filtered by age, death, or privacy.
      */
     #[Test]
@@ -169,5 +187,49 @@ final class CandidateRepositoryTest extends IntegrationTestCase
         // I5 stays excluded because its known latest birth is still too young. I9 (christened
         // 1900, birth derived from the christening) stays in the set.
         self::assertSame(['I1', 'I6', 'I8', 'I9'], $this->xrefs($candidates));
+    }
+
+    /**
+     * findByXrefs rebuilds exactly the requested xref set keyed by id and omits an xref with no individual.
+     */
+    #[Test]
+    public function findByXrefsKeysSurvivorsByIdAndOmitsAnUnknownXref(): void
+    {
+        $tree = $this->repositoryTree();
+
+        // I1 is the visible old person; I99 does not exist in the fixture and must be
+        // dropped rather than producing a null entry. The young I4 is requested too, to
+        // prove findByXrefs applies NO selection filter — it rebuilds whoever was asked
+        // for, regardless of the age/death criteria findCandidates uses.
+        $candidates = (new CandidateRepository())->findByXrefs($tree, ['I1', 'I4', 'I99']);
+
+        self::assertSame(['I1', 'I4'], $this->keys($candidates));
+        self::assertSame('I1', $candidates['I1']->id);
+        self::assertSame('I4', $candidates['I4']->id);
+    }
+
+    /**
+     * findByXrefs honours the privacy gate: a confidential individual visible to an admin is omitted for a visitor.
+     */
+    #[Test]
+    public function findByXrefsAppliesTheCanShowPrivacyGate(): void
+    {
+        $tree = $this->repositoryTree();
+
+        // Positive control: as the default admin both the public I1 and the confidential
+        // I7 rebuild, so the visitor-context omission below is a real privacy
+        // discriminator rather than a vacuous pass against an already-empty set.
+        $adminCandidates = (new CandidateRepository())->findByXrefs($tree, ['I1', 'I7']);
+
+        self::assertSame(['I1', 'I7'], $this->keys($adminCandidates));
+
+        // Drop to a visitor: the confidential I7 is now hidden by the privacy gate, while
+        // the dead/public I1 (MAX_ALIVE_AGE makes the 1930-born individual dead) remains.
+        Auth::logout();
+
+        $visitorCandidates = (new CandidateRepository())->findByXrefs($tree, ['I1', 'I7']);
+
+        self::assertSame(['I1'], $this->keys($visitorCandidates));
+        self::assertArrayNotHasKey('I7', $visitorCandidates);
     }
 }

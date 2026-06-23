@@ -12,14 +12,20 @@ declare(strict_types=1);
 namespace MagicSunday\ObituaryMatcher\Support;
 
 use MagicSunday\ObituaryMatcher\Domain\DateValue;
+use MagicSunday\ObituaryMatcher\Domain\DeathNoticeRecord;
 use MagicSunday\ObituaryMatcher\Domain\ObituaryRecord;
+use MagicSunday\ObituaryMatcher\Domain\Place;
 
 use function sprintf;
+use function trim;
 
 /**
- * Harvests structured facts from an obituary record, currently the exact death date for later
- * write-back. Shared by {@see \MagicSunday\ObituaryMatcher\Scoring\MatchEngine} and the enriched
- * engine so the harvesting lives in exactly one place.
+ * Harvests structured facts for later write-back from two notice shapes, shared by
+ * {@see \MagicSunday\ObituaryMatcher\Scoring\MatchEngine} and the enriched engine so the harvesting
+ * lives in exactly one place: {@see harvest()} takes an {@see ObituaryRecord} and yields the exact
+ * death date (the Phase-1 path), while {@see harvestFromNotice()} takes a {@see DeathNoticeRecord}
+ * and yields the death date, the cemetery and the funeral date (the enriched path). Each fact is
+ * harvested independently on its own condition.
  *
  * @author  Rico Sonntag <mail@ricosonntag.de>
  * @license https://opensource.org/licenses/GPL-3.0 GNU General Public License v3.0
@@ -55,5 +61,46 @@ final class DeathFactHarvester
         return [
             'deathDate' => sprintf('%04d-%02d-%02d', $date->year, $date->month ?? 1, $date->day ?? 1),
         ];
+    }
+
+    /**
+     * Harvests the structured burial facts from the enriched notice, collecting each fact on its OWN
+     * condition with no cross-dependency: a non-exact death date never suppresses the cemetery or the
+     * funeral date (burial facts exist independently of the death date's precision).
+     *
+     * @param DeathNoticeRecord $notice The enriched death notice.
+     *
+     * @return array<string,string> Facts to harvest (deathDate, cemetery, funeralDate as present).
+     */
+    public static function harvestFromNotice(DeathNoticeRecord $notice): array
+    {
+        $facts = [];
+
+        if (
+            $notice->death->isExact()
+            && $notice->death->earliest instanceof DateValue
+        ) {
+            $date = $notice->death->earliest;
+
+            $facts['deathDate'] = sprintf('%04d-%02d-%02d', $date->year, $date->month ?? 1, $date->day ?? 1);
+        }
+
+        if (
+            ($notice->cemetery instanceof Place)
+            && (trim($notice->cemetery->name) !== '')
+        ) {
+            $facts['cemetery'] = trim($notice->cemetery->name);
+        }
+
+        if (
+            $notice->funeralDate->isExact()
+            && $notice->funeralDate->earliest instanceof DateValue
+        ) {
+            $date = $notice->funeralDate->earliest;
+
+            $facts['funeralDate'] = sprintf('%04d-%02d-%02d', $date->year, $date->month ?? 1, $date->day ?? 1);
+        }
+
+        return $facts;
     }
 }

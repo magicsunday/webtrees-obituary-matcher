@@ -254,16 +254,151 @@ final readonly class QueueClient
     }
 
     /**
-     * Returns the current status of a job by locating its directory across the four states. The
-     * terminal states (done/failed) read their persisted status.json and narrow each decoded key
-     * before constructing the value object; the transient states (queued/running) are synthesised
-     * from the directory location alone.
+     * Atomically claims a done job for ingest by renaming it into the ingesting state. The rename is
+     * the synchronisation point: at most one caller can win it, so a losing or missing claim simply
+     * returns false. Mirrors {@see claim()} exactly (the queued → running claim), so the expected race
+     * outcome never surfaces as a warning.
+     *
+     * @param string $jobId The job identifier to claim for ingest.
+     *
+     * @return bool True when this caller won the claim, false when the job is missing or already claimed.
+     */
+    public function claimForIngest(string $jobId): bool
+    {
+        $doneDir = $this->paths->doneDir($jobId);
+
+        if (!is_dir($doneDir)) {
+            return false;
+        }
+
+        // The rename is the synchronisation point: a losing or racing claim is an expected outcome,
+        // not a warning. A scoped handler swallows the rename's warning (the boolean return already
+        // carries the lost/racing-claim signal) without the forbidden @-suppression operator.
+        set_error_handler(static fn (): bool => true);
+
+        try {
+            return rename($doneDir, $this->paths->ingestingDir($jobId));
+        } finally {
+            restore_error_handler();
+        }
+    }
+
+    /**
+     * Marks an ingesting job as ingested. Mirroring {@see markDone}, the status file is written into
+     * the ingesting directory FIRST and a single atomic rename then publishes an ingested directory
+     * that already contains its status.json, so a reader detecting the ingested state by directory
+     * existence can never observe it without the status file (no half-published window). On a failed
+     * rename the status file is left in the ingesting directory, which is harmless: it never escapes
+     * ingesting/ and is overwritten on the next attempt.
+     *
+     * @param string             $jobId    The job identifier to complete.
+     * @param array<string, int> $counts   The per-metric ingest counts to record
+     *                                     (noticesRead, candidatesFound, matchesStored).
+     * @param list<string>       $warnings The non-fatal warnings to record (empty when there are none).
+     *
+     * @return void
+     *
+     * @throws RuntimeException When the ingesting-to-ingested rename fails.
+     */
+    public function markIngested(string $jobId, array $counts, array $warnings = []): void
+    {
+        $ingestingDir = $this->paths->ingestingDir($jobId);
+
+        AtomicFile::writeJson(
+            $ingestingDir . self::STATUS_FILE,
+            [
+                'state'      => JobState::Ingested->value,
+                'finishedAt' => null,
+                'counts'     => $counts,
+                'warnings'   => $warnings,
+            ]
+        );
+
+        if (!rename($ingestingDir, $this->paths->ingestedDir($jobId))) {
+            throw new RuntimeException(
+                sprintf('Failed to move job %s into the ingested state', $jobId)
+            );
+        }
+    }
+
+    /**
+     * Marks an ingesting job as failed-ingest. Mirroring {@see markFailed}, the status file carrying
+     * the failure reason category is written into the ingesting directory FIRST and a single atomic
+     * rename then publishes a failed-ingest directory that already contains its status.json, so a
+     * reader detecting the failed-ingest state by directory existence can never observe it without the
+     * status file (no half-published window). On a failed rename the status file is left in the
+     * ingesting directory, which is harmless: it never escapes ingesting/ and is overwritten on the
+     * next attempt.
+     *
+     * @param string       $jobId          The job identifier to fail.
+     * @param string       $reasonCategory The failure reason category to record.
+     * @param list<string> $warnings       The non-fatal warnings to record (empty when there are none).
+     *
+     * @return void
+     *
+     * @throws RuntimeException When the ingesting-to-failed-ingest rename fails.
+     */
+    public function markFailedIngest(string $jobId, string $reasonCategory, array $warnings = []): void
+    {
+        $ingestingDir = $this->paths->ingestingDir($jobId);
+
+        AtomicFile::writeJson(
+            $ingestingDir . self::STATUS_FILE,
+            [
+                'state'    => JobState::FailedIngest->value,
+                'reason'   => $reasonCategory,
+                'warnings' => $warnings,
+            ]
+        );
+
+        if (!rename($ingestingDir, $this->paths->failedIngestDir($jobId))) {
+            throw new RuntimeException(
+                sprintf('Failed to move job %s into the failed-ingest state', $jobId)
+            );
+        }
+    }
+
+    /**
+     * Atomically releases an ingesting job back to the done state by renaming its directory, so a
+     * crashed or retrying ingest can re-claim it. The rename is the synchronisation point: at most one
+     * caller can win it, so a losing or missing release simply returns false. Mirrors {@see claim()},
+     * so the expected race outcome never surfaces as a warning.
+     *
+     * @param string $jobId The job identifier to release back to the done state.
+     *
+     * @return bool True when this caller won the release, false when the job is missing or already released.
+     */
+    public function releaseIngesting(string $jobId): bool
+    {
+        $ingestingDir = $this->paths->ingestingDir($jobId);
+
+        if (!is_dir($ingestingDir)) {
+            return false;
+        }
+
+        // The rename is the synchronisation point: a losing or racing release is an expected outcome,
+        // not a warning. A scoped handler swallows the rename's warning (the boolean return already
+        // carries the lost/racing-release signal) without the forbidden @-suppression operator.
+        set_error_handler(static fn (): bool => true);
+
+        try {
+            return rename($ingestingDir, $this->paths->doneDir($jobId));
+        } finally {
+            restore_error_handler();
+        }
+    }
+
+    /**
+     * Returns the current status of a job by locating its directory across the seven states. The
+     * terminal states (done/failed/ingested/failed-ingest) read their persisted status.json and
+     * narrow each decoded key before constructing the value object; the transient states
+     * (queued/running/ingesting) are synthesised from the directory location alone.
      *
      * @param string $jobId The job identifier to look up.
      *
      * @return JobStatus
      *
-     * @throws RuntimeException When the job exists in none of the four states.
+     * @throws RuntimeException When the job exists in none of the seven states.
      */
     public function status(string $jobId): JobStatus
     {
@@ -280,6 +415,15 @@ final readonly class QueueClient
             JobState::Failed => $this->readStatus(
                 JobState::Failed,
                 $this->paths->failedDir($jobId) . self::STATUS_FILE
+            ),
+            JobState::Ingesting => new JobStatus(JobState::Ingesting, null, null, null, [], []),
+            JobState::Ingested  => $this->readStatus(
+                JobState::Ingested,
+                $this->paths->ingestedDir($jobId) . self::STATUS_FILE
+            ),
+            JobState::FailedIngest => $this->readStatus(
+                JobState::FailedIngest,
+                $this->paths->failedIngestDir($jobId) . self::STATUS_FILE
             ),
         };
     }
@@ -303,7 +447,12 @@ final readonly class QueueClient
         // claim (a deliberate forward seam), so reading it here is intentional, not dead plumbing.
         $startedAt  = ($data['startedAt'] ?? null);
         $finishedAt = ($data['finishedAt'] ?? null);
-        $error      = ($data['error'] ?? null);
+
+        // A failed-ingest status.json records its failure under 'reason' (a reason CATEGORY, mirroring
+        // the worker's 'error' message field): surface it through the same JobStatus::error slot, so a
+        // failed worker scrape and a failed module ingest read out identically. The worker-side 'error'
+        // key still wins when both are present, keeping every existing failed-status read unchanged.
+        $error = ($data['error'] ?? ($data['reason'] ?? null));
 
         return new JobStatus(
             $state,

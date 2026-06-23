@@ -19,6 +19,7 @@ use MagicSunday\ObituaryMatcher\Domain\PersonName;
 use MagicSunday\ObituaryMatcher\Domain\Place;
 use MagicSunday\ObituaryMatcher\Parsing\ObituaryDateParser;
 use MagicSunday\ObituaryMatcher\Queue\AtomicFile;
+use MagicSunday\ObituaryMatcher\Queue\JobState;
 use MagicSunday\ObituaryMatcher\Queue\QueuePaths;
 use MagicSunday\ObituaryMatcher\Queue\ResponseReader;
 use MagicSunday\ObituaryMatcher\Queue\ResponseValidationException;
@@ -44,6 +45,7 @@ use function reset;
 #[CoversClass(ResponseValidationException::class)]
 #[UsesClass(QueuePaths::class)]
 #[UsesClass(AtomicFile::class)]
+#[UsesClass(JobState::class)]
 #[UsesClass(DeathNoticeRecord::class)]
 #[UsesClass(NoticeType::class)]
 #[UsesClass(NoticeRelative::class)]
@@ -70,6 +72,46 @@ final class ResponseReaderTest extends QueueTempDirTestCase
         self::assertSame('Waldfriedhof Musterstadt', $notice->cemetery?->name);
         self::assertSame(NoticeType::Obituary, $notice->noticeType);
         self::assertTrue($notice->death->isExact());
+    }
+
+    /**
+     * The reader reads a response from a CLAIMED (ingesting) job directory when passed
+     * {@see JobState::Ingesting}, so the module can read a response out of the dir it atomically
+     * claimed for ingest rather than the unclaimed done dir. The default-{@see JobState::Done} read
+     * (every existing caller) keeps reading from done/, proving the new parameter is additive.
+     */
+    #[Test]
+    public function readsAResponseFromAClaimedIngestingDirectory(): void
+    {
+        $this->placeResponse('job-1', 'response-valid.json', JobState::Ingesting);
+        $byPerson = (new ResponseReader(new QueuePaths($this->tmp)))->read('job-1', ['I1'], JobState::Ingesting);
+
+        self::assertArrayHasKey('I1', $byPerson);
+        $notice = self::firstNotice($byPerson, 'I1');
+        self::assertInstanceOf(DeathNoticeRecord::class, $notice);
+        self::assertSame('Erika Mustermann geb. Mueller', $notice->name);
+    }
+
+    /**
+     * The $fromState parameter actually ROUTES the read: with a DIFFERENT valid response in both
+     * done/ and ingesting/, a read passed {@see JobState::Ingesting} returns the ingesting fixture's
+     * notice, not the done one. This discriminates the routing the single-state ingesting test cannot:
+     * seeding only ingesting/ would pass even if the parameter were ignored and the reader always read
+     * done/ (it would then find nothing and fail differently), so the two divergent seeds prove the
+     * parameter selects the source directory.
+     */
+    #[Test]
+    public function readRoutesToTheStateDirectoryNamedByFromState(): void
+    {
+        $this->placeResponse('job-1', 'response-valid.json', JobState::Done);
+        $this->placeResponse('job-1', 'response-valid-ingesting.json', JobState::Ingesting);
+
+        $byPerson = (new ResponseReader(new QueuePaths($this->tmp)))->read('job-1', ['I1'], JobState::Ingesting);
+
+        $notice = self::firstNotice($byPerson, 'I1');
+        self::assertInstanceOf(DeathNoticeRecord::class, $notice);
+        // The ingesting fixture's name, not the done fixture's "Erika Mustermann geb. Mueller".
+        self::assertSame('Hans Beispiel geb. Schmidt', $notice->name);
     }
 
     /**
