@@ -62,15 +62,7 @@ final class GedcomDateConverter
      */
     public static function isValidExactIso(?string $iso): bool
     {
-        if ($iso === null) {
-            return false;
-        }
-
-        if (preg_match('/^(\d{4})-(\d{2})-(\d{2})$/D', $iso, $m) !== 1) {
-            return false;
-        }
-
-        return checkdate((int) $m[2], (int) $m[3], (int) $m[1]);
+        return self::parseExactIso($iso) !== null;
     }
 
     /**
@@ -84,10 +76,9 @@ final class GedcomDateConverter
      */
     public static function toGedcom(string $iso): string
     {
-        if (
-            (preg_match('/^(\d{4})-(\d{2})-(\d{2})$/D', $iso, $m) !== 1)
-            || !checkdate((int) $m[2], (int) $m[3], (int) $m[1])
-        ) {
+        $parts = self::parseExactIso($iso);
+
+        if ($parts === null) {
             throw new MalformedDeathDateException(
                 sprintf('Not an exact YYYY-MM-DD calendar date: %s', $iso)
             );
@@ -95,6 +86,32 @@ final class GedcomDateConverter
 
         // GEDCOM 5.5.1 writes the day WITHOUT a leading zero (`4 SEP 2023`, not `04 SEP 2023`), matching
         // webtrees' own canonical day form, so a later re-serialisation never shifts the stored fact id.
-        return sprintf('%d %s %d', (int) $m[3], self::MONTHS[(int) $m[2]], (int) $m[1]);
+        return sprintf('%d %s %d', (int) $parts[3], self::MONTHS[(int) $parts[2]], (int) $parts[1]);
+    }
+
+    /**
+     * Parses an exact `YYYY-MM-DD` value into its `[full, year, month, day]` match, or null when the
+     * value is not a syntactically exact AND real calendar date. The single validation seam both public
+     * methods share, so the accepted-date contract can never drift between the check and the conversion.
+     *
+     * @param string|null $iso The candidate ISO date.
+     *
+     * @return array{0: string, 1: string, 2: string, 3: string}|null The regex match, or null when invalid.
+     */
+    private static function parseExactIso(?string $iso): ?array
+    {
+        if ($iso === null) {
+            return null;
+        }
+
+        if (preg_match('/^(\d{4})-(\d{2})-(\d{2})$/D', $iso, $m) !== 1) {
+            return null;
+        }
+
+        if (!checkdate((int) $m[2], (int) $m[3], (int) $m[1])) {
+            return null;
+        }
+
+        return $m;
     }
 }
