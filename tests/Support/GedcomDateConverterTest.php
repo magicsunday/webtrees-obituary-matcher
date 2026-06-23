@@ -52,9 +52,9 @@ final class GedcomDateConverterTest extends TestCase
     public static function exactDates(): array
     {
         return [
-            'sep'      => ['2023-09-04', '04 SEP 2023'],
+            'sep'      => ['2023-09-04', '4 SEP 2023'],
             'dec-31'   => ['2023-12-31', '31 DEC 2023'],
-            'jan-01'   => ['2024-01-01', '01 JAN 2024'],
+            'jan-01'   => ['2024-01-01', '1 JAN 2024'],
             'feb-leap' => ['2024-02-29', '29 FEB 2024'],
             'nov'      => ['1900-11-15', '15 NOV 1900'],
         ];

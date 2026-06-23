@@ -132,7 +132,7 @@ final class ObituaryWriteBackTest extends IntegrationTestCase
         // substring checks would pass on a fact whose lines were emitted at the wrong nesting level or
         // out of order. The exact body proves the 2 SOUR → 3 PAGE → 3 DATA → 4 DATE nesting.
         $expectedGedcom = sprintf(
-            "1 DEAT\n2 DATE 04 SEP 2023\n2 SOUR @%s@\n3 PAGE https://trauer.example/x\n3 DATA\n4 DATE %s",
+            "1 DEAT\n2 DATE 4 SEP 2023\n2 SOUR @%s@\n3 PAGE https://trauer.example/x\n3 DATA\n4 DATE %s",
             $writeBack->sourceXref,
             GedcomDateConverter::toGedcom(date('Y-m-d'))
         );
@@ -302,7 +302,7 @@ final class ObituaryWriteBackTest extends IntegrationTestCase
         self::assertSame('1 DEAT', $bare->gedcom(), 'the bare DEAT must be byte-unchanged');
 
         // The new fact must be the sourced obituary write (date + citation), not merely "some dated DEAT".
-        self::assertStringContainsString('2 DATE 04 SEP 2023', $dated->gedcom());
+        self::assertStringContainsString('2 DATE 4 SEP 2023', $dated->gedcom());
         self::assertStringContainsString('2 SOUR @' . $writeBack->sourceXref . '@', $dated->gedcom());
         self::assertStringContainsString('3 PAGE https://trauer.example/x', $dated->gedcom());
 

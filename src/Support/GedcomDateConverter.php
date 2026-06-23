@@ -93,6 +93,8 @@ final class GedcomDateConverter
             );
         }
 
-        return sprintf('%02d %s %d', (int) $m[3], self::MONTHS[(int) $m[2]], (int) $m[1]);
+        // GEDCOM 5.5.1 writes the day WITHOUT a leading zero (`4 SEP 2023`, not `04 SEP 2023`), matching
+        // webtrees' own canonical day form, so a later re-serialisation never shifts the stored fact id.
+        return sprintf('%d %s %d', (int) $m[3], self::MONTHS[(int) $m[2]], (int) $m[1]);
     }
 }

@@ -889,7 +889,7 @@ final class ReviewScreenHandlerTest extends IntegrationTestCase
 
         $facts = iterator_to_array($individual->facts(['DEAT'], false, null, true));
         self::assertCount(1, $facts);
-        self::assertStringContainsString('2 DATE 04 SEP 2023', $facts[0]->gedcom());
+        self::assertStringContainsString('2 DATE 4 SEP 2023', $facts[0]->gedcom());
     }
 
     /**
