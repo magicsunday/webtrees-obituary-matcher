@@ -18,14 +18,14 @@ use Fisharebest\Webtrees\I18N;
 use Fisharebest\Webtrees\Registry;
 use Fisharebest\Webtrees\Services\UserService;
 use Fisharebest\Webtrees\Webtrees;
+use MagicSunday\ObituaryMatcher\Support\WebtreesInstallLocator;
 use RuntimeException;
 use Throwable;
 
+use function dirname;
 use function is_array;
-use function is_file;
 use function is_scalar;
 use function parse_ini_file;
-use function realpath;
 
 /**
  * A reusable headless webtrees bootstrap for CLI entry points (the queue drain) that have no HTTP
@@ -123,28 +123,28 @@ final class HeadlessBootstrap
     }
 
     /**
-     * Connects the database from the sibling webtrees install's `config.ini.php`, mirroring the field
+     * Connects the database from the running webtrees install's `config.ini.php`, mirroring the field
      * names {@see \Fisharebest\Webtrees\Cli\Console::bootstrap()} reads. The install root is the
-     * sibling `fisharebest/webtrees` directory, NOT this module's working directory, so the config is
-     * resolved relative to this file rather than via {@see Webtrees::CONFIG_FILE} (which only resolves
-     * when the cwd is the webtrees root).
+     * webtrees directory, NOT this module's working directory, so the config is resolved through the
+     * layout-independent {@see WebtreesInstallLocator} (relative to this module's root) rather than via
+     * {@see Webtrees::CONFIG_FILE} (which only resolves when the cwd is the webtrees root).
      *
      * @return void
      *
-     * @throws RuntimeException When the sibling config cannot be located or parsed.
+     * @throws RuntimeException When the webtrees config cannot be located or parsed.
      */
     private static function connectDatabase(): void
     {
-        $configFile = realpath(__DIR__ . '/../../../../fisharebest/webtrees/data/config.ini.php');
+        $configFile = (new WebtreesInstallLocator(dirname(__DIR__, 2)))->configFile();
 
-        if (($configFile === false) || !is_file($configFile)) {
-            throw new RuntimeException('Could not locate the sibling webtrees config for the headless drain');
+        if ($configFile === null) {
+            throw new RuntimeException('Could not locate the webtrees config for the headless drain');
         }
 
         $config = parse_ini_file($configFile);
 
         if (!is_array($config)) {
-            throw new RuntimeException('Could not parse the sibling webtrees config for the headless drain');
+            throw new RuntimeException('Could not parse the webtrees config for the headless drain');
         }
 
         DB::connect(

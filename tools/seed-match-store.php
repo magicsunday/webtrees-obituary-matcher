@@ -34,6 +34,7 @@ declare(strict_types=1);
 
 use MagicSunday\ObituaryMatcher\Matching\FileMatchStore;
 use MagicSunday\ObituaryMatcher\Matching\MatchStatus;
+use MagicSunday\ObituaryMatcher\Support\WebtreesInstallLocator;
 use MagicSunday\ObituaryMatcher\Webtrees\MatchSeeder;
 use MagicSunday\ObituaryMatcher\Webtrees\MatchStoreFactory;
 
@@ -41,7 +42,10 @@ use MagicSunday\ObituaryMatcher\Webtrees\MatchStoreFactory;
 // that emits a warning under newer PHP; the built-ins are referenced unqualified directly, matching
 // the global-namespace entry-point convention used by module.php.
 
-require __DIR__ . '/../.build/vendor/autoload.php';
+// Resolve and register the Composer autoloader through the shared pre-autoload bootstrap, which tries
+// the realistic install layouts (checkout dev tooling first) so this CLI boots in a non-checkout
+// install too.
+require __DIR__ . '/autoload.php';
 
 $options = getopt('', [
     'tree-id:',
@@ -51,6 +55,10 @@ $options = getopt('', [
     'death::',
     'data-path::',
 ]);
+
+// getopt() returns false on a parse failure; normalise to an array so the array_key_exists() probes
+// below cannot TypeError (matches tools/drain.php).
+$options = $options === false ? [] : $options;
 
 $treeId = $options['tree-id'] ?? null;
 $person = $options['person'] ?? null;
@@ -105,17 +113,17 @@ if (
     exit(1);
 }
 
-// Two layouts resolve the live data dir without --data-path: a Composer/VendorModuleService install
-// (this module at vendor/magicsunday/<m>, webtrees at the sibling vendor/fisharebest/webtrees), and a
-// classic zip/modules_v4 drop-in (this module at <root>/modules_v4/<m>, data dir at <root>/data — the
-// parent three levels up). Try the sibling first, then the drop-in parent; otherwise require --data-path.
-$siblingWebtrees = realpath(__DIR__ . '/../../../fisharebest/webtrees');
-$parentRoot      = realpath(__DIR__ . '/../../../');
-$baseValue       = $options['data-path'] ?? match (true) {
-    $siblingWebtrees !== false => $siblingWebtrees . '/data/obituary-matcher/matches',
-    ($parentRoot !== false) && is_dir($parentRoot . '/data') => $parentRoot . '/data/obituary-matcher/matches',
-    default => null,
-};
+// Without --data-path, resolve the running instance's match store under the live webtrees data dir
+// through the layout-independent locator (relative to this module's root, the tools/ parent). It
+// handles both the Composer/VendorModuleService install (webtrees as the sibling vendor/fisharebest/
+// webtrees) and the classic zip/modules_v4 drop-in (data dir two levels up); a checkout without either
+// layout must pass --data-path. The locator returns the data dir (<install>/data); the match store
+// lives at <data>/obituary-matcher/matches.
+$explicitDataPath = $options['data-path'] ?? null;
+$dataDir          = (new WebtreesInstallLocator(dirname(__DIR__)))->dataDir();
+$baseValue        = is_string($explicitDataPath)
+    ? $explicitDataPath
+    : (($dataDir !== null) ? $dataDir . '/obituary-matcher/matches' : null);
 
 if (!is_string($baseValue)) {
     fwrite(STDERR, 'Could not locate the running-instance webtrees data dir beside this module; pass --data-path=<dir> explicitly.' . PHP_EOL);

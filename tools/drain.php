@@ -42,6 +42,7 @@ use MagicSunday\ObituaryMatcher\Queue\QueuePaths;
 use MagicSunday\ObituaryMatcher\Queue\ResponseReader;
 use MagicSunday\ObituaryMatcher\Scoring\Classifier;
 use MagicSunday\ObituaryMatcher\Scoring\EnrichedMatchEngine;
+use MagicSunday\ObituaryMatcher\Support\WebtreesInstallLocator;
 use MagicSunday\ObituaryMatcher\Webtrees\CandidateRepository;
 use MagicSunday\ObituaryMatcher\Webtrees\DrainService;
 use MagicSunday\ObituaryMatcher\Webtrees\HeadlessBootstrap;
@@ -50,7 +51,10 @@ use MagicSunday\ObituaryMatcher\Webtrees\HeadlessBootstrap;
 // that emits a warning under newer PHP; the built-ins are referenced unqualified directly, matching
 // the global-namespace entry-point convention used by module.php and seed-match-store.php.
 
-require __DIR__ . '/../.build/vendor/autoload.php';
+// Resolve and register the Composer autoloader through the shared pre-autoload bootstrap, which tries
+// the realistic install layouts (checkout dev tooling first) so this CLI boots in a non-checkout
+// install too.
+require __DIR__ . '/autoload.php';
 
 // getopt() returns array|false; a false return (a parse failure) coerces to an empty option set so
 // the array_key_exists() reads below stay type-honest rather than TypeError-ing on false.
@@ -143,12 +147,11 @@ try {
     exit(1);
 }
 
-// Resolve the queue root: the explicit --queue, else the running instance's data dir beside this
-// module (this module installs at vendor/magicsunday/<m>, so webtrees is vendor/fisharebest/webtrees).
-$siblingWebtrees = realpath(__DIR__ . '/../../../fisharebest/webtrees');
-$queueRoot       = is_string($queueOption)
+// Resolve the queue root: the explicit --queue, else the running instance's default queue dir resolved
+// through the layout-independent locator (relative to this module's root, which is the tools/ parent).
+$queueRoot = is_string($queueOption)
     ? $queueOption
-    : (($siblingWebtrees !== false) ? $siblingWebtrees . '/data/obituary-matcher/queue' : null);
+    : (new WebtreesInstallLocator(dirname(__DIR__)))->defaultQueueRoot();
 
 if (!is_string($queueRoot)) {
     fwrite(STDERR, 'Could not locate the running-instance queue dir beside this module; pass --queue=<dir> explicitly.' . PHP_EOL);
