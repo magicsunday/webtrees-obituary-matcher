@@ -139,13 +139,13 @@ final class HeadlessBootstrap
         $configFile = (new WebtreesInstallLocator(dirname(__DIR__, 2)))->configFile();
 
         if (($configFile === null) || !is_file($configFile)) {
-            throw new RuntimeException('Could not locate the sibling webtrees config for the headless drain');
+            throw new RuntimeException('Could not locate the webtrees config for the headless drain');
         }
 
         $config = parse_ini_file($configFile);
 
         if (!is_array($config)) {
-            throw new RuntimeException('Could not parse the sibling webtrees config for the headless drain');
+            throw new RuntimeException('Could not parse the webtrees config for the headless drain');
         }
 
         DB::connect(

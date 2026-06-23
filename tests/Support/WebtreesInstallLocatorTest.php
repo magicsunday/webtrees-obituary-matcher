@@ -18,6 +18,7 @@ use PHPUnit\Framework\Attributes\Test;
 use function mkdir;
 use function realpath;
 use function touch;
+use function unlink;
 
 /**
  * Tests the layout-independent webtrees install locator against synthetic directory trees for each
@@ -94,6 +95,13 @@ final class WebtreesInstallLocatorTest extends TempDirTestCase
         $locator = new WebtreesInstallLocator($moduleRoot);
 
         self::assertSame(realpath($siblingRoot), $locator->installRoot());
+
+        // Negative control: with the sibling config removed, the two-up candidate must still resolve,
+        // proving both candidates were live and the candidate ordering (sibling before two-up) is what
+        // selected the sibling above — not the two-up candidate being silently absent.
+        unlink($siblingRoot . '/data/config.ini.php');
+
+        self::assertSame(realpath($twoUpRoot), (new WebtreesInstallLocator($moduleRoot))->installRoot());
     }
 
     /**
