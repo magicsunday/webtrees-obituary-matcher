@@ -32,6 +32,7 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\Attributes\UsesClass;
 
+use function file_put_contents;
 use function mkdir;
 
 /**
@@ -352,6 +353,66 @@ final class DrainServiceTest extends AbstractDrainTestCase
 
         // The stale job is still sitting in ingesting/, untouched.
         self::assertSame(JobState::Ingesting, $this->paths()->stateOf('job-002'));
+    }
+
+    /**
+     * Discovery orders done jobs by their job id NATURALLY, not lexicographically: with the two
+     * unpadded ids job-2 (older) and job-10, a limit-1 drain must process the oldest job-2, not the
+     * lexicographically-smaller job-10. A plain string sort would put "job-10" before "job-2" and
+     * wrongly ingest the NEWER job, so this pins the natural-sort oldest-first contract that also
+     * governs which jobs survive the limit cap.
+     */
+    #[Test]
+    public function discoveryPicksTheOldestJobUnderNaturalOrdering(): void
+    {
+        $tree = $this->ottoTree('fixture-a');
+
+        // job-2 is older than job-10; lexicographically "job-10" < "job-2", so a string sort would
+        // pick job-10 under the limit of 1 — the bug this test guards against.
+        $this->seedDoneJob('job-2', $tree->id(), 'I1', 'Otto Searchable');
+        $this->seedDoneJob('job-10', $tree->id(), 'I1', 'Otto Searchable');
+
+        $summary = $this->drainService()->drain(null, 1);
+
+        // Exactly one job processed (the cap), and it is the oldest job-2 — proven by both its
+        // queue end-state and the job-tagged notice URL persisted to the store.
+        self::assertSame(1, $summary->ingested);
+        self::assertSame(JobState::Ingested, $this->paths()->stateOf('job-2'));
+        self::assertSame(JobState::Done, $this->paths()->stateOf('job-10'));
+
+        $pending = $this->storeFor($tree)->allPending();
+        self::assertCount(1, $pending);
+        self::assertSame('https://example.test/job-2', $pending[0]->obituaryUrl);
+    }
+
+    /**
+     * The stale tally counts only real job directories left in ingesting/, ignoring a stray non-job
+     * entry (a name failing the job-id pattern, e.g. a `.DS_Store`-style file). Discovery already
+     * filters such entries; this pins that countStale() filters identically, so an operator-facing
+     * stale count is never inflated by a foreign filesystem artefact.
+     */
+    #[Test]
+    public function countStaleIgnoresANonJobEntryInIngesting(): void
+    {
+        $tree = $this->ottoTree('fixture-a');
+
+        // A fresh done job so the drain has something to process and reaches the stale count.
+        $this->seedDoneJob('job-001', $tree->id(), 'I1', 'Otto Searchable');
+
+        // A real stale ingesting job (a valid job id left by a crash).
+        $staleDir = $this->paths()->ingestingDir('job-002');
+        mkdir($staleDir, 0o700, true);
+
+        // A stray non-job entry directly in the ingesting state root: its name fails JOB_ID_PATTERN
+        // (the dot makes it an invalid job id), so it must NOT be counted into the stale tally.
+        $ingestingRoot = $this->paths()->stateRoot(JobState::Ingesting->value);
+        file_put_contents($ingestingRoot . '/not.a.job', '');
+
+        $summary = $this->drainService()->drain(null, 20);
+
+        // Only the one real stale job is counted; the stray entry is ignored.
+        self::assertSame(1, $summary->ingested);
+        self::assertSame(1, $summary->stale);
     }
 
     /**

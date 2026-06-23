@@ -34,6 +34,7 @@ use function sort;
 use function str_starts_with;
 
 use const SCANDIR_SORT_NONE;
+use const SORT_NATURAL;
 
 /**
  * The Phase-2e orchestration boundary: it drains finished feeder jobs (done state) into the per-tree
@@ -244,10 +245,12 @@ class DrainService
                 && (preg_match(self::JOB_ID_PATTERN, $entry) === 1),
         );
 
-        // Oldest-first by lexicographic job id: the feeder mints monotonically increasing ids, so a
-        // stable name sort is an oldest-first ordering without reading the wall clock.
+        // Oldest-first by monotonically increasing job id: the feeder mints monotonically increasing
+        // ids, so a NATURAL name sort is an oldest-first ordering without reading the wall clock. A
+        // natural (not lexicographic) sort keeps unpadded ids ordered correctly (job-2 before job-10),
+        // which also governs which jobs survive the array_slice cap below.
         $jobIds = array_values($jobIds);
-        sort($jobIds);
+        sort($jobIds, SORT_NATURAL);
 
         return array_slice($jobIds, 0, $limit);
     }
@@ -279,7 +282,8 @@ class DrainService
             $entries,
             static fn (string $entry): bool => ($entry !== '.')
                 && ($entry !== '..')
-                && !str_starts_with($entry, '.tmp-'),
+                && !str_starts_with($entry, '.tmp-')
+                && (preg_match(self::JOB_ID_PATTERN, $entry) === 1),
         );
 
         return count($jobs);
