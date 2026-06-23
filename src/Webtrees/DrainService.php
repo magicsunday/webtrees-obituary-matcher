@@ -21,6 +21,7 @@ use MagicSunday\ObituaryMatcher\Queue\JobState;
 use MagicSunday\ObituaryMatcher\Queue\QueueClient;
 use MagicSunday\ObituaryMatcher\Queue\QueuePaths;
 use MagicSunday\ObituaryMatcher\Queue\ResponseValidationException;
+use Throwable;
 
 use function array_filter;
 use function array_slice;
@@ -153,26 +154,46 @@ class DrainService
 
             $candidatesById = $this->repository->findByXrefs($tree, $request['requestedPersonIds']);
 
-            $result = $this->ingest->ingest(
-                $jobId,
-                $request['requestedPersonIds'],
-                $candidatesById,
-                $store,
-            );
+            try {
+                // The ingest reads the untrusted response.json via the ResponseReader, which throws
+                // on a corrupt or hand-edited response. Isolate the failure per job: park the claimed
+                // job in failed-ingest and move on rather than aborting the whole drain. markIngested
+                // and the ingested tally stay INSIDE the try, applied only on a successful ingest.
+                $result = $this->ingest->ingest(
+                    $jobId,
+                    $request['requestedPersonIds'],
+                    $candidatesById,
+                    $store,
+                );
 
-            $stored += $result->matchesStored;
+                $stored += $result->matchesStored;
 
-            $this->client->markIngested(
-                $jobId,
-                [
-                    'noticesRead'     => $result->noticesRead,
-                    'candidatesFound' => $result->candidatesFound,
-                    'matchesStored'   => $result->matchesStored,
-                ],
-                $result->warnings,
-            );
+                $this->client->markIngested(
+                    $jobId,
+                    [
+                        'noticesRead'     => $result->noticesRead,
+                        'candidatesFound' => $result->candidatesFound,
+                        'matchesStored'   => $result->matchesStored,
+                    ],
+                    $result->warnings,
+                );
 
-            ++$ingested;
+                ++$ingested;
+            } catch (ResponseValidationException) {
+                // A corrupt or hand-edited response is not retryable: park the claimed job in the
+                // failed-ingest state and move on rather than aborting the whole drain.
+                $this->client->markFailedIngest($jobId, 'response_invalid');
+                ++$failed;
+
+                continue;
+            } catch (Throwable) {
+                // Any other ingest failure is isolated the same way: the one bad job is parked and
+                // the drain continues with the next, so a single failure never strands the batch.
+                $this->client->markFailedIngest($jobId, 'ingest_failed');
+                ++$failed;
+
+                continue;
+            }
         }
 
         return new DrainSummary($ingested, $skipped, $failed, $stored, $this->countStale());

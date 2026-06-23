@@ -62,6 +62,7 @@ use function mkdir;
 #[UsesClass(AtomicFile::class)]
 #[UsesClass(EnrichedMatchEngine::class)]
 #[UsesClass(Classifier::class)]
+#[UsesClass(\MagicSunday\ObituaryMatcher\Queue\ResponseValidationException::class)]
 final class DrainServiceTest extends AbstractDrainTestCase
 {
     /**
@@ -259,6 +260,59 @@ final class DrainServiceTest extends AbstractDrainTestCase
 
         self::assertSame(JobState::FailedIngest, $this->paths()->stateOf('job-001'));
         self::assertSame([], $this->storeFor($tree)->allPending());
+    }
+
+    /**
+     * A done job whose response.json is schema-invalid does NOT halt the whole drain: the corrupt job
+     * is parked in failed-ingest (counted failed, never left stranded in ingesting/), while a second,
+     * valid job in the same batch still reaches ingested/ with its row persisted. This proves the
+     * ingest step is isolated per job — one corrupt response.json cannot strand the batch.
+     */
+    #[Test]
+    public function aResponseInvalidJobIsParkedWhileTheValidJobStillIngests(): void
+    {
+        $tree = $this->ottoTree('fixture-a');
+
+        // job-001 carries a valid request but a schema-invalid response.json (wrong version), so the
+        // ingest step's ResponseReader throws ResponseValidationException only once ingest runs.
+        $corruptDir = $this->paths()->doneDir('job-001');
+        mkdir($corruptDir, 0o700, true);
+        AtomicFile::writeJson(
+            $corruptDir . '/request.json',
+            [
+                'schemaVersion' => 2,
+                'jobId'         => 'job-001',
+                'treeId'        => $tree->id(),
+                'candidates'    => [['personId' => 'I1']],
+            ],
+        );
+        AtomicFile::writeJson(
+            $corruptDir . '/response.json',
+            [
+                'schemaVersion' => 999,
+                'jobId'         => 'job-001',
+                'results'       => [],
+            ],
+        );
+
+        // job-002 is a fully valid job that must still ingest despite the corrupt sibling.
+        $this->seedDoneJob('job-002', $tree->id(), 'I1', 'Otto Searchable');
+
+        $summary = $this->drainService()->drain(null, 20);
+
+        // The corrupt job failed, the valid job ingested — the bad job did NOT halt the batch.
+        self::assertSame(1, $summary->ingested);
+        self::assertSame(1, $summary->failed);
+        self::assertSame(0, $summary->skipped);
+        self::assertSame(1, $summary->stored);
+
+        // Queue end-states: the corrupt job parked in failed-ingest (NOT stranded in ingesting/),
+        // the valid job finalised under ingested/.
+        self::assertSame(JobState::FailedIngest, $this->paths()->stateOf('job-001'));
+        self::assertSame(JobState::Ingested, $this->paths()->stateOf('job-002'));
+
+        // Store delta: exactly the valid job's single row was persisted.
+        self::assertCount(1, $this->storeFor($tree)->allPending());
     }
 
     /**

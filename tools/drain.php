@@ -52,11 +52,14 @@ use MagicSunday\ObituaryMatcher\Webtrees\HeadlessBootstrap;
 
 require __DIR__ . '/../.build/vendor/autoload.php';
 
+// getopt() returns array|false; a false return (a parse failure) coerces to an empty option set so
+// the array_key_exists() reads below stay type-honest rather than TypeError-ing on false.
 $options = getopt('', [
     'tree::',
     'queue::',
     'limit::',
 ]);
+$options = $options === false ? [] : $options;
 
 // The optional-value (`::`) long options parse as `false` when passed without the `=` form
 // (`--tree 1`); reject that explicitly so a malformed flag gets a precise hint rather than being
