@@ -59,14 +59,23 @@ final readonly class WebtreesInstallLocator
      *     `vendor/fisharebest/webtrees`.
      *   - `<moduleRoot>/../..` — the `modules_v4` drop-in layout: the module installs at
      *     `<webtrees>/modules_v4/<m>`, so the webtrees install root is two directories up.
+     *   - `<moduleRoot>/../../..` — the webtrees-as-root-package layout: the module is `composer
+     *     require`d into a webtrees source install, landing at `<webtrees>/vendor/magicsunday/<m>`, so
+     *     the webtrees install root is three directories up.
      *
      * @return string|null
      */
     public function installRoot(): ?string
     {
         $candidates = [
+            // (a) sibling-vendor: a project depends on BOTH webtrees and this module, so both sit in
+            //     vendor/ — module at vendor/magicsunday/<m>, webtrees at vendor/fisharebest/webtrees.
             $this->moduleRootDir . '/../../fisharebest/webtrees',
+            // (b) modules_v4 drop-in: module at <webtrees>/modules_v4/<m>, so the install root is two up.
             $this->moduleRootDir . '/../..',
+            // (c) webtrees-as-root-package: the module is `composer require`d into a webtrees source
+            //     install, landing at <webtrees>/vendor/magicsunday/<m>, so the install root is three up.
+            $this->moduleRootDir . '/../../..',
         ];
 
         foreach ($candidates as $candidate) {

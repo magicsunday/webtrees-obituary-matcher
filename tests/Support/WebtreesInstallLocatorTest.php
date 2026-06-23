@@ -73,6 +73,26 @@ final class WebtreesInstallLocatorTest extends TempDirTestCase
     }
 
     /**
+     * Builds the webtrees-as-root-package layout: the module is `composer require`d into a webtrees
+     * source install, landing at `<webtrees>/vendor/magicsunday/<m>` with the webtrees install root
+     * three levels up carrying a config, and asserts every accessor resolves to that root.
+     *
+     * @return void
+     */
+    #[Test]
+    public function locatesTheWebtreesAsRootPackageInstall(): void
+    {
+        $installRoot = $this->tmp . '/webtrees';
+        $moduleRoot  = $installRoot . '/vendor/magicsunday/webtrees-obituary-matcher';
+
+        mkdir($moduleRoot, 0o700, true);
+        mkdir($installRoot . '/data', 0o700, true);
+        touch($installRoot . '/data/config.ini.php');
+
+        $this->assertAllAccessorsResolveTo($installRoot, new WebtreesInstallLocator($moduleRoot));
+    }
+
+    /**
      * Prefers the sibling layout when BOTH a sibling install and a two-up install carry a config — the
      * sibling candidate is probed first, so a shared-vendor checkout never mistakes the vendor root for
      * the install root.
