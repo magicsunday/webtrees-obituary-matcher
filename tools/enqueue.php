@@ -204,11 +204,14 @@ try {
     fwrite(STDERR, sprintf('Unknown tree id: %d', $treeId) . PHP_EOL);
 
     exit(1);
-} catch (RuntimeException $exception) {
-    // A QueueClient::enqueue clobber/filesystem failure is a producer failure, not a warning. Do NOT
-    // print the raw message to STDERR: a filesystem error can embed the absolute queue path. Print a
-    // fixed category and route the detail to the SAME guarded sink the bootstrap uses (error_log
-    // defaults to STDERR in CLI, so only log when a real sink is configured — the S46 lesson).
+} catch (Throwable $exception) {
+    // Any other producer failure — a QueueClient::enqueue clobber/filesystem RuntimeException, but
+    // ALSO any TypeError/Error/InvalidArgumentException (the last extends LogicException, not
+    // RuntimeException) that could otherwise escape to PHP's default uncaught-exception handler and
+    // print the full message + stack trace (with absolute paths) to STDERR/cron mail. Catch every
+    // Throwable, print a fixed category, and route the detail to the SAME guarded sink the bootstrap
+    // uses (error_log defaults to STDERR in CLI, so only log when a real sink is configured — the
+    // S46 lesson). DomainException (the operator's own numeric --tree) is handled above, safe to echo.
     fwrite(STDERR, 'Enqueue failed.' . PHP_EOL);
     $logDetailToConfiguredSink($exception);
 
