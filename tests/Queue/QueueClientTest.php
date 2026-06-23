@@ -79,6 +79,7 @@ final class QueueClientTest extends TempDirTestCase
             new DateTimeImmutable('2026-06-20T00:00:00+00:00'),
             'de-DE',
             [$this->candidate()],
+            11,
         );
         $client = new QueueClient(new QueuePaths($this->tmp));
 
@@ -236,6 +237,7 @@ final class QueueClientTest extends TempDirTestCase
             new DateTimeImmutable('2026-06-20T00:00:00+00:00'),
             'de-DE',
             [$this->candidate()],
+            11,
         );
         $client = new QueueClient(new QueuePaths($this->tmp));
         $client->enqueue($request);
@@ -479,6 +481,7 @@ final class QueueClientTest extends TempDirTestCase
             new DateTimeImmutable('2026-06-20T00:00:00+00:00'),
             'de-DE',
             [$this->candidate()],
+            11,
         );
     }
 

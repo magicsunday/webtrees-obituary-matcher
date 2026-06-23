@@ -126,6 +126,7 @@ final class FeederWorkerContractTest extends TempDirTestCase
             new DateTimeImmutable('2026-06-21T00:00:00+00:00'),
             'de-DE',
             [$candidate],
+            11,
         );
         $jobId = $client->enqueue($request);
 

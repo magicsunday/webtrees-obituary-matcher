@@ -59,12 +59,13 @@ final class FeederRequestFactoryTest extends TestCase
             DateRange::unknown()
         );
         $factory = new FeederRequestFactory(new QueryGenerator());
-        $req     = $factory->build('job-1', new DateTimeImmutable('2026-06-20T00:00:00+00:00'), 'de-DE', [$c]);
+        $req     = $factory->build('job-1', new DateTimeImmutable('2026-06-20T00:00:00+00:00'), 'de-DE', [$c], 11);
 
         $array = $req->toArray();
-        self::assertSame(1, $array['schemaVersion']);
+        self::assertSame(2, $array['schemaVersion']);
         self::assertSame('job-1', $array['jobId']);
         self::assertSame('de-DE', $array['locale']);
+        self::assertSame(11, $array['treeId']);
         self::assertSame('I1', $array['candidates'][0]['personId']);
         self::assertNotEmpty($array['candidates'][0]['queries']);
 

@@ -31,6 +31,7 @@ final readonly class FeederRequest
      * @param DateTimeImmutable            $createdAt     The moment the request was assembled.
      * @param string                       $locale        The IETF BCP 47 locale tag (e.g. "de-DE").
      * @param list<FeederCandidateRequest> $candidates    The per-candidate query bundles.
+     * @param int                          $treeId        The numeric webtrees tree identifier the request belongs to.
      */
     public function __construct(
         public int $schemaVersion,
@@ -38,6 +39,7 @@ final readonly class FeederRequest
         public DateTimeImmutable $createdAt,
         public string $locale,
         public array $candidates,
+        public int $treeId,
     ) {
     }
 
@@ -52,7 +54,8 @@ final readonly class FeederRequest
      *   candidates: list<array{
      *     personId: string,
      *     queries: list<array{query: string, priority: int, dedupKey: string}>
-     *   }>
+     *   }>,
+     *   treeId: int
      * }
      */
     public function toArray(): array
@@ -69,6 +72,7 @@ final readonly class FeederRequest
             'createdAt'     => $this->createdAt->format(DateTimeInterface::ATOM),
             'locale'        => $this->locale,
             'candidates'    => $candidates,
+            'treeId'        => $this->treeId,
         ];
     }
 }
