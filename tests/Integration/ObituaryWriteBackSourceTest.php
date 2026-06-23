@@ -150,6 +150,53 @@ final class ObituaryWriteBackSourceTest extends IntegrationTestCase
     }
 
     /**
+     * A purely numeric accepted source XREF (valid GEDCOM, common in imported trees) must survive the
+     * scan: PHP casts a numeric-string array key to an integer, so the repository casts it back rather
+     * than dropping the row — an is_string() key guard would have silently skipped it.
+     *
+     * @return void
+     */
+    #[Test]
+    public function acceptedSourcesKeepsANumericXref(): void
+    {
+        $this->loginManagerWithAutoAccept();
+        $tree = $this->tree();
+
+        // webtrees' XrefFactory only ever mints the X-prefixed form, so seed the numeric xref directly.
+        DB::table('sources')->insert([
+            's_id'     => '123',
+            's_file'   => $tree->id(),
+            's_name'   => 'Death notice: trauer.example',
+            's_gedcom' => $this->portalSourceGedcom('123', 'trauer.example'),
+        ]);
+
+        $rows  = (new PortalSourceRepository())->acceptedSources($tree, 'obituary-matcher:portal:trauer.example');
+        $xrefs = array_map(static fn (array $row): string => $row['xref'], $rows);
+
+        self::assertContains('123', $xrefs, 'a numeric accepted xref must not be dropped by integer-key casting');
+    }
+
+    /**
+     * A purely numeric pending source XREF must likewise survive the pending scan's per-xref fold: the
+     * same integer-key cast applies, so the numeric xref is processed rather than silently skipped.
+     *
+     * @return void
+     */
+    #[Test]
+    public function pendingSourcesKeepsANumericXref(): void
+    {
+        $this->loginManagerWithoutAutoAccept();
+        $tree = $this->tree();
+
+        $this->appendPendingChange($tree, '123', $this->portalSourceGedcom('123', 'trauer.example'));
+
+        $rows  = (new PortalSourceRepository())->pendingSources($tree);
+        $xrefs = array_map(static fn (array $row): string => $row['xref'], $rows);
+
+        self::assertContains('123', $xrefs, 'a numeric pending xref must not be dropped by integer-key casting');
+    }
+
+    /**
      * findPortalSource returns null when none exists and the SAME pending source (pending-aware) when
      * auto-accept is OFF and the source is only a pending change.
      *

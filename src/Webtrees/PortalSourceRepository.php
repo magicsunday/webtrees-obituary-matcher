@@ -72,9 +72,10 @@ final readonly class PortalSourceRepository
         $sources = [];
 
         foreach ($rows as $xref => $gedcom) {
-            if (!is_string($xref)) {
-                continue;
-            }
+            // A purely numeric XREF (valid GEDCOM, common in imported trees) arrives as an int array key
+            // because PHP casts numeric-string keys: cast back to string rather than drop it with an
+            // is_string() guard that would silently skip the row.
+            $xref = (string) $xref;
 
             if (!is_string($gedcom)) {
                 continue;
@@ -122,9 +123,10 @@ final readonly class PortalSourceRepository
         $sources = [];
 
         foreach ($latestByXref as $xref => $gedcom) {
-            if (!is_string($xref)) {
-                continue;
-            }
+            // A purely numeric XREF (valid GEDCOM, common in imported trees) arrives as an int array key
+            // because PHP casts numeric-string keys: cast back to string rather than drop it with an
+            // is_string() guard that would silently skip the row.
+            $xref = (string) $xref;
 
             if (!is_string($gedcom)) {
                 continue;
