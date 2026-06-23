@@ -241,15 +241,19 @@ final class ArchitectureTest
     }
 
     /**
-     * The Webtrees layer is the composition boundary (adapter plus the future
-     * module/controllers/review-UI). To orchestrate a match it may drive the
-     * Matching apex (e.g. IngestService), but it must not reach directly into
-     * the inner engine layers (Parsing/Scoring/Queue). Keeping the adapter out
-     * of the inner layers means swapping the adapter never drags the whole
-     * engine internals along.
+     * The Webtrees layer is the composition boundary (the adapter plus the
+     * module/controllers/review-UI and the queue-drain orchestrator). To
+     * orchestrate a match it may drive the Matching apex (e.g. IngestService)
+     * and the Queue state machine (the file-drop queue the drain claims and
+     * finalizes: QueuePaths/QueueClient/FeederRequestReader/JobState), but it
+     * must not reach directly into the pure scoring engine itself
+     * (Parsing/Scoring). Keeping the adapter out of the scoring layers means the
+     * engine is always composed through the Matching apex, never wired field by
+     * field from the adapter — so swapping the adapter never drags the scoring
+     * internals along.
      */
     #[TestRule]
-    public function webtreesAdapterDoesNotDependOnInnerEngineLayers(): Rule
+    public function webtreesAdapterDoesNotDependOnTheScoringEngine(): Rule
     {
         return PHPat::rule()
             ->classes(Selector::inNamespace(self::NAMESPACE_ROOT . '\\Webtrees'))
@@ -257,9 +261,8 @@ final class ArchitectureTest
             ->classes(
                 Selector::inNamespace(self::NAMESPACE_ROOT . '\\Parsing'),
                 Selector::inNamespace(self::NAMESPACE_ROOT . '\\Scoring'),
-                Selector::inNamespace(self::NAMESPACE_ROOT . '\\Queue'),
             )
-            ->because('The Webtrees adapter/composition layer may drive the Matching apex but must not reach directly into the inner parsing, scoring, or queue layers');
+            ->because('The Webtrees composition layer may drive the Matching apex and the Queue state machine, but must compose the scoring engine through the Matching apex rather than reaching into the parsing or scoring layers directly');
     }
 
     /**

@@ -315,14 +315,16 @@ abstract class IntegrationTestCase extends TestCase
      * are removed before importing so the assertions read only the fixture.
      *
      * @param string $gedcom The full GEDCOM document to import
+     * @param string $name   The tree name; pass a distinct value to import two
+     *                       coexisting trees in one test (defaults to "fixture")
      *
      * @return Tree
      */
-    protected function importFixtureTree(string $gedcom): Tree
+    protected function importFixtureTree(string $gedcom, string $name = 'fixture'): Tree
     {
         $gedcomImportService = new GedcomImportService();
         $treeService         = new TreeService($gedcomImportService);
-        $tree                = $treeService->create('fixture', 'fixture');
+        $tree                = $treeService->create($name, $name);
 
         // TreeService::create seeds a placeholder header + INDI — wipe
         // before importing the fixture so the assertions are deterministic.
@@ -358,6 +360,11 @@ abstract class IntegrationTestCase extends TestCase
         foreach ($records as $record) {
             $gedcomImportService->importRecord($record, $tree, false);
         }
+
+        // Drop the cached tree list so a TreeService::find() against the freshly
+        // created tree resolves it (the all-trees array cache is populated lazily
+        // and would otherwise miss a tree created after its first read).
+        Registry::cache()->array()->forget('all-trees');
 
         return $tree;
     }
