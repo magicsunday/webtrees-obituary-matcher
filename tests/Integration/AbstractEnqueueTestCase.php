@@ -1,0 +1,269 @@
+<?php
+
+/**
+ * This file is part of the package magicsunday/webtrees-obituary-matcher.
+ *
+ * For the full copyright and license information, please read the
+ * LICENSE file that was distributed with this source code.
+ */
+
+declare(strict_types=1);
+
+namespace MagicSunday\ObituaryMatcher\Test\Integration;
+
+use DateTimeImmutable;
+use Fisharebest\Webtrees\Services\GedcomImportService;
+use Fisharebest\Webtrees\Services\TreeService;
+use Fisharebest\Webtrees\Tree;
+use MagicSunday\ObituaryMatcher\Domain\ClassifiedMatch;
+use MagicSunday\ObituaryMatcher\Matching\FileMatchStore;
+use MagicSunday\ObituaryMatcher\Matching\MatchStatus;
+use MagicSunday\ObituaryMatcher\Matching\MatchStore;
+use MagicSunday\ObituaryMatcher\Matching\StoredMatch;
+use MagicSunday\ObituaryMatcher\Matching\StoredMatchKey;
+use MagicSunday\ObituaryMatcher\Queue\AtomicFile;
+use MagicSunday\ObituaryMatcher\Queue\FeederRequestReader;
+use MagicSunday\ObituaryMatcher\Queue\JobState;
+use MagicSunday\ObituaryMatcher\Queue\QueueClient;
+use MagicSunday\ObituaryMatcher\Queue\QueuePaths;
+use MagicSunday\ObituaryMatcher\Support\FeederRequestFactory;
+use MagicSunday\ObituaryMatcher\Support\QueryGenerator;
+use MagicSunday\ObituaryMatcher\Support\UrlHostNormalizer;
+use MagicSunday\ObituaryMatcher\Webtrees\CandidateRepository;
+use MagicSunday\ObituaryMatcher\Webtrees\EnqueueService;
+use MagicSunday\ObituaryMatcher\Webtrees\MatchStoreFactory;
+
+use function hash;
+use function mkdir;
+
+/**
+ * Shared harness for the enqueue integration tests: a throwaway file-drop queue + isolated per-tree
+ * store (the plumbing lives in {@see AbstractQueueStoreTestCase}), the {@see EnqueueService} wired
+ * through the SAME graph the `tools/enqueue.php` CLI assembles (the only seams redirected are
+ * {@see EnqueueService::storeForTree()} → the isolated store and {@see EnqueueService::now()} → a
+ * fixed instant), plus seeders for in-flight jobs and store rows.
+ *
+ * @author  Rico Sonntag <mail@ricosonntag.de>
+ * @license https://opensource.org/licenses/GPL-3.0 GNU General Public License v3.0
+ * @link    https://github.com/magicsunday/webtrees-obituary-matcher/
+ */
+abstract class AbstractEnqueueTestCase extends AbstractQueueStoreTestCase
+{
+    /**
+     * {@inheritDoc}
+     *
+     * @return string
+     */
+    protected function tempDirPrefix(): string
+    {
+        return 'obituary-enqueue-';
+    }
+
+    /**
+     * Build the {@see EnqueueService} through the real CLI wiring, redirecting only the store seam
+     * (to the isolated root) and the clock seam (to a fixed instant for a stable jobId).
+     *
+     * @return EnqueueService
+     */
+    protected function enqueueService(): EnqueueService
+    {
+        $paths    = $this->paths();
+        $storeDir = $this->storeRoot;
+
+        return new class($paths, new QueueClient($paths), new FeederRequestReader($paths, 5_242_880), new CandidateRepository(), new FeederRequestFactory(new QueryGenerator()), new UrlHostNormalizer(), new TreeService(new GedcomImportService()), $storeDir) extends EnqueueService {
+            /**
+             * @param QueuePaths           $paths          The queue path builder.
+             * @param QueueClient          $client         The queue state-machine driver.
+             * @param FeederRequestReader  $reader         The validating request reader.
+             * @param CandidateRepository  $repository     The candidate repository.
+             * @param FeederRequestFactory $requestFactory The request assembler.
+             * @param UrlHostNormalizer    $hostNormalizer The canonical-host helper.
+             * @param TreeService          $treeService    The tree lookup.
+             * @param string               $storeRoot      The isolated per-tree store base directory.
+             */
+            public function __construct(
+                QueuePaths $paths,
+                QueueClient $client,
+                FeederRequestReader $reader,
+                CandidateRepository $repository,
+                FeederRequestFactory $requestFactory,
+                UrlHostNormalizer $hostNormalizer,
+                TreeService $treeService,
+                private readonly string $storeRoot,
+            ) {
+                parent::__construct($paths, $client, $reader, $repository, $requestFactory, $hostNormalizer, $treeService);
+            }
+
+            /**
+             * Redirect the per-tree store to an isolated directory under the test root.
+             *
+             * @param Tree $tree The tree whose store is requested.
+             *
+             * @return MatchStore The isolated, tree-scoped store.
+             */
+            protected function storeForTree(Tree $tree): MatchStore
+            {
+                return new FileMatchStore(MatchStoreFactory::pathForTree($this->storeRoot, $tree));
+            }
+
+            /**
+             * Pin the clock so the minted jobId and the createdAt stamp are deterministic.
+             *
+             * @return DateTimeImmutable The fixed instant.
+             */
+            protected function now(): DateTimeImmutable
+            {
+                return new DateTimeImmutable('2026-06-23T10:15:30+00:00');
+            }
+        };
+    }
+
+    /**
+     * Seed an in-flight job in the given state carrying a schema-3 request for the given persons, so
+     * the in-flight dedup scan sees those personIds as already queued.
+     *
+     * @param string       $jobId     The job id (directory name).
+     * @param JobState     $state     The in-flight state to seed into.
+     * @param int          $treeId    The tree the request belongs to.
+     * @param list<string> $personIds The requested person ids.
+     *
+     * @return void
+     */
+    protected function seedInflightJob(string $jobId, JobState $state, int $treeId, array $personIds): void
+    {
+        $dir = $this->paths()->stateRoot($state->value) . '/' . $jobId;
+        mkdir($dir, 0o700, true);
+
+        $candidates = [];
+
+        foreach ($personIds as $personId) {
+            $candidates[] = ['personId' => $personId, 'queries' => [], 'excludedHosts' => []];
+        }
+
+        AtomicFile::writeJson(
+            $dir . '/request.json',
+            [
+                'schemaVersion' => 3,
+                'jobId'         => $jobId,
+                'createdAt'     => '2026-06-20T09:00:00+00:00',
+                'locale'        => 'de-DE',
+                'candidates'    => $candidates,
+                'treeId'        => $treeId,
+            ],
+        );
+    }
+
+    /**
+     * Seed a stored match row into the isolated per-tree store in the requested status. The row is
+     * always written as Pending first (the only status {@see FileMatchStore::upsertPending()} writes),
+     * then transitioned to the target status via the matching store transition.
+     *
+     * @param Tree        $tree     The tree whose store is seeded.
+     * @param string      $personId The candidate id.
+     * @param string      $url      The source notice URL (its host becomes a candidate excluded host).
+     * @param MatchStatus $status   The target row status.
+     *
+     * @return void
+     */
+    protected function seedStoreRow(Tree $tree, string $personId, string $url, MatchStatus $status): void
+    {
+        $store = new FileMatchStore(MatchStoreFactory::pathForTree($this->storeRoot, $tree));
+
+        // upsertPending only ever writes a Pending row, so every other status is reached by following
+        // it with the matching transition keyed on (personId, url).
+        $store->upsertPending(
+            new StoredMatch($personId, $url, MatchStatus::Pending, ClassifiedMatch::emptyArray($personId, $url)),
+        );
+
+        switch ($status) {
+            case MatchStatus::Pending:
+                break;
+
+            case MatchStatus::Uncertain:
+                $store->markUncertain($personId, $url, null);
+
+                break;
+
+            case MatchStatus::Rejected:
+                $store->markRejected($personId, $url, null);
+
+                break;
+
+            case MatchStatus::Confirmed:
+                // A valid WriteBack is awkward to assemble in a test, so the Confirmed row is written
+                // directly: read the just-written Pending row back, flip its status, and re-persist it
+                // through the same FileMatchStore (which validates the row key + per-person sub-dir).
+                $this->writeConfirmedRow($tree, $personId, $url);
+
+                break;
+        }
+    }
+
+    /**
+     * Hand-write a Confirmed row by re-persisting the existing Pending row with `status => confirmed`,
+     * so the excludedHosts scan sees a terminal row on that host without building a real WriteBack.
+     *
+     * @param Tree   $tree     The tree whose store holds the row.
+     * @param string $personId The candidate id.
+     * @param string $url      The source notice URL.
+     *
+     * @return void
+     */
+    private function writeConfirmedRow(Tree $tree, string $personId, string $url): void
+    {
+        $row = (new StoredMatch($personId, $url, MatchStatus::Confirmed, ClassifiedMatch::emptyArray($personId, $url)))->toArray();
+
+        $storeDir  = MatchStoreFactory::pathForTree($this->storeRoot, $tree);
+        $personDir = $storeDir . '/' . hash('sha256', $personId);
+
+        // The file name is the SHA-256 of the identity-normalised URL, the same row key the store
+        // derives from the raw URL; reuse the store's own helper so the layout cannot drift.
+        $rowKey = StoredMatchKey::fromUrl($url);
+
+        AtomicFile::ensureDirectory($personDir);
+        AtomicFile::writeJson($personDir . '/' . $rowKey . '.json', $row);
+    }
+
+    /**
+     * Import a multi-person tree of old "Searchable" individuals (I1..I3) with no death date — so
+     * every one is a rebuildable candidate — born old enough to clear the age bound the test pins.
+     *
+     * @param string $name The unique tree name (each scenario needs a distinct tree).
+     *
+     * @return Tree The imported tree.
+     */
+    protected function ottoTree(string $name): Tree
+    {
+        $gedcom = "0 HEAD\n"
+            . "1 SOUR obituary-matcher-tests\n"
+            . "1 GEDC\n"
+            . "2 VERS 5.5.1\n"
+            . "1 CHAR UTF-8\n"
+            . $this->indi('I1', 'Otto', '17 MAR 1930')
+            . $this->indi('I2', 'Berta', '03 JUN 1928')
+            . $this->indi('I3', 'Cesar', '21 NOV 1925')
+            . "0 TRLR\n";
+
+        return $this->importFixtureTree($gedcom, $name);
+    }
+
+    /**
+     * Build one INDI record for a "Searchable" individual with a birth date and no death date.
+     *
+     * @param string $xref  The xref (e.g. "I1").
+     * @param string $given The given name.
+     * @param string $birth The GEDCOM birth date (e.g. "17 MAR 1930").
+     *
+     * @return string The GEDCOM INDI record.
+     */
+    private function indi(string $xref, string $given, string $birth): string
+    {
+        return '0 @' . $xref . "@ INDI\n"
+            . '1 NAME ' . $given . " /Searchable/\n"
+            . '2 GIVN ' . $given . "\n"
+            . "2 SURN Searchable\n"
+            . "1 SEX M\n"
+            . "1 BIRT\n"
+            . '2 DATE ' . $birth . "\n";
+    }
+}
