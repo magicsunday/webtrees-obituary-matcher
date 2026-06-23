@@ -289,7 +289,7 @@ abstract class AbstractDrainTestCase extends IntegrationTestCase
         AtomicFile::writeJson(
             $jobDir . '/request.json',
             [
-                'schemaVersion' => 2,
+                'schemaVersion' => 3,
                 'jobId'         => $jobId,
                 'treeId'        => $treeId,
                 'candidates'    => [['personId' => $personId]],

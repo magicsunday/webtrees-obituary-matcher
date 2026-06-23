@@ -29,7 +29,7 @@ final readonly class FeederRequestFactory
     /**
      * The schema version stamped onto every request this factory builds.
      */
-    public const int SCHEMA_VERSION = 2;
+    public const int SCHEMA_VERSION = 3;
 
     /**
      * Constructor.
@@ -42,13 +42,15 @@ final readonly class FeederRequestFactory
     }
 
     /**
-     * Builds a feeder request bundling each candidate's prioritised, deduplicated queries.
+     * Builds a feeder request bundling each candidate's prioritised, deduplicated queries and the
+     * portals it already has an open match on.
      *
-     * @param string                $jobId      The caller-assigned job identifier.
-     * @param DateTimeImmutable     $createdAt  The moment the request is assembled.
-     * @param string                $locale     The IETF BCP 47 locale tag (e.g. "de-DE").
-     * @param list<PersonCandidate> $candidates The candidates to derive queries from.
-     * @param int                   $treeId     The numeric webtrees tree identifier the request belongs to.
+     * @param string                      $jobId                   The caller-assigned job identifier.
+     * @param DateTimeImmutable           $createdAt               The moment the request is assembled.
+     * @param string                      $locale                  The IETF BCP 47 locale tag (e.g. "de-DE").
+     * @param list<PersonCandidate>       $candidates              The candidates to derive queries from.
+     * @param int                         $treeId                  The numeric webtrees tree identifier the request belongs to.
+     * @param array<string, list<string>> $excludedHostsByPersonId Per-personId canonical excluded hosts.
      *
      * @return FeederRequest The assembled, serialisable request.
      */
@@ -58,6 +60,7 @@ final readonly class FeederRequestFactory
         string $locale,
         array $candidates,
         int $treeId,
+        array $excludedHostsByPersonId = [],
     ): FeederRequest {
         $candidateRequests = [];
 
@@ -65,6 +68,7 @@ final readonly class FeederRequestFactory
             $candidateRequests[] = new FeederCandidateRequest(
                 $candidate->id,
                 $this->queryGenerator->generate($candidate),
+                $excludedHostsByPersonId[$candidate->id] ?? [],
             );
         }
 

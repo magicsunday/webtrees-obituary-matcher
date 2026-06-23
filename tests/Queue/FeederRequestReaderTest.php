@@ -49,7 +49,7 @@ final class FeederRequestReaderTest extends QueueTempDirTestCase
     public function readsTreeIdAndRequestedPersonIds(): void
     {
         $this->seedRequest('job-1', [
-            'schemaVersion' => 2,
+            'schemaVersion' => 3,
             'jobId'         => 'job-1',
             'createdAt'     => '2026-06-20T00:00:00+00:00',
             'locale'        => 'de-DE',
@@ -95,7 +95,7 @@ final class FeederRequestReaderTest extends QueueTempDirTestCase
     public function rejectsAJobIdThatDoesNotMatchTheDirectory(): void
     {
         $this->seedRequest('job-1', [
-            'schemaVersion' => 2,
+            'schemaVersion' => 3,
             'jobId'         => 'job-2',
             'createdAt'     => '2026-06-20T00:00:00+00:00',
             'locale'        => 'de-DE',
@@ -117,7 +117,7 @@ final class FeederRequestReaderTest extends QueueTempDirTestCase
     public function rejectsANonIntegerTreeId(): void
     {
         $this->seedRequest('job-1', [
-            'schemaVersion' => 2,
+            'schemaVersion' => 3,
             'jobId'         => 'job-1',
             'createdAt'     => '2026-06-20T00:00:00+00:00',
             'locale'        => 'de-DE',
@@ -139,7 +139,7 @@ final class FeederRequestReaderTest extends QueueTempDirTestCase
     public function rejectsMissingCandidates(): void
     {
         $this->seedRequest('job-1', [
-            'schemaVersion' => 2,
+            'schemaVersion' => 3,
             'jobId'         => 'job-1',
             'createdAt'     => '2026-06-20T00:00:00+00:00',
             'locale'        => 'de-DE',
@@ -161,7 +161,7 @@ final class FeederRequestReaderTest extends QueueTempDirTestCase
     public function rejectsAScalarCandidate(): void
     {
         $this->seedRequest('job-1', [
-            'schemaVersion' => 2,
+            'schemaVersion' => 3,
             'jobId'         => 'job-1',
             'createdAt'     => '2026-06-20T00:00:00+00:00',
             'locale'        => 'de-DE',
@@ -187,7 +187,7 @@ final class FeederRequestReaderTest extends QueueTempDirTestCase
     public function rejectsAMalformedCandidatePersonId(string|int $personId): void
     {
         $this->seedRequest('job-1', [
-            'schemaVersion' => 2,
+            'schemaVersion' => 3,
             'jobId'         => 'job-1',
             'createdAt'     => '2026-06-20T00:00:00+00:00',
             'locale'        => 'de-DE',

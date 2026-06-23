@@ -285,7 +285,7 @@ final class DrainServiceTest extends AbstractDrainTestCase
         AtomicFile::writeJson(
             $corruptDir . '/request.json',
             [
-                'schemaVersion' => 2,
+                'schemaVersion' => 3,
                 'jobId'         => 'job-001',
                 'treeId'        => $tree->id(),
                 'candidates'    => [['personId' => 'I1']],
@@ -326,7 +326,7 @@ final class DrainServiceTest extends AbstractDrainTestCase
 
         $oversizeRequest = json_encode(
             [
-                'schemaVersion' => 2,
+                'schemaVersion' => 3,
                 'jobId'         => 'job-001',
                 'treeId'        => $tree->id(),
                 'candidates'    => [['personId' => 'I1']],
@@ -358,7 +358,7 @@ final class DrainServiceTest extends AbstractDrainTestCase
         AtomicFile::writeJson(
             $staleDir . '/request.json',
             [
-                'schemaVersion' => 2,
+                'schemaVersion' => 3,
                 'jobId'         => 'job-002',
                 'treeId'        => $tree->id(),
                 'candidates'    => [['personId' => 'I1']],
@@ -557,7 +557,7 @@ final class DrainServiceTest extends AbstractDrainTestCase
         AtomicFile::writeJson(
             $jobDir . '/request.json',
             [
-                'schemaVersion' => 2,
+                'schemaVersion' => 3,
                 'jobId'         => $jobId,
                 'treeId'        => $treeId,
                 'candidates'    => [['personId' => $personA], ['personId' => $personB]],

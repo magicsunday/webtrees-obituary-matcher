@@ -62,7 +62,7 @@ final class FeederRequestFactoryTest extends TestCase
         $req     = $factory->build('job-1', new DateTimeImmutable('2026-06-20T00:00:00+00:00'), 'de-DE', [$c], 11);
 
         $array = $req->toArray();
-        self::assertSame(2, $array['schemaVersion']);
+        self::assertSame(3, $array['schemaVersion']);
         self::assertSame('job-1', $array['jobId']);
         self::assertSame('de-DE', $array['locale']);
         self::assertSame(11, $array['treeId']);
@@ -76,5 +76,52 @@ final class FeederRequestFactoryTest extends TestCase
         self::assertSame('Erika Mustermann 1938', $firstQuery['query']);
         self::assertSame(1, $firstQuery['priority']);
         self::assertSame('erika mustermann 1938', $firstQuery['dedupKey']);
+    }
+
+    /**
+     * The factory threads a per-personId excludedHosts map onto the matching candidate and
+     * serialises it; a candidate absent from the map serialises an empty list. Pins the
+     * schema-3 bump.
+     *
+     * @return void
+     */
+    #[Test]
+    public function buildThreadsExcludedHostsOntoTheMatchingCandidate(): void
+    {
+        $candidates = [
+            new PersonCandidate(
+                'I1',
+                Gender::Female,
+                new PersonName(['Erika'], null, 'Mustermann', 'Mueller', ['Mustermann']),
+                DateRange::year(1938),
+                null,
+                [],
+                DateRange::unknown()
+            ),
+            new PersonCandidate(
+                'I2',
+                Gender::Male,
+                new PersonName(['Max'], null, 'Mustermann', 'Mueller', ['Mustermann']),
+                DateRange::year(1940),
+                null,
+                [],
+                DateRange::unknown()
+            ),
+        ];
+
+        $request = (new FeederRequestFactory(new QueryGenerator()))->build(
+            'job-20260623T101530Z-a1b2c3d4',
+            new DateTimeImmutable('2026-06-23T10:15:30Z'),
+            'de-DE',
+            $candidates,
+            7,
+            ['I1' => ['example.test', 'other.test']],
+        );
+
+        $array = $request->toArray();
+
+        self::assertSame(3, $array['schemaVersion']);
+        self::assertSame(['example.test', 'other.test'], $array['candidates'][0]['excludedHosts']);
+        self::assertSame([], $array['candidates'][1]['excludedHosts']);
     }
 }
