@@ -156,6 +156,15 @@ if (!is_string($queueRoot)) {
     exit(1);
 }
 
+// An EXPLICIT --queue that does not exist is an operator typo: fail loud rather than silently draining
+// zero jobs. A DEFAULT-resolved root that is merely absent is NOT an error — that is the first-run /
+// feeder-has-not-run-yet no-op the drain handles by discovering an empty done/ state and exiting 0.
+if (is_string($queueOption) && !is_dir($queueOption)) {
+    fwrite(STDERR, sprintf('The --queue directory does not exist: %s', $queueOption) . PHP_EOL);
+
+    exit(1);
+}
+
 // Assemble the drain object graph. The store is NOT wired here: DrainService builds the tree-scoped
 // store per job through its MatchStoreFactory seam, so the ingest stays store-agnostic.
 $paths = new QueuePaths($queueRoot);
