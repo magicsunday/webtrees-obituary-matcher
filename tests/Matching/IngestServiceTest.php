@@ -67,7 +67,7 @@ use PHPUnit\Framework\Attributes\UsesClass;
 
 /**
  * Tests the response → score → persist vertical slice: a validated feeder response is mapped,
- * scored by the unchanged Phase-1 engine, classified and persisted as a pending suggestion — and a
+ * scored by the enriched engine, classified and persisted as a pending suggestion — and a
  * person who was in the request but no longer has a held candidate is skipped without an error.
  *
  * @author  Rico Sonntag <mail@ricosonntag.de>
@@ -123,7 +123,7 @@ use PHPUnit\Framework\Attributes\UsesClass;
 final class IngestServiceTest extends QueueTempDirTestCase
 {
     /**
-     * Ingests a validated feeder response for a still-held candidate, scores it with the unchanged
+     * Ingests a validated feeder response for a still-held candidate, scores it with the enriched
      * engine and persists the best result per notice as a pending suggestion.
      */
     #[Test]
@@ -248,21 +248,58 @@ final class IngestServiceTest extends QueueTempDirTestCase
     }
 
     /**
-     * A person who was in the request but no longer has a held candidate is skipped without an
-     * error and contributes nothing to the stored count.
+     * A requested person whose validated result carries an EMPTY notice list is silently skipped:
+     * the {@see IngestService::ingest()} loop hits the `$notices === []` continue BEFORE the
+     * no-held-candidate check, so it stores nothing and — unlike a person with a notice but no held
+     * candidate — emits NO warning. This pins that empty-notice branch as the distinct, silent path.
      */
     #[Test]
-    public function skipsAPersonWhoseCandidateVanishedSinceEnqueue(): void
+    public function aPersonWithAnEmptyNoticeListIsSkippedSilentlyWithoutAWarning(): void
     {
-        // results for I1 — I1 WAS requested (ownership ok)
+        // results map I1 to an empty notice list (the feeder found no notice for the requested id).
+        $this->placeResponse('job-1', 'response-empty-notices.json', JobState::Ingesting);
+        $store = new FileMatchStore($this->tmp . '/store');
+
+        // A candidate IS held for I1, so this is NOT the no-candidate path: the empty list short-
+        // circuits before that check, proving the two branches are genuinely distinct.
+        $result = $this->newService()->ingest('job-1', ['I1'], ['I1' => $this->candidateMatchingErika()], $store);
+
+        // No notice was read, nothing was stored, and the empty-notice person is silent — the warning
+        // belongs ONLY to the no-held-candidate path, so a regression that warned here would fail.
+        self::assertSame(0, $result->noticesRead);
+        self::assertSame(0, $result->matchesStored);
+        self::assertSame([], $result->warnings);
+        self::assertSame([], $store->allPending());
+    }
+
+    /**
+     * Pins the meaning of the {@see IngestResult::$candidatesFound} field: it is the size of the
+     * INPUT candidate map the run was given, NOT the number of rows persisted. The response mentions
+     * only I1, so just one row is stored, yet two candidates were held — proving the count reports the
+     * held-candidate map and never collapses to the stored-row tally.
+     */
+    #[Test]
+    public function candidatesFoundCountsTheInputMapNotTheStoredRows(): void
+    {
+        // The response carries a single notice, for I1 only.
         $this->placeResponse('job-1', 'response-valid.json', JobState::Ingesting);
         $store = new FileMatchStore($this->tmp . '/store');
 
-        // ...but no candidate held now (e.g. became private)
-        $result = $this->newService()->ingest('job-1', ['I1'], [], $store);
+        // Two candidates are held this run (I1 matches the notice; I2 has no notice in the response).
+        $result = $this->newService()->ingest(
+            'job-1',
+            ['I1', 'I2'],
+            [
+                'I1' => $this->candidateMatchingErika(),
+                'I2' => $this->unmatchedCandidate(),
+            ],
+            $store,
+        );
 
-        self::assertSame(0, $result->matchesStored);
-        self::assertSame([], $store->allPending());
+        // candidatesFound is the held-map size (2), independent of the single row that was persisted.
+        self::assertSame(2, $result->candidatesFound);
+        self::assertSame(1, $result->matchesStored);
+        self::assertCount(1, $store->allPending());
     }
 
     /**
@@ -285,7 +322,7 @@ final class IngestServiceTest extends QueueTempDirTestCase
      * Builds a candidate that genuinely scores against the fixture "Erika Mustermann geb. Mueller"
      * notice. The shape mirrors the Phase-1 worked example (born approximately 1938, born Mueller,
      * married into the notice surname, resident in Musterstadt), so the classification is a real
-     * probable-band match rather than a forced value.
+     * strong-band match rather than a forced value.
      *
      * @return PersonCandidate The scoring candidate for person I1.
      */
@@ -298,6 +335,26 @@ final class IngestServiceTest extends QueueTempDirTestCase
             DateRange::known(new DateValue(1936, 1, 1), new DateValue(1940, 12, 31), DatePrecision::Approximate),
             null,
             [new Place('Musterstadt')],
+            DateRange::unknown(),
+        );
+    }
+
+    /**
+     * Builds a second, synthetic candidate (person I2) that has no notice in the response. It exists
+     * only to make the held-candidate map larger than the set of persisted rows, so a test can prove
+     * candidatesFound reports the input map size rather than the stored-row count.
+     *
+     * @return PersonCandidate The held-but-unmatched candidate for person I2.
+     */
+    private function unmatchedCandidate(): PersonCandidate
+    {
+        return new PersonCandidate(
+            'I2',
+            Gender::Male,
+            new PersonName(['Hans'], null, 'Beispiel', 'Beispiel'),
+            DateRange::unknown(),
+            null,
+            [],
             DateRange::unknown(),
         );
     }
