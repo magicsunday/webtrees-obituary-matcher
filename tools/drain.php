@@ -113,12 +113,23 @@ $limit = (is_string($limitOption) && ctype_digit($limitOption) && ((int) $limitO
 // HeadlessBootstrap's OWN RuntimeException messages are fixed, config-free strings ("No admin user
 // available…", "Could not locate/parse the sibling webtrees config…"), so they MAY be printed by the
 // (now second) RuntimeException arm. Any OTHER Throwable falls to the fixed-category Throwable arm.
+$logBootDetailToConfiguredSink = static function (Throwable $exception): void {
+    // error_log() writes to STDERR in PHP CLI when the `error_log` ini directive is unset — which
+    // would re-leak the DSN we deliberately keep off STDERR. Only record the raw detail when a real
+    // sink (a file or syslog) is configured; otherwise the fixed STDERR category is the only output.
+    $sink = ini_get('error_log');
+
+    if (is_string($sink) && ($sink !== '')) {
+        error_log('Headless drain bootstrap failed: ' . $exception->getMessage());
+    }
+};
+
 try {
     HeadlessBootstrap::boot();
     HeadlessBootstrap::loginSystemPrincipal(new UserService());
 } catch (PDOException $exception) {
     fwrite(STDERR, 'Headless drain bootstrap failed: database connection error.' . PHP_EOL);
-    error_log('Headless drain bootstrap failed: ' . $exception->getMessage());
+    $logBootDetailToConfiguredSink($exception);
 
     exit(1);
 } catch (RuntimeException $exception) {
@@ -127,7 +138,7 @@ try {
     exit(1);
 } catch (Throwable $exception) {
     fwrite(STDERR, 'Headless drain bootstrap failed: database connection error.' . PHP_EOL);
-    error_log('Headless drain bootstrap failed: ' . $exception->getMessage());
+    $logBootDetailToConfiguredSink($exception);
 
     exit(1);
 }
