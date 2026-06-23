@@ -11,6 +11,7 @@ declare(strict_types=1);
 
 namespace MagicSunday\ObituaryMatcher\Test\Integration;
 
+use Fisharebest\Webtrees\Tree;
 use MagicSunday\ObituaryMatcher\Domain\ClassifiedMatch;
 use MagicSunday\ObituaryMatcher\Matching\FileMatchStore;
 use MagicSunday\ObituaryMatcher\Matching\MatchStatus;
@@ -36,6 +37,7 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\Attributes\UsesClass;
 
+use function file_put_contents;
 use function mkdir;
 use function scandir;
 use function str_starts_with;
@@ -255,6 +257,44 @@ final class EnqueueServiceTest extends AbstractEnqueueTestCase
         mkdir($badDir, 0o700, true);
         AtomicFile::writeJson($badDir . '/request.json', ['garbage' => true]);
 
+        $this->assertEnqueueIgnoresTheCorruptInflightJob($tree);
+    }
+
+    /**
+     * (10) A syntactically-broken in-flight request.json (raw non-JSON bytes, NOT a schema-invalid
+     * but well-formed document) is warned + ignored; the enqueue still produces its job. Distinct from
+     * scenario (6): there AtomicFile::readJsonCapped decodes successfully and the schema check raises a
+     * ResponseValidationException, whereas here the decode itself fails — which must surface as a
+     * RuntimeException the in-flight scan catches, never an uncaught JsonException that aborts the run.
+     *
+     * @return void
+     */
+    #[Test]
+    public function aBrokenJsonInflightRequestIsIgnoredAndTheEnqueueStillRuns(): void
+    {
+        $tree = $this->ottoTree('enqueue-broken-json-inflight');
+
+        // Write RAW, syntactically-broken bytes (bypassing AtomicFile::writeJson, which always
+        // produces valid JSON) for a valid-job-id-pattern directory so the scan reaches the decode.
+        $badDir = $this->paths()->stateRoot(JobState::Queued->value) . '/job-broken';
+        mkdir($badDir, 0o700, true);
+        file_put_contents($badDir . '/request.json', '{not json');
+
+        $this->assertEnqueueIgnoresTheCorruptInflightJob($tree);
+    }
+
+    /**
+     * Runs the enqueue against the Otto tree and asserts the producer ignored a pre-seeded corrupt
+     * in-flight job: a job is still produced, no candidate is skipped and all three persons are
+     * enqueued. Shared by the schema-invalid (6) and broken-JSON (10) scenarios, which differ only in
+     * HOW the corrupt in-flight directory was seeded.
+     *
+     * @param Tree $tree The Otto tree the corrupt in-flight job was seeded against.
+     *
+     * @return void
+     */
+    private function assertEnqueueIgnoresTheCorruptInflightJob(Tree $tree): void
+    {
         $summary = $this->enqueueService()->enqueue($tree->id(), 50, 90, 'de-DE', self::REFERENCE_YEAR);
 
         self::assertNotNull($summary->jobId);
