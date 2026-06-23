@@ -149,11 +149,14 @@ class DrainService
                 && ($treeId !== $onlyTreeId)
             ) {
                 // A tree-scoped drain leaves a foreign job for another run: release it back to done.
-                // A failed release (it vanished or was re-claimed) is the only failure path here.
                 if ($this->client->releaseIngesting($jobId)) {
                     ++$skipped;
                 } else {
-                    $this->client->markFailedIngest($jobId, 'release_failed');
+                    // The release lost a concurrent race (another drain already moved/claimed the dir,
+                    // or it vanished). We no longer own the dir, so we must NOT attempt another state
+                    // transition on it (markFailedIngest would write into the missing ingesting dir and
+                    // throw, crashing the drain). Count it failed and move on; the other actor owns its
+                    // disposition.
                     ++$failed;
                 }
 
