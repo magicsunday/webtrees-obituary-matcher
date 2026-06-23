@@ -56,6 +56,10 @@ $options = getopt('', [
     'data-path::',
 ]);
 
+// getopt() returns false on a parse failure; normalise to an array so the array_key_exists() probes
+// below cannot TypeError (matches tools/drain.php).
+$options = $options === false ? [] : $options;
+
 $treeId = $options['tree-id'] ?? null;
 $person = $options['person'] ?? null;
 
