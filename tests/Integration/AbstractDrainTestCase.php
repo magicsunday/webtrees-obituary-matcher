@@ -364,7 +364,12 @@ abstract class AbstractDrainTestCase extends IntegrationTestCase
 
             $path = $directory . '/' . $entry;
 
-            if (is_dir($path)) {
+            // A symlink to a directory reports is_dir() === true; recursing into it would delete the
+            // LINK TARGET's contents outside the temp dir. Unlink the link itself instead of traversing.
+            if (
+                is_dir($path)
+                && !is_link($path)
+            ) {
                 $this->removeRecursively($path);
             } else {
                 unlink($path);
