@@ -42,7 +42,9 @@ $autoloadCandidates = [
 ];
 
 foreach ($autoloadCandidates as $autoloadCandidate) {
-    if (is_file($autoloadCandidate)) {
+    // is_readable (not is_file): an existing-but-unreadable autoloader would fatal on `require`, so
+    // guard on readability — the predicate that actually matches what `require` needs.
+    if (is_readable($autoloadCandidate)) {
         require $autoloadCandidate;
 
         return;

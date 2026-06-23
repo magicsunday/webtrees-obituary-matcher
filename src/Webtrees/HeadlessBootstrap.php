@@ -24,7 +24,6 @@ use Throwable;
 
 use function dirname;
 use function is_array;
-use function is_file;
 use function is_scalar;
 use function parse_ini_file;
 
@@ -138,7 +137,7 @@ final class HeadlessBootstrap
     {
         $configFile = (new WebtreesInstallLocator(dirname(__DIR__, 2)))->configFile();
 
-        if (($configFile === null) || !is_file($configFile)) {
+        if ($configFile === null) {
             throw new RuntimeException('Could not locate the webtrees config for the headless drain');
         }
 
