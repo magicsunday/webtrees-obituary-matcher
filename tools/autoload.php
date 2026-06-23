@@ -42,9 +42,10 @@ $autoloadCandidates = [
 ];
 
 foreach ($autoloadCandidates as $autoloadCandidate) {
-    // is_readable (not is_file): an existing-but-unreadable autoloader would fatal on `require`, so
-    // guard on readability — the predicate that actually matches what `require` needs.
-    if (is_readable($autoloadCandidate)) {
+    // The require target must be a readable REGULAR file: is_file rejects a directory that happens to
+    // sit at the candidate path (require on a dir fatals), and is_readable rejects an
+    // existing-but-unreadable file (require on it also fatals) — together they match what `require` needs.
+    if (is_file($autoloadCandidate) && is_readable($autoloadCandidate)) {
         require $autoloadCandidate;
 
         return;
