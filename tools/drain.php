@@ -102,15 +102,25 @@ $limit = (is_string($limitOption) && ctype_digit($limitOption) && ((int) $limitO
 // candidate. A boot failure (missing config, no admin account, …) is unrecoverable: report the
 // category WITHOUT leaking the DSN/credentials and exit non-zero.
 //
-// HeadlessBootstrap's OWN RuntimeException messages are fixed, config-free strings ("No admin user
-// available…", "Could not locate/parse the sibling webtrees config…"), so they MAY be printed. Any
-// OTHER Throwable is the DB::connect()/PDO path, whose message embeds the db host + username (e.g.
+// HeadlessBootstrap::boot() calls DB::connect(), whose failure surfaces as a PDOException — and in
+// PHP PDOException EXTENDS RuntimeException. Its message embeds the db host + username (e.g.
 // "Access denied for user 'wt'@'host'"); cron captures STDERR, so that message must NEVER reach it.
-// Print a fixed category instead and route the detail to error_log (the boot may have no DB or DI
-// container yet, so error_log is the only safe sink).
+// Therefore the PDOException arm MUST come FIRST: were the RuntimeException arm placed first it would
+// match the PDOException too (subclass) and print the leaking message. Print a fixed category and
+// route the detail to error_log (the boot may have no DB or DI container yet, so error_log is the
+// only safe sink).
+//
+// HeadlessBootstrap's OWN RuntimeException messages are fixed, config-free strings ("No admin user
+// available…", "Could not locate/parse the sibling webtrees config…"), so they MAY be printed by the
+// (now second) RuntimeException arm. Any OTHER Throwable falls to the fixed-category Throwable arm.
 try {
     HeadlessBootstrap::boot();
     HeadlessBootstrap::loginSystemPrincipal(new UserService());
+} catch (PDOException $exception) {
+    fwrite(STDERR, 'Headless drain bootstrap failed: database connection error.' . PHP_EOL);
+    error_log('Headless drain bootstrap failed: ' . $exception->getMessage());
+
+    exit(1);
 } catch (RuntimeException $exception) {
     fwrite(STDERR, 'Headless drain bootstrap failed: ' . $exception->getMessage() . PHP_EOL);
 

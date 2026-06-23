@@ -13,6 +13,7 @@ namespace MagicSunday\ObituaryMatcher\Queue;
 
 use InvalidArgumentException;
 use MagicSunday\ObituaryMatcher\Support\FeederRequestFactory;
+use RuntimeException;
 
 use function is_array;
 use function is_int;
@@ -65,6 +66,9 @@ final readonly class FeederRequestReader
      *
      * @throws InvalidArgumentException    When the jobId does not match the path-traversal guard.
      * @throws ResponseValidationException When the request fails any validation check.
+     * @throws RuntimeException            When the underlying file read fails (a symlink, an
+     *                                     unreadable, non-regular, oversize or torn request.json
+     *                                     raised by {@see AtomicFile::readJsonCapped()}).
      */
     public function read(string $jobId, JobState $fromState = JobState::Done): array
     {

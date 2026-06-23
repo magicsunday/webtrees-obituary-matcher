@@ -33,7 +33,11 @@ use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\Attributes\UsesClass;
 
 use function file_put_contents;
+use function json_encode;
 use function mkdir;
+use function str_repeat;
+
+use const JSON_THROW_ON_ERROR;
 
 /**
  * Drives {@see DrainService::drain()} end-to-end against a real imported tree and a real on-disk
@@ -296,24 +300,45 @@ final class DrainServiceTest extends AbstractDrainTestCase
             ],
         );
 
-        // job-002 is a fully valid job that must still ingest despite the corrupt sibling.
-        $this->seedDoneJob('job-002', $tree->id(), 'I1', 'Otto Searchable');
+        // The corrupt job is parked in failed-ingest while a valid sibling still ingests.
+        $this->assertBadJobParkedWhileValidJobIngests($tree, 'job-001');
+    }
 
-        $summary = $this->drainService()->drain(null, 20);
+    /**
+     * The request read isolates a plain IO/system RuntimeException the SAME way it isolates a
+     * validation reject: an oversize request.json makes {@see FeederRequestReader::read()} ->
+     * {@see AtomicFile::readJsonCapped()} throw a plain RuntimeException ("exceeds the size cap"),
+     * which is NOT a ResponseValidationException. Before the catch (RuntimeException) arm that
+     * propagated uncaught and crashed the whole drain, stranding the claimed job in ingesting/ and
+     * losing the valid sibling. This pins that the oversize job is parked in failed-ingest while the
+     * valid sibling still ingests — so a single torn/oversize request never strands the batch.
+     */
+    #[Test]
+    public function anOversizeRequestJobIsParkedWhileTheValidJobStillIngests(): void
+    {
+        $tree = $this->ottoTree('fixture-a');
 
-        // The corrupt job failed, the valid job ingested — the bad job did NOT halt the batch.
-        self::assertSame(1, $summary->ingested);
-        self::assertSame(1, $summary->failed);
-        self::assertSame(0, $summary->skipped);
-        self::assertSame(1, $summary->stored);
+        // job-001 carries an OVERSIZE request.json: still valid JSON, but padded past the reader's
+        // 5 MiB cap so readJsonCapped() throws a plain RuntimeException (an IO/system failure), NOT a
+        // ResponseValidationException. The job is claimed (done -> ingesting) before the read runs.
+        $oversizeDir = $this->paths()->doneDir('job-001');
+        mkdir($oversizeDir, 0o700, true);
 
-        // Queue end-states: the corrupt job parked in failed-ingest (NOT stranded in ingesting/),
-        // the valid job finalised under ingested/.
-        self::assertSame(JobState::FailedIngest, $this->paths()->stateOf('job-001'));
-        self::assertSame(JobState::Ingested, $this->paths()->stateOf('job-002'));
+        $oversizeRequest = json_encode(
+            [
+                'schemaVersion' => 2,
+                'jobId'         => 'job-001',
+                'treeId'        => $tree->id(),
+                'candidates'    => [['personId' => 'I1']],
+                // 6 MiB of filler pushes the file past the reader's 5 MiB (5_242_880-byte) cap.
+                'padding' => str_repeat('x', 6 * 1024 * 1024),
+            ],
+            JSON_THROW_ON_ERROR,
+        );
+        file_put_contents($oversizeDir . '/request.json', $oversizeRequest);
 
-        // Store delta: exactly the valid job's single row was persisted.
-        self::assertCount(1, $this->storeFor($tree)->allPending());
+        // The oversize job is parked in failed-ingest while a valid sibling still ingests.
+        $this->assertBadJobParkedWhileValidJobIngests($tree, 'job-001');
     }
 
     /**

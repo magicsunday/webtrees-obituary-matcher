@@ -209,6 +209,40 @@ abstract class AbstractDrainTestCase extends IntegrationTestCase
     }
 
     /**
+     * Assert the per-job isolation contract shared by the "one bad job, one valid job" scenarios:
+     * after seeding a valid sibling (job-002) and draining the whole batch, the bad job ($badJobId)
+     * is parked in failed-ingest (counted failed, never stranded in ingesting/), while the valid job
+     * still reaches ingested/ with its single row persisted. The caller seeds the bad job in its own
+     * scenario-specific shape (a schema-invalid response, an oversize request, …) before calling this.
+     *
+     * @param Tree   $tree     The tree both jobs belong to.
+     * @param string $badJobId The seeded bad job expected to park in failed-ingest.
+     *
+     * @return void
+     */
+    protected function assertBadJobParkedWhileValidJobIngests(Tree $tree, string $badJobId): void
+    {
+        // job-002 is a fully valid job that must still ingest despite the bad sibling.
+        $this->seedDoneJob('job-002', $tree->id(), 'I1', 'Otto Searchable');
+
+        $summary = $this->drainService()->drain(null, 20);
+
+        // The bad job failed, the valid job ingested — the bad job did NOT halt the batch.
+        self::assertSame(1, $summary->ingested);
+        self::assertSame(1, $summary->failed);
+        self::assertSame(0, $summary->skipped);
+        self::assertSame(1, $summary->stored);
+
+        // Queue end-states: the bad job parked in failed-ingest (NOT stranded in ingesting/), the
+        // valid job finalised under ingested/.
+        self::assertSame(JobState::FailedIngest, $this->paths()->stateOf($badJobId));
+        self::assertSame(JobState::Ingested, $this->paths()->stateOf('job-002'));
+
+        // Store delta: exactly the valid job's single row was persisted.
+        self::assertCount(1, $this->storeFor($tree)->allPending());
+    }
+
+    /**
      * Import a one-person tree: an old "Otto Searchable" with no death date (so the candidate is
      * rebuildable) born exactly on the date the seeded notice carries.
      *

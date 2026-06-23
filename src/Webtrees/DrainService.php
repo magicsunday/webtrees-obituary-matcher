@@ -21,6 +21,7 @@ use MagicSunday\ObituaryMatcher\Queue\JobState;
 use MagicSunday\ObituaryMatcher\Queue\QueueClient;
 use MagicSunday\ObituaryMatcher\Queue\QueuePaths;
 use MagicSunday\ObituaryMatcher\Queue\ResponseValidationException;
+use RuntimeException;
 use Throwable;
 
 use function array_filter;
@@ -117,6 +118,16 @@ class DrainService
                 // A corrupt or hand-edited request is not retryable: park the claimed job in the
                 // failed-ingest state and move on rather than aborting the whole drain.
                 $this->client->markFailedIngest($jobId, 'schema_invalid');
+                ++$failed;
+
+                continue;
+            } catch (RuntimeException) {
+                // ResponseValidationException (a RuntimeException subclass) is matched above, so this
+                // arm catches a PLAIN RuntimeException: an IO/system failure from readJsonCapped() (a
+                // symlink, an unreadable, an oversize or a torn request.json). Isolate it the same
+                // way — park the claimed job in failed-ingest and move on rather than aborting the
+                // whole drain. Order is REQUIRED: the specific validation type must stay first.
+                $this->client->markFailedIngest($jobId, 'request_failed');
                 ++$failed;
 
                 continue;
