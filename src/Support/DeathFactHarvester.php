@@ -20,9 +20,12 @@ use function sprintf;
 use function trim;
 
 /**
- * Harvests structured facts from an obituary record, currently the exact death date for later
- * write-back. Shared by {@see \MagicSunday\ObituaryMatcher\Scoring\MatchEngine} and the enriched
- * engine so the harvesting lives in exactly one place.
+ * Harvests structured facts for later write-back from two notice shapes, shared by
+ * {@see \MagicSunday\ObituaryMatcher\Scoring\MatchEngine} and the enriched engine so the harvesting
+ * lives in exactly one place: {@see harvest()} takes an {@see ObituaryRecord} and yields the exact
+ * death date (the Phase-1 path), while {@see harvestFromNotice()} takes a {@see DeathNoticeRecord}
+ * and yields the death date, the cemetery and the funeral date (the enriched path). Each fact is
+ * harvested independently on its own condition.
  *
  * @author  Rico Sonntag <mail@ricosonntag.de>
  * @license https://opensource.org/licenses/GPL-3.0 GNU General Public License v3.0

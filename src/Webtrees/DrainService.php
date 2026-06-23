@@ -86,7 +86,9 @@ class DrainService
      * is non-null only jobs for that tree are ingested; a job for any other tree is released back to
      * the done state (so a tree-scoped drain leaves foreign jobs untouched for another run). After
      * the run the still-ingesting directory is counted into the summary's stale tally — a crashed or
-     * concurrently-claimed ingest the next drain will re-process.
+     * concurrently-claimed ingest. This slice does NOT auto-reclaim such a job: it is only counted
+     * and reported, and recovery is manual (the operator moves the job back to done). Automatic
+     * reclaim is a documented future/optional hardening.
      *
      * @param int|null $onlyTreeId The single tree to ingest, or null to ingest every tree.
      * @param int      $limit      The maximum number of done jobs to process this run.
@@ -231,9 +233,10 @@ class DrainService
 
     /**
      * Counts the directories still sitting in the ingesting state after the drain finished. Each is a
-     * job whose ingest never completed (a crash) or one a concurrent drain is mid-claim on; both are
-     * re-processed on the next run, so the count is surfaced as the summary's stale tally rather than
-     * acted on here.
+     * job whose ingest never completed (a crash) or one a concurrent drain is mid-claim on. This
+     * slice does NOT auto-reclaim them: the count is surfaced as the summary's stale tally and
+     * reported, but recovery is manual (the operator moves the job back to done). Automatic reclaim
+     * is a documented future/optional hardening, not done here.
      *
      * @return int The number of still-ingesting job directories.
      */

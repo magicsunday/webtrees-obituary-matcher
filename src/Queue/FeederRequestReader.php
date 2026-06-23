@@ -50,6 +50,12 @@ final readonly class FeederRequestReader
      * Reads, validates and narrows the request.json for the given job into its tree id and the list
      * of requested person ids.
      *
+     * Trust boundary: request.json is the MODULE-written instruction (the trusted side of the queue
+     * contract), so its `treeId` selects the target tree. A feeder reads request.json and writes only
+     * response.json; it MUST NOT mutate request.json. The reader narrows every consumed field
+     * defensively, but does NOT re-derive the tree from a module-side source — pinning `treeId`
+     * against the enqueued value is the enqueue slice's concern, out of scope here.
+     *
      * @param string   $jobId     The validated job identifier whose request is read (also used to
      *                            build the path; the embedded JSON jobId is only a consistency gate).
      * @param JobState $fromState The state directory the claimed request lives in (defaults to

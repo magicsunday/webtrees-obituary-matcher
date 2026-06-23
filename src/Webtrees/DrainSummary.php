@@ -16,7 +16,9 @@ namespace MagicSunday\ObituaryMatcher\Webtrees;
  * per-job tallies are mutually exclusive (a job is counted in exactly one of ingested/skipped/failed)
  * and $stored is the cumulative number of pending suggestions persisted across all ingested jobs;
  * $stale is the number of jobs still sitting in the ingesting state AFTER the drain finished — a
- * crashed or concurrently-claimed ingest the next run will re-process.
+ * crashed or concurrently-claimed ingest. Such a job is only counted and reported here; this slice
+ * does NOT auto-reclaim it, recovery is manual (the operator moves it back to done), and automatic
+ * reclaim is a documented future/optional hardening.
  *
  * @author  Rico Sonntag <mail@ricosonntag.de>
  * @license https://opensource.org/licenses/GPL-3.0 GNU General Public License v3.0
