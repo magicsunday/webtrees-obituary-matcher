@@ -31,6 +31,9 @@ use function preg_match;
 final class JobIdTest extends TestCase
 {
     /**
+     * Verifies a minted id has the `job-<UTC compact timestamp>Z-<eight hex>` shape, so the time
+     * prefix makes the id naturally sortable oldest-first and the random suffix keeps it unique.
+     *
      * @return void
      */
     #[Test]
@@ -42,6 +45,9 @@ final class JobIdTest extends TestCase
     }
 
     /**
+     * Verifies a non-UTC instant is normalised to UTC before stamping, so the embedded timestamp is
+     * the UTC wall time regardless of the source offset and the ids stay globally comparable.
+     *
      * @return void
      */
     #[Test]
@@ -54,6 +60,9 @@ final class JobIdTest extends TestCase
     }
 
     /**
+     * Verifies a minted id satisfies the queue's job-id path-traversal pattern, so the drain's
+     * directory discovery and the QueuePaths builders accept it without escaping the queue root.
+     *
      * @return void
      */
     #[Test]

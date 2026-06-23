@@ -221,7 +221,7 @@ abstract class AbstractDrainTestCase extends AbstractQueueStoreTestCase
     }
 
     /**
-     * Seed a single-person done job: a request.json (schema v2, carrying treeId) for the given person
+     * Seed a single-person done job: a request.json (schema v3, carrying treeId) for the given person
      * plus a response.json (schema v1) carrying one matching notice with an exact death date, a
      * cemetery and an exact funeral date, so the harvest carries both burial facts.
      *
