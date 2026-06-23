@@ -259,10 +259,11 @@ class DrainService
                 && (preg_match(self::JOB_ID_PATTERN, $entry) === 1),
         );
 
-        // Oldest-first by monotonically increasing job id: the feeder mints monotonically increasing
-        // ids, so a NATURAL name sort is an oldest-first ordering without reading the wall clock. A
-        // natural (not lexicographic) sort keeps unpadded ids ordered correctly (job-2 before job-10),
-        // which also governs which jobs survive the array_slice cap below.
+        // Oldest-first by job id: the producer mints time-prefixed ids (a fixed-width UTC
+        // timestamp prefix), so a NATURAL name sort is an oldest-first ordering without reading
+        // the wall clock. Same-second order is unspecified (a random tiebreak) and the drain does
+        // not depend on it — each job ingests independently. A natural (not lexicographic) sort
+        // keeps unpadded ids ordered correctly, which also governs the array_slice cap below.
         $jobIds = array_values($jobIds);
         sort($jobIds, SORT_NATURAL);
 
