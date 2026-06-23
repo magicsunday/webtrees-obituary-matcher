@@ -115,6 +115,22 @@ final readonly class QueuePaths
     }
 
     /**
+     * Returns the absolute path to a job's directory under the given state. The jobId is validated
+     * against the path-traversal guard, so a hostile jobId can never escape the queue root.
+     *
+     * @param JobState $state The state whose directory holds the job.
+     * @param string   $jobId The validated job identifier.
+     *
+     * @return string
+     *
+     * @throws InvalidArgumentException When the jobId does not match the allowed pattern.
+     */
+    public function stateDir(JobState $state, string $jobId): string
+    {
+        return $this->stateRoot($state->value) . '/' . $this->validateJobId($jobId);
+    }
+
+    /**
      * Returns the absolute path to a state's directory under the queue root.
      *
      * @param string $state The state directory name.

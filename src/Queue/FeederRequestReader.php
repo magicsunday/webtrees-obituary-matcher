@@ -11,6 +11,7 @@ declare(strict_types=1);
 
 namespace MagicSunday\ObituaryMatcher\Queue;
 
+use InvalidArgumentException;
 use MagicSunday\ObituaryMatcher\Support\FeederRequestFactory;
 
 use function is_array;
@@ -56,11 +57,12 @@ final readonly class FeederRequestReader
      *
      * @return array{treeId: int, requestedPersonIds: list<string>} The narrowed request fields.
      *
+     * @throws InvalidArgumentException    When the jobId does not match the path-traversal guard.
      * @throws ResponseValidationException When the request fails any validation check.
      */
     public function read(string $jobId, JobState $fromState = JobState::Done): array
     {
-        $path = $this->paths->stateRoot($fromState->value) . '/' . $jobId . '/request.json';
+        $path = $this->paths->stateDir($fromState, $jobId) . '/request.json';
 
         // AtomicFile already rejects symlinks, non-regular/unreadable files, oversize files and
         // decode errors; an IO failure surfaces as a plain RuntimeException, not a validation one.
