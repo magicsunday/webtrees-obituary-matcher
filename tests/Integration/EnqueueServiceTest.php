@@ -379,6 +379,56 @@ final class EnqueueServiceTest extends AbstractEnqueueTestCase
     }
 
     /**
+     * (13) A non-positive --limit enqueues nothing: the explicit cap guard returns an empty summary
+     * (jobId null, all counters zero) and writes no job. Without the guard the `count() === $limit`
+     * break could never fire for a zero/negative limit and the loop would drain and enqueue the whole
+     * eligible population.
+     *
+     * @return void
+     */
+    #[Test]
+    public function aNonPositiveLimitEnqueuesNothing(): void
+    {
+        $tree = $this->ottoTree('enqueue-zero-limit');
+
+        $summary = $this->enqueueService()->enqueue($tree->id(), 0, 90, 'de-DE', self::REFERENCE_YEAR);
+
+        self::assertNull($summary->jobId);
+        self::assertSame(0, $summary->candidates);
+        self::assertSame(0, $summary->skippedInflight);
+        self::assertSame(0, $summary->excludedHosts);
+
+        self::assertSame([], $this->queuedJobIds());
+    }
+
+    /**
+     * (14) Bounding meets in-flight dedup: over I1..I5 with an in-flight job for I1 AND I5 and
+     * --limit 2, the producer emits [I2, I3] and reports skippedInflight 1 — only the in-flight I1
+     * stepped over WHILE filling the cap is counted; the in-flight I5 sits beyond the cap boundary,
+     * is never pulled, and is NOT counted. This is the discriminator for the within-batch
+     * skippedInflight semantics (the old whole-population slice would have reported 2).
+     *
+     * @return void
+     */
+    #[Test]
+    public function skippedInflightCountsOnlyTheInFlightSteppedOverWhileFillingTheCap(): void
+    {
+        $tree = $this->searchableTree('enqueue-bounding-inflight', 5);
+
+        // I1 is stepped over while filling the cap (counted); I5 sits beyond the cap boundary and is
+        // never reached (not counted).
+        $this->seedInflightJob('job-existing-mix', JobState::Queued, $tree->id(), ['I1', 'I5']);
+
+        $summary = $this->enqueueService()->enqueue($tree->id(), 2, 90, 'de-DE', self::REFERENCE_YEAR);
+
+        self::assertNotNull($summary->jobId);
+        self::assertSame(2, $summary->candidates);
+        self::assertSame(1, $summary->skippedInflight);
+
+        self::assertSame(['I2', 'I3'], $this->queuedPersonIds($summary->jobId));
+    }
+
+    /**
      * (8) Zero eligible candidates → no job written, summary jobId null and counters zero.
      *
      * @return void

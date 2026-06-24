@@ -20,7 +20,6 @@ use MagicSunday\ObituaryMatcher\Queue\FeederRequestReader;
 use MagicSunday\ObituaryMatcher\Queue\JobState;
 use MagicSunday\ObituaryMatcher\Queue\QueueClient;
 use MagicSunday\ObituaryMatcher\Queue\QueuePaths;
-use MagicSunday\ObituaryMatcher\Queue\ResponseValidationException;
 use MagicSunday\ObituaryMatcher\Support\FeederRequestFactory;
 use MagicSunday\ObituaryMatcher\Support\JobId;
 use MagicSunday\ObituaryMatcher\Support\UrlHostNormalizer;
@@ -88,6 +87,14 @@ class EnqueueService
     public function enqueue(int $treeId, int $limit, int $minAge, string $locale, ?int $referenceYear = null): EnqueueSummary
     {
         $tree = $this->treeService->find($treeId);
+
+        // A non-positive cap enqueues nothing. Bound it explicitly: the `count($eligible) === $limit`
+        // break below can never fire for $limit <= 0 (the count starts at 1 after the first append),
+        // so without this guard the loop would drain and enqueue the WHOLE eligible population. This
+        // mirrors the old `array_slice($eligible, 0, $limit)`, which returned [] for $limit <= 0.
+        if ($limit < 1) {
+            return new EnqueueSummary(null, 0, 0, 0);
+        }
 
         // Tree-filtered: only jobs for THIS tree block a re-enqueue, so a shared xref (I1 in tree A
         // vs I1 in tree B) never causes a cross-tree false-positive skip.
@@ -267,11 +274,13 @@ class EnqueueService
 
                 try {
                     $request = $this->reader->read($entry, $state);
-                } catch (ResponseValidationException|RuntimeException|InvalidArgumentException) {
+                } catch (RuntimeException|InvalidArgumentException) {
                     // Warn-and-ignore: a corrupt/foreign/path-hostile in-flight job must never block
-                    // the producer. All three are caught — InvalidArgumentException (the path guard)
-                    // is NOT a RuntimeException. (A logger could record $entry here; the CLI surfaces
-                    // the scan as advisory.)
+                    // the producer. A schema-invalid request surfaces as a ResponseValidationException
+                    // and a broken-JSON / IO failure as a plain RuntimeException — both are
+                    // RuntimeException subclasses, so the one arm covers them; the path-traversal guard
+                    // throws InvalidArgumentException, which is NOT a RuntimeException, so it needs its
+                    // own arm. (A logger could record $entry here; the CLI surfaces the scan as advisory.)
                     continue;
                 }
 
