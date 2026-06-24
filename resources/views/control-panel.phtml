@@ -82,7 +82,7 @@ $stateLabels = [
                     <td><?= e($stateLabels[$row->stateKey] ?? $row->stateKey) ?></td>
                     <td>
                         <?php if ($row->counts === []) : ?>
-                            &mdash;
+                            —
                         <?php else : ?>
                             <?php foreach ($row->counts as $countKey => $countValue) : ?>
                                 <?= e($countKey) ?>=<?= e((string) $countValue) ?>
