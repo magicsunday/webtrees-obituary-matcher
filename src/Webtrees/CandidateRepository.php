@@ -16,12 +16,16 @@ use Fisharebest\Webtrees\Gedcom;
 use Fisharebest\Webtrees\Individual;
 use Fisharebest\Webtrees\Registry;
 use Fisharebest\Webtrees\Tree;
+use Generator;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Database\Query\Expression;
 use MagicSunday\ObituaryMatcher\Domain\PersonCandidate;
 
 use function date;
 use function is_string;
+use function sort;
+
+use const SORT_STRING;
 
 /**
  * Selects the individuals worth searching an obituary for: old people whose death date is
@@ -45,22 +49,68 @@ use function is_string;
 final readonly class CandidateRepository
 {
     /**
-     * Find every searchable candidate in the tree: an old individual without an
-     * interpretable death date, visible to the current user, whose latest possible birth
-     * still implies an age of at least {@see CandidateCriteria::$minAge}.
+     * Lazily yield every searchable candidate in the tree — an old individual without an
+     * interpretable death date, visible to the current user, whose latest possible birth still
+     * implies an age of at least {@see CandidateCriteria::$minAge} — in lexicographic xref order.
+     *
+     * The xref pre-filter — a single cheap SQL SELECT that returns only id strings, no hydrated
+     * individual — is materialised and sorted up front, but each surviving xref is hydrated to an
+     * {@see Individual}, privacy-gated and PHP age-rechecked only when the consumer pulls the next
+     * value. So a consumer that stops early (the enqueue producer capping to its `--limit`) pays
+     * `O(consumed)` hydrations rather than eagerly hydrating the whole eligible population. A caller
+     * that wants the whole set simply drains the generator (`iterator_to_array(...)`).
+     *
+     * The yield order is fixed in PHP (a `SORT_STRING` over the plucked xrefs, NOT a SQL `ORDER BY`),
+     * so the producer's lowest-xref-first cap is deterministic and identical on every database engine.
+     * The order is lexicographic by design (byte-wise), NOT numeric — so for the rare tree carrying
+     * bare-numeric xrefs the cap tiebreak is lexicographic (`"10"` sorts before `"2"`);
+     * webtrees-generated xrefs are always letter-prefixed, where lexicographic and numeric order
+     * coincide.
      *
      * @param Tree              $tree     The tree to search.
      * @param CandidateCriteria $criteria The selection criteria.
      *
-     * @return list<PersonCandidate> The surviving candidates, in lexicographic xref order.
+     * @return Generator<int, PersonCandidate> The surviving candidates, in lexicographic xref order.
      */
-    public function findCandidates(Tree $tree, CandidateCriteria $criteria): array
+    public function findCandidatesLazily(Tree $tree, CandidateCriteria $criteria): Generator
     {
-        // Resolve the reference year once, at the top, so the whole query measures age
+        // Resolve the reference year once, at the top, so the whole selection measures age
         // against a single fixed point rather than re-reading the clock per row.
         $referenceYear = $criteria->referenceYear ?? (int) date('Y');
         $minAge        = $criteria->minAge;
-        $birthCeiling  = $referenceYear - $minAge;
+
+        foreach ($this->selectCandidateXrefs($tree, $criteria, $referenceYear) as $xref) {
+            $candidate = $this->resolveCandidate($tree, $xref);
+
+            if (!$candidate instanceof PersonCandidate) {
+                continue;
+            }
+
+            if (!$this->isOldEnough($candidate, $referenceYear, $minAge, $criteria->includeUnknownBirth)) {
+                continue;
+            }
+
+            yield $candidate;
+        }
+    }
+
+    /**
+     * Run the portable SQL pre-filter and return the surviving xrefs, sorted lexicographically. This
+     * is the cheap half of the selection: only id strings cross the boundary — no individual is
+     * hydrated — so a bounded consumer can sort, skip the in-flight ids and cap at the xref level
+     * before paying for a single hydration. The ordering is applied here in PHP (byte-wise
+     * `SORT_STRING`) rather than as a SQL `ORDER BY`, so it is lexicographic and identical on every
+     * engine, with no dependence on the storage engine's column collation.
+     *
+     * @param Tree              $tree          The tree to search.
+     * @param CandidateCriteria $criteria      The selection criteria.
+     * @param int               $referenceYear The resolved reference year the age bound measures against.
+     *
+     * @return list<string> The surviving xrefs, sorted lexicographically.
+     */
+    private function selectCandidateXrefs(Tree $tree, CandidateCriteria $criteria, int $referenceYear): array
+    {
+        $birthCeiling = $referenceYear - $criteria->minAge;
 
         $query = DB::table('individuals')
             ->where('i_file', '=', $tree->id())
@@ -89,7 +139,7 @@ final readonly class CandidateRepository
         if (!$criteria->includeUnknownBirth) {
             // Require a birth date old enough to clear the age bound. The `d_year` column
             // is coarse for imprecise dates, so this only narrows the set — the PHP
-            // re-check below tightens it against the latest possible birth.
+            // re-check tightens it against the latest possible birth.
             $query->whereExists(static function (Builder $subQuery) use ($birthCeiling): void {
                 $subQuery
                     ->select(new Expression('1'))
@@ -98,21 +148,21 @@ final readonly class CandidateRepository
                     ->whereColumn('dates.d_gid', 'individuals.i_id')
                     // Match every event webtrees treats as a birth ({@see Gedcom::BIRTH_EVENTS}
                     // = BIRT/CHR/BAPM), the same set `Individual::getBirthDate()` and the PHP
-                    // re-check below honour: a christening/baptism-only individual (common for
-                    // the oldest parish-record people) has no `BIRT` dates row and would
-                    // otherwise be silently dropped before reaching the PHP layer.
+                    // re-check honour: a christening/baptism-only individual (common for the
+                    // oldest parish-record people) has no `BIRT` dates row and would otherwise
+                    // be silently dropped before reaching the PHP layer.
                     ->whereIn('dates.d_fact', Gedcom::BIRTH_EVENTS)
                     ->where('dates.d_year', '>', 0)
                     ->where('dates.d_year', '<=', $birthCeiling);
             });
         }
 
-        /** @var list<mixed> $xrefs */
-        $xrefs = $query->pluck('i_id')->all();
+        /** @var list<mixed> $rows */
+        $rows = $query->pluck('i_id')->all();
 
-        $candidates = [];
+        $xrefs = [];
 
-        foreach ($xrefs as $xref) {
+        foreach ($rows as $xref) {
             if (!is_string($xref)) {
                 continue;
             }
@@ -121,25 +171,17 @@ final readonly class CandidateRepository
                 continue;
             }
 
-            $candidate = $this->resolveCandidate($tree, $xref);
-
-            if (!$candidate instanceof PersonCandidate) {
-                continue;
-            }
-
-            if (!$this->isOldEnough($candidate, $referenceYear, $minAge, $criteria->includeUnknownBirth)) {
-                continue;
-            }
-
-            $candidates[] = $candidate;
+            $xrefs[] = $xref;
         }
 
-        return $candidates;
+        sort($xrefs, SORT_STRING);
+
+        return $xrefs;
     }
 
     /**
      * Rebuild the candidates for an explicit xref set, keyed by id, bypassing the
-     * age/death selection filter {@see findCandidates()} applies. Unlike a fresh selection
+     * age/death selection filter {@see findCandidatesLazily()} applies. Unlike a fresh selection
      * this rebuilds whoever was requested — a draining caller already holds the xrefs and
      * needs their live candidate shape, not a re-evaluation of who qualifies. An xref with
      * no individual, or one the current user may not see, is silently omitted.

@@ -18,20 +18,13 @@ use Fisharebest\Webtrees\Tree;
 use MagicSunday\ObituaryMatcher\Matching\WriteBack;
 use MagicSunday\ObituaryMatcher\Support\GedcomDateConverter;
 use MagicSunday\ObituaryMatcher\Support\MalformedDeathDateException;
-use MagicSunday\ObituaryMatcher\Support\UrlNormalizer;
+use MagicSunday\ObituaryMatcher\Support\UrlHostNormalizer;
 
 use function date;
-use function is_string;
-use function mb_strtolower;
-use function parse_url;
 use function preg_match;
 use function preg_quote;
 use function sprintf;
 use function str_contains;
-use function str_starts_with;
-use function substr;
-
-use const PHP_URL_HOST;
 
 /**
  * Writes the obituary's death date into a tree person as a sourced GEDCOM DEAT fact (2d-3a). It is
@@ -63,10 +56,13 @@ class ObituaryWriteBack
     /**
      * Constructor.
      *
-     * @param PortalSourceRepository|null $sources The portal-source row reader; defaults to a fresh instance.
+     * @param PortalSourceRepository|null $sources        The portal-source row reader; defaults to a fresh instance.
+     * @param UrlHostNormalizer           $hostNormalizer The shared canonical-host helper.
      */
-    public function __construct(?PortalSourceRepository $sources = null)
-    {
+    public function __construct(
+        ?PortalSourceRepository $sources = null,
+        private readonly UrlHostNormalizer $hostNormalizer = new UrlHostNormalizer(),
+    ) {
         $this->sources = $sources ?? new PortalSourceRepository();
     }
 
@@ -176,9 +172,10 @@ class ObituaryWriteBack
     }
 
     /**
-     * Derives the canonical host (lowercase, leading "www." stripped) from a source URL. This is NOT a
-     * validator: `writeDeath` checks the http(s) scheme + control chars BEFORE calling it; an unparseable
-     * URL here simply yields an empty string, which `writeDeath` then rejects.
+     * Returns the canonical host for the source URL, or an empty string when it cannot be
+     * derived. Delegates to the shared {@see UrlHostNormalizer}; the helper returns null on a
+     * bad host, which this method coalesces to `''` so the caller's `=== ''` precondition (and
+     * the {@see WriteBackPreconditionException} it raises) keeps firing exactly as before.
      *
      * @param string $url The source notice URL.
      *
@@ -186,19 +183,7 @@ class ObituaryWriteBack
      */
     protected function canonicalHost(string $url): string
     {
-        $host = parse_url(UrlNormalizer::normalizeForIdentity($url), PHP_URL_HOST);
-
-        if (!is_string($host)) {
-            return '';
-        }
-
-        $host = mb_strtolower($host, 'UTF-8');
-
-        if (str_starts_with($host, 'www.')) {
-            return substr($host, 4);
-        }
-
-        return $host;
+        return $this->hostNormalizer->canonicalHost($url) ?? '';
     }
 
     /**

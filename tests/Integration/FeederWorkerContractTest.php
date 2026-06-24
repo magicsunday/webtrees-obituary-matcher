@@ -138,18 +138,34 @@ final class FeederWorkerContractTest extends TempDirTestCase
         );
         $jobId = $client->enqueue($request);
 
-        // 1a. Pin the REQUEST contract the Python feeder consumes. Task 1 bumped the request payload to
-        //     schemaVersion 2 and added the numeric `treeId` field (so the drain can resolve the target
+        // 1a. Pin the REQUEST contract the Python feeder consumes. The request payload is at
+        //     schemaVersion 3 and carries the numeric `treeId` field (so the drain can resolve the target
         //     tree without trusting the worker). Assert both against the request as ENQUEUED on disk —
         //     the exact bytes the worker reads — not just the in-memory object.
         //
-        //     CONTRACT: the private Python feeder's request parser MUST tolerate `schemaVersion` 2 and
-        //     the new `treeId` field (carry it through opaquely into the response flow) before this
-        //     schema bump ships, or the worker will reject every request this module now enqueues.
+        //     CONTRACT: the private Python feeder's request parser MUST tolerate `schemaVersion` 3 and the
+        //     new per-candidate `excludedHosts` field (a feeder hint that is ALWAYS present on every
+        //     candidate and is a list — possibly empty when the producer seeded no open match) — and
+        //     carry the `treeId` field through opaquely into the response flow — before this schema bump
+        //     ships, or the worker will reject every request this module now enqueues.
         $enqueued = AtomicFile::readJsonCapped($paths->queuedDir($jobId) . '/request.json', 1_048_576);
 
-        self::assertSame(2, $enqueued['schemaVersion']);
+        self::assertSame(3, $enqueued['schemaVersion']);
         self::assertSame(self::REQUEST_TREE_ID, $enqueued['treeId']);
+
+        self::assertArrayHasKey('candidates', $enqueued);
+        self::assertIsArray($enqueued['candidates']);
+        self::assertArrayHasKey(0, $enqueued['candidates']);
+
+        $firstCandidate = $enqueued['candidates'][0];
+        self::assertIsArray($firstCandidate);
+
+        self::assertArrayHasKey('excludedHosts', $firstCandidate);
+        self::assertIsList($firstCandidate['excludedHosts']);
+        // The empty list is the most important default semantic: when the producer seeds no open
+        // match, excludedHosts is present-and-[] (never absent), so the feeder never distinguishes
+        // "absent" from "empty". Pin it explicitly (the contract test enqueues with no store rows).
+        self::assertSame([], $firstCandidate['excludedHosts']);
 
         // 2. The REAL Python worker drains the queue against this test's recorded HTML fixture.
         $this->runWorker($worker);

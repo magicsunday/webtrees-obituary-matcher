@@ -78,6 +78,21 @@ final class AtomicFileTest extends TempDirTestCase
     }
 
     /**
+     * A file whose bytes are not valid JSON is rejected with a RuntimeException, NOT the
+     * JSON_THROW_ON_ERROR JsonException (which extends \Exception, not RuntimeException). The reader's
+     * callers isolate a poison row by catching RuntimeException, so leaking a JsonException here would
+     * escape that guard and abort the whole directory scan instead of skipping the one corrupt entry.
+     */
+    #[Test]
+    public function readJsonCappedConvertsBrokenJsonIntoARuntimeException(): void
+    {
+        $path = $this->tmp . '/broken.json';
+        file_put_contents($path, '{not json');
+        $this->expectException(RuntimeException::class);
+        AtomicFile::readJsonCapped($path, 1024);
+    }
+
+    /**
      * Under a custom error handler that converts the rename E_WARNING into an exception (webtrees
      * installs such a handler), a failing atomic rename throws FROM rename() rather than returning
      * false. The thrown exception must still propagate AND the temporary file must be cleaned up, so

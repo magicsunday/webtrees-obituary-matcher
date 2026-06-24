@@ -16,7 +16,7 @@ use PHPUnit\Framework\Attributes\CoversNothing;
 use PHPUnit\Framework\Attributes\Test;
 
 /**
- * The single end-to-end proof of the Phase-2e drain: a fixture done job (request schema v2 +
+ * The single end-to-end proof of the Phase-2e drain: a fixture done job (request schema v3 +
  * response schema v1, an `.example` cemetery and a funeral date) over a REAL imported tree is driven
  * through the SAME full dependency graph the {@see \tools/drain.php} CLI composition root assembles
  * (via {@see AbstractDrainTestCase::drainService()}) — not a partial or mocked wiring — and the run

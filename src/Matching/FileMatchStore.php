@@ -13,7 +13,6 @@ namespace MagicSunday\ObituaryMatcher\Matching;
 
 use FilesystemIterator;
 use InvalidArgumentException;
-use JsonException;
 use MagicSunday\ObituaryMatcher\Domain\ClassifiedMatch;
 use MagicSunday\ObituaryMatcher\Queue\AtomicFile;
 use RuntimeException;
@@ -469,13 +468,14 @@ final readonly class FileMatchStore implements MatchStore
 
             try {
                 $rows[] = StoredMatch::fromArray(AtomicFile::readJsonCapped($path, self::MAX_BYTES));
-            } catch (JsonException|RuntimeException) {
+            } catch (RuntimeException) {
                 // A single malformed row is skipped, not fatal: the remaining valid rows still
                 // surface. This covers the whole decode/IO corruption class — a truncated or
-                // non-JSON file (JsonException), a symlinked/oversize file (RuntimeException) and a
-                // wrong-shape row (CorruptMatchRowException, a RuntimeException subclass) — without
-                // swallowing a programming error (no catch (Throwable)). A single-key read of the
-                // same row stays fail-loud (see readRow).
+                // non-JSON file, a symlinked/oversize file and a wrong-shape row
+                // (CorruptMatchRowException, a RuntimeException subclass) — all surface as a
+                // RuntimeException (readJsonCapped converts the JSON_THROW_ON_ERROR JsonException
+                // into one), without swallowing a programming error (no catch (Throwable)). A
+                // single-key read of the same row stays fail-loud (see readRow).
                 continue;
             }
         }

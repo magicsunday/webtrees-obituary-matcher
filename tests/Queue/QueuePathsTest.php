@@ -17,6 +17,7 @@ use MagicSunday\ObituaryMatcher\Queue\JobState;
 use MagicSunday\ObituaryMatcher\Queue\QueuePaths;
 use MagicSunday\ObituaryMatcher\Test\Support\TempDirTestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\Attributes\UsesClass;
 use RuntimeException;
@@ -26,6 +27,7 @@ use function is_dir;
 use function mkdir;
 use function restore_error_handler;
 use function set_error_handler;
+use function str_repeat;
 
 /**
  * Tests the queue path builder and layout creation, including the jobId path-traversal guard.
@@ -47,6 +49,37 @@ final class QueuePathsTest extends TempDirTestCase
     {
         $this->expectException(InvalidArgumentException::class);
         (new QueuePaths($this->tmp))->queuedDir('../escape');
+    }
+
+    /**
+     * @return array<string, array{0:string, 1:bool}>
+     */
+    public static function jobDirectoryNames(): array
+    {
+        return [
+            'a valid job id'              => ['job-20260623T101530Z-0a1b2c3d', true],
+            'a plain alphanumeric name'   => ['job1', true],
+            'the current-dir entry'       => ['.', false],
+            'the parent-dir entry'        => ['..', false],
+            'a reserved enqueue temp dir' => ['.tmp-abc123', false],
+            'a path-traversal name'       => ['../escape', false],
+            'a slash-bearing name'        => ['a/b', false],
+            'an over-long name'           => ['x' . str_repeat('y', 64), false],
+            'an empty name'               => ['', false],
+        ];
+    }
+
+    /**
+     * isJobDirectoryName accepts a real job directory name and rejects the dot pseudo-entries, the
+     * reserved `.tmp-` enqueue temporary and any name failing the path-traversal guard, so a hostile
+     * or foreign directory entry is skipped before any read or claim. The single predicate the
+     * producer's in-flight scan and the drain's discovery both consume.
+     */
+    #[Test]
+    #[DataProvider('jobDirectoryNames')]
+    public function isJobDirectoryNameClassifiesAnEntry(string $entry, bool $expected): void
+    {
+        self::assertSame($expected, (new QueuePaths($this->tmp))->isJobDirectoryName($entry));
     }
 
     /**

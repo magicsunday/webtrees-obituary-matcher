@@ -53,7 +53,8 @@ final readonly class FeederRequest
      *   locale: string,
      *   candidates: list<array{
      *     personId: string,
-     *     queries: list<array{query: string, priority: int, dedupKey: string}>
+     *     queries: list<array{query: string, priority: int, dedupKey: string}>,
+     *     excludedHosts: list<string>
      *   }>,
      *   treeId: int
      * }

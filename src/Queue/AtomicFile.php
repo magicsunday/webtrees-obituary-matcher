@@ -178,9 +178,9 @@ final class AtomicFile
      * @return array<string, mixed>
      *
      * @throws RuntimeException When the path is a symlink, not a regular file, unreadable, cannot be
-     *                          opened or read, or it exceeds the byte cap.
-     * @throws JsonException    When the file contents are not valid JSON (for example a truncated,
-     *                          half-written row, as the atomic write is not crash-durable).
+     *                          opened or read, exceeds the byte cap, or its contents are not valid
+     *                          JSON (for example a truncated, half-written row, as the atomic write is
+     *                          not crash-durable) or do not decode to a JSON object.
      */
     public static function readJsonCapped(string $path, int $maxBytes): array
     {
@@ -225,13 +225,26 @@ final class AtomicFile
             );
         }
 
-        $data = json_decode($contents, true, flags: JSON_THROW_ON_ERROR);
+        // Convert the JSON_THROW_ON_ERROR JsonException into a RuntimeException so a decode failure
+        // (a truncated, half-written or hand-corrupted row) is isolated by the same poison-row guard
+        // every caller already uses. JsonException extends \Exception, NOT RuntimeException, so a
+        // caller catching only RuntimeException for isolation would otherwise miss it and a directory
+        // scan would abort on one corrupt entry — the same footgun the non-array case below converts.
+        try {
+            $data = json_decode($contents, true, flags: JSON_THROW_ON_ERROR);
+        } catch (JsonException $exception) {
+            throw new RuntimeException(
+                sprintf('Queue file is not valid JSON: %s', $path),
+                0,
+                $exception
+            );
+        }
 
         // A top-level non-array JSON document (for example a bare "null", "42" or "\"x\"") decodes to
         // a scalar/null. Returning that from this ": array" method would throw a TypeError, which is
-        // neither a JsonException nor a RuntimeException — so a caller's
-        // catch (JsonException|RuntimeException) would miss it and a directory scan would crash.
-        // Convert it into a RuntimeException so the poison-row isolation can catch it.
+        // not a RuntimeException — so a caller's catch (RuntimeException) would miss it and a directory
+        // scan would crash. Convert it into a RuntimeException so the poison-row isolation can catch
+        // it, mirroring the broken-JSON conversion above.
         if (!is_array($data)) {
             throw new RuntimeException(
                 sprintf('Queue file does not contain a JSON object: %s', $path)

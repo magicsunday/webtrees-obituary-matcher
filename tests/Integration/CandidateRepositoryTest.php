@@ -12,6 +12,7 @@ declare(strict_types=1);
 namespace MagicSunday\ObituaryMatcher\Test\Integration;
 
 use Fisharebest\Webtrees\Auth;
+use Fisharebest\Webtrees\DB;
 use Fisharebest\Webtrees\Gedcom;
 use Fisharebest\Webtrees\Tree;
 use MagicSunday\ObituaryMatcher\Domain\PersonCandidate;
@@ -25,12 +26,15 @@ use PHPUnit\Framework\Attributes\UsesClass;
 
 use function array_keys;
 use function array_map;
+use function count;
 use function file_get_contents;
+use function iterator_to_array;
 use function sort;
 
 /**
- * Drives {@see CandidateRepository::findCandidates()} against a real imported tree and
- * proves every selection rule on its own discriminator:
+ * Drives {@see CandidateRepository::findCandidatesLazily()} (drained eagerly via the local
+ * {@see allCandidates()} helper) against a real imported tree and proves every selection rule
+ * on its own discriminator:
  *
  * - I1 (old, no death) is searchable and kept.
  * - I2 (exact death date) and I3 (`DEAT` / `ABT 2020`) are excluded by the SQL death
@@ -129,6 +133,21 @@ final class CandidateRepositoryTest extends IntegrationTestCase
     }
 
     /**
+     * Eagerly drain the lazy candidate generator to the full ordered list — the shape these
+     * selection-semantics assertions compare against, equivalent to draining the producer's own
+     * bounded consumption without the cap.
+     *
+     * @param Tree              $tree     The tree to search.
+     * @param CandidateCriteria $criteria The selection criteria.
+     *
+     * @return list<PersonCandidate> The fully materialised candidate list, in lexicographic xref order.
+     */
+    private function allCandidates(Tree $tree, CandidateCriteria $criteria): array
+    {
+        return iterator_to_array((new CandidateRepository())->findCandidatesLazily($tree, $criteria), false);
+    }
+
+    /**
      * Finds old candidates without a death date and excludes individuals filtered by age, death, or privacy.
      */
     #[Test]
@@ -140,7 +159,7 @@ final class CandidateRepositoryTest extends IntegrationTestCase
         // age/death filter alone would keep it. Asserting it is present here makes the
         // visitor-context exclusion below a real privacy discriminator, not a vacuous
         // pass against an already-empty set.
-        $adminCandidates = (new CandidateRepository())->findCandidates(
+        $adminCandidates = $this->allCandidates(
             $tree,
             new CandidateCriteria(minAge: 90, referenceYear: self::REFERENCE_YEAR),
         );
@@ -151,7 +170,7 @@ final class CandidateRepositoryTest extends IntegrationTestCase
         // while the dated old people stay visible (MAX_ALIVE_AGE makes them dead).
         Auth::logout();
 
-        $candidates = (new CandidateRepository())->findCandidates(
+        $candidates = $this->allCandidates(
             $tree,
             new CandidateCriteria(minAge: 90, referenceYear: self::REFERENCE_YEAR),
         );
@@ -178,7 +197,7 @@ final class CandidateRepositoryTest extends IntegrationTestCase
 
         Auth::logout();
 
-        $candidates = (new CandidateRepository())->findCandidates(
+        $candidates = $this->allCandidates(
             $tree,
             new CandidateCriteria(minAge: 90, includeUnknownBirth: true, referenceYear: self::REFERENCE_YEAR),
         );
@@ -200,7 +219,7 @@ final class CandidateRepositoryTest extends IntegrationTestCase
         // I1 is the visible old person; I99 does not exist in the fixture and must be
         // dropped rather than producing a null entry. The young I4 is requested too, to
         // prove findByXrefs applies NO selection filter — it rebuilds whoever was asked
-        // for, regardless of the age/death criteria findCandidates uses.
+        // for, regardless of the age/death criteria findCandidatesLazily uses.
         $candidates = (new CandidateRepository())->findByXrefs($tree, ['I1', 'I4', 'I99']);
 
         self::assertSame(['I1', 'I4'], $this->keys($candidates));
@@ -231,5 +250,62 @@ final class CandidateRepositoryTest extends IntegrationTestCase
 
         self::assertSame(['I1'], $this->keys($visitorCandidates));
         self::assertArrayNotHasKey('I7', $visitorCandidates);
+    }
+
+    /**
+     * findCandidatesLazily yields the survivors as a pull-based generator, in lexicographic xref
+     * order, and stays suspended between pulls — the contract the bounded enqueue producer relies on
+     * to cap hydration at --limit instead of materialising the whole eligible population (issue #38).
+     */
+    #[Test]
+    public function findCandidatesLazilyYieldsSurvivorsInXrefOrderAsAPullBasedGenerator(): void
+    {
+        $tree = $this->repositoryTree();
+
+        Auth::logout();
+
+        // Count the executed DB queries so the third survivor's hydration can be observed as a
+        // deferred cost rather than asserted only in prose. An eager-internal generator (e.g.
+        // `yield from iterator_to_array(...)`) would hydrate the whole population on the first pull,
+        // making the query count flat across later pulls — this delta check is what discriminates the
+        // bounded lazy generator (#38) from such a revert.
+        DB::connection()->enableQueryLog();
+
+        $generator = (new CandidateRepository())->findCandidatesLazily(
+            $tree,
+            new CandidateCriteria(minAge: 90, referenceYear: self::REFERENCE_YEAR),
+        );
+
+        // The first survivor (I1) is produced on the first pull, in lexicographic xref order.
+        self::assertSame('I1', $generator->current()->id);
+
+        // The second survivor (I6) arrives next — the generator transparently steps over the
+        // SQL-passing but age-rejected I5 between the two yields.
+        $generator->next();
+        self::assertSame('I6', $generator->current()->id);
+
+        // After two pulls the generator is still open: a consumer capping at two would stop here.
+        self::assertTrue($generator->valid());
+
+        // The third survivor (I9, and the privacy-hidden I7 stepped over before it) is NOT hydrated
+        // until pulled: pulling it executes further queries, so the count strictly grows. A revert to
+        // eager-up-front hydration would leave this delta at zero and fail here.
+        $queriesBeforeThirdPull = count(DB::connection()->getQueryLog());
+
+        $generator->next();
+        self::assertSame('I9', $generator->current()->id);
+
+        self::assertGreaterThan(
+            $queriesBeforeThirdPull,
+            count(DB::connection()->getQueryLog()),
+            'the third survivor must be hydrated only when pulled (bounded lazy hydration, #38)',
+        );
+
+        // Draining past the last survivor completes the generator — the same [I1, I6, I9] visitor set
+        // a full drain returns, just produced lazily and in lexicographic order.
+        $generator->next();
+        self::assertFalse($generator->valid());
+
+        DB::connection()->flushQueryLog();
     }
 }
