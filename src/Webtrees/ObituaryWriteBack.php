@@ -122,7 +122,10 @@ class ObituaryWriteBack
 
         // The cemetery is untrusted free text — a control char would inject a GEDCOM sub-record into the
         // 2 PLAC line. Reject before any write so the confirm aborts atomically.
-        if (($cleanCemetery !== null) && (preg_match('/[\x00-\x1F\x7F]/', $cleanCemetery) === 1)) {
+        if (
+            ($cleanCemetery !== null)
+            && (preg_match('/[\x00-\x1F\x7F]/', $cleanCemetery) === 1)
+        ) {
             throw new WriteBackPreconditionException('The cemetery name contains control characters.');
         }
 
@@ -131,7 +134,10 @@ class ObituaryWriteBack
         // behaviour (no BURI, no abort). Throws MalformedDeathDateException when present + malformed.
         $funeralGedcom = null;
 
-        if (($cleanCemetery !== null) && ($funeralIso !== null)) {
+        if (
+            ($cleanCemetery !== null)
+            && ($funeralIso !== null)
+        ) {
             $funeralGedcom = GedcomDateConverter::toGedcom($funeralIso);
         }
 
@@ -209,7 +215,10 @@ class ObituaryWriteBack
         // Never create a second BURI: an existing burial may carry place/date/notes a duplicate would
         // shadow. Merging into it is a later hardening slice. (count() matches the existing deatCount()
         // helper — facts() returns a Countable collection.)
-        if (($cemetery === null) || (count($individual->facts(['BURI'], false, null, true)) > 0)) {
+        if (
+            ($cemetery === null)
+            || (count($individual->facts(['BURI'], false, null, true)) > 0)
+        ) {
             return null;
         }
 
