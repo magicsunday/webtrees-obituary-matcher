@@ -159,8 +159,13 @@ class ObituaryWriteBack
 
         $sourceXref = $source->xref();
 
-        $deatFactId = $this->writeDeathFact($individual, $deathGedcom, $sourceXref, $obituaryUrl);
-        $buriFactId = $this->writeBurialFact($individual, $cleanCemetery, $funeralGedcom, $sourceXref, $obituaryUrl);
+        // The citation recording date in GEDCOM format (uppercase month). Read the clock ONCE so the
+        // DEAT and the (optional) BURI cite the same instant. date('d M Y') would emit a mixed-case
+        // "Sep"/"Dec" — convert today's ISO through the same converter so 4 DATE is GEDCOM-valid.
+        $confirmDate = GedcomDateConverter::toGedcom(date('Y-m-d'));
+
+        $deatFactId = $this->writeDeathFact($individual, $deathGedcom, $sourceXref, $obituaryUrl, $confirmDate);
+        $buriFactId = $this->writeBurialFact($individual, $cleanCemetery, $funeralGedcom, $sourceXref, $obituaryUrl, $confirmDate);
 
         return new WriteBack($deatFactId, $sourceXref, $sourceCreated, $buriFactId);
     }
@@ -172,17 +177,14 @@ class ObituaryWriteBack
      * @param string     $deathGedcom The GEDCOM death date.
      * @param string     $sourceXref  The portal source xref to cite.
      * @param string     $obituaryUrl The citation PAGE.
+     * @param string     $confirmDate The GEDCOM citation recording date (read once per confirm).
      *
      * @return string The written DEAT fact id.
      *
      * @throws WriteBackPreconditionException When the written fact cannot be located.
      */
-    private function writeDeathFact(Individual $individual, string $deathGedcom, string $sourceXref, string $obituaryUrl): string
+    private function writeDeathFact(Individual $individual, string $deathGedcom, string $sourceXref, string $obituaryUrl, string $confirmDate): string
     {
-        // The citation recording date in GEDCOM format (uppercase month). date('d M Y') would emit a
-        // mixed-case "Sep"/"Dec" — convert today's ISO through the same converter so 4 DATE is GEDCOM-valid.
-        $confirmDate = GedcomDateConverter::toGedcom(date('Y-m-d'));
-
         $deatGedcom = sprintf(
             "1 DEAT\n2 DATE %s\n2 SOUR @%s@\n3 PAGE %s\n3 DATA\n4 DATE %s",
             $deathGedcom,
@@ -205,12 +207,13 @@ class ObituaryWriteBack
      * @param string|null $funeralGedcom The GEDCOM funeral date, or null.
      * @param string      $sourceXref    The portal source xref to cite.
      * @param string      $obituaryUrl   The citation PAGE.
+     * @param string      $confirmDate   The GEDCOM citation recording date (read once per confirm).
      *
      * @return string|null The written BURI fact id, or null when none was written.
      *
      * @throws WriteBackPreconditionException When a written BURI cannot be located.
      */
-    private function writeBurialFact(Individual $individual, ?string $cemetery, ?string $funeralGedcom, string $sourceXref, string $obituaryUrl): ?string
+    private function writeBurialFact(Individual $individual, ?string $cemetery, ?string $funeralGedcom, string $sourceXref, string $obituaryUrl, string $confirmDate): ?string
     {
         // Never create a second BURI: an existing burial may carry place/date/notes a duplicate would
         // shadow. Merging into it is a later hardening slice. (count() matches the existing deatCount()
@@ -221,8 +224,6 @@ class ObituaryWriteBack
         ) {
             return null;
         }
-
-        $confirmDate = GedcomDateConverter::toGedcom(date('Y-m-d'));
 
         $buriGedcom = '1 BURI';
 
