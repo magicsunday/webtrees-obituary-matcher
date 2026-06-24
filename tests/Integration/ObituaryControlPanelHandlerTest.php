@@ -106,7 +106,9 @@ final class ObituaryControlPanelHandlerTest extends AbstractEnqueueTestCase
         (new ModuleService())->bootModules(new WebtreesTheme());
 
         $this->module = new ObituaryMatcherModule();
-        $this->module->setName('obituary-matcher-control-panel-test');
+        // The webtrees `module.module_name` column is VARCHAR(32); a longer name truncates on MySQL
+        // (SQLite does not enforce the length, so an over-long name passes locally but reds CI).
+        $this->module->setName('obituary-matcher-cp-test');
 
         // module_setting.module_name carries a foreign key onto the module table, so a settings write
         // needs a matching module row. The live install seeds it on registration; seed it here.
