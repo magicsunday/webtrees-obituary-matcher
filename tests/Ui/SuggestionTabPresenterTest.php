@@ -149,6 +149,18 @@ final class SuggestionTabPresenterTest extends TestCase
             {
                 return false;
             }
+
+            /**
+             * Reverts the row (no-op in this fake).
+             *
+             * @param string $personId    The candidate identifier.
+             * @param string $obituaryUrl The source notice URL.
+             *
+             * @return void
+             */
+            public function revert(string $personId, string $obituaryUrl): void
+            {
+            }
         };
     }
 
@@ -339,6 +351,18 @@ final class SuggestionTabPresenterTest extends TestCase
             {
                 return false;
             }
+
+            /**
+             * Reverts the row (no-op in this fake).
+             *
+             * @param string $personId    The candidate identifier.
+             * @param string $obituaryUrl The source notice URL.
+             *
+             * @return void
+             */
+            public function revert(string $personId, string $obituaryUrl): void
+            {
+            }
         };
 
         $presenter = new SuggestionTabPresenter($store);
@@ -454,6 +478,18 @@ final class SuggestionTabPresenterTest extends TestCase
             public function markConfirmed(string $personId, string $obituaryUrl, WriteBack $writeBack): bool
             {
                 return false;
+            }
+
+            /**
+             * Reverts the row (no-op in this fake).
+             *
+             * @param string $personId    The candidate identifier.
+             * @param string $obituaryUrl The source notice URL.
+             *
+             * @return void
+             */
+            public function revert(string $personId, string $obituaryUrl): void
+            {
             }
         };
 

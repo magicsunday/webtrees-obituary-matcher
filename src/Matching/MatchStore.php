@@ -105,4 +105,18 @@ interface MatchStore
      * @throws TerminalMatchTransitionException When the row is already rejected.
      */
     public function markConfirmed(string $personId, string $obituaryUrl, WriteBack $writeBack): bool;
+
+    /**
+     * Reverts a confirmed row back to Pending so it can be re-reviewed: preserves the scored match,
+     * clears the reviewer reason and the write-back record. The caller is responsible for having
+     * already removed the written GEDCOM facts.
+     *
+     * @param string $personId    The candidate identifier.
+     * @param string $obituaryUrl The source notice URL (raw, pre-normalisation).
+     *
+     * @return void
+     *
+     * @throws TerminalMatchTransitionException When the row is missing or not Confirmed.
+     */
+    public function revert(string $personId, string $obituaryUrl): void;
 }

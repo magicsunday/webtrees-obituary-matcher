@@ -1000,6 +1000,69 @@ final class FileMatchStoreTest extends TempDirTestCase
     }
 
     /**
+     * revert turns a Confirmed row back to Pending so it can be re-reviewed: the scored match is
+     * preserved, while the reviewer reason and the write-back record are both cleared.
+     *
+     * @return void
+     */
+    #[Test]
+    public function revertTurnsAConfirmedRowBackToPendingPreservingTheMatch(): void
+    {
+        $store      = new FileMatchStore($this->tmp);
+        $url        = 'https://trauer.example/a';
+        $seeded     = $this->pendingMatch('I1', $url);
+        $scoredHash = json_encode($seeded->match, JSON_THROW_ON_ERROR);
+        $store->upsertPending($seeded);
+        $store->markUncertain('I1', $url, 'looks plausible');
+        $store->markConfirmed('I1', $url, new WriteBack('deat-id', 'S1', true, 'buri-id'));
+
+        $store->revert('I1', $url);
+
+        $row = $store->findOne('I1', StoredMatchKey::fromUrl($url));
+        self::assertInstanceOf(StoredMatch::class, $row);
+        self::assertSame(MatchStatus::Pending, $row->status);
+        self::assertNull($row->writeBack);
+        self::assertNull($row->reason);
+        // The scored suggestion survives the round-trip unchanged (the reviewer reason and write-back
+        // were cleared, but the engine's scored payload is preserved verbatim).
+        self::assertSame($scoredHash, json_encode($row->match, JSON_THROW_ON_ERROR));
+    }
+
+    /**
+     * revert refuses a row that is not Confirmed (here a Pending row): it throws
+     * TerminalMatchTransitionException rather than silently rewriting a non-confirmed row.
+     *
+     * @return void
+     */
+    #[Test]
+    public function revertRefusesARowThatIsNotConfirmed(): void
+    {
+        $store = new FileMatchStore($this->tmp);
+        $url   = 'https://trauer.example/a';
+        $store->upsertPending($this->pendingMatch('I1', $url));
+
+        $this->expectException(TerminalMatchTransitionException::class);
+
+        $store->revert('I1', $url);
+    }
+
+    /**
+     * revert refuses a row that no longer exists: it throws TerminalMatchTransitionException rather
+     * than synthesising a pending row out of nothing.
+     *
+     * @return void
+     */
+    #[Test]
+    public function revertRefusesAMissingRow(): void
+    {
+        $store = new FileMatchStore($this->tmp);
+
+        $this->expectException(TerminalMatchTransitionException::class);
+
+        $store->revert('I1', 'https://trauer.example/missing');
+    }
+
+    /**
      * Builds a StoredMatch carrying a minimal valid ClassifiedMatchArray payload with
      * MatchStatus::Pending, mirroring what the ingest pipeline would write.
      *
