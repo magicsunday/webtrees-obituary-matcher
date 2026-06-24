@@ -39,10 +39,6 @@ use PHPUnit\Framework\Attributes\UsesClass;
 
 use function file_put_contents;
 use function mkdir;
-use function scandir;
-use function str_starts_with;
-
-use const SCANDIR_SORT_NONE;
 
 /**
  * Integration scenarios for the {@see EnqueueService}: each pins the discriminating triple — the
@@ -519,36 +515,5 @@ final class EnqueueServiceTest extends AbstractEnqueueTestCase
         }
 
         return $ids;
-    }
-
-    /**
-     * List the real job directories currently in the queued state (excluding dot + temp entries).
-     *
-     * @return list<string> The queued job ids.
-     */
-    private function queuedJobIds(): array
-    {
-        $root    = $this->paths()->stateRoot(JobState::Queued->value);
-        $entries = scandir($root, SCANDIR_SORT_NONE);
-
-        if ($entries === false) {
-            return [];
-        }
-
-        $jobs = [];
-
-        foreach ($entries as $entry) {
-            if (
-                ($entry === '.')
-                || ($entry === '..')
-                || str_starts_with($entry, '.tmp-')
-            ) {
-                continue;
-            }
-
-            $jobs[] = $entry;
-        }
-
-        return $jobs;
     }
 }
