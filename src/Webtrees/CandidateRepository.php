@@ -23,7 +23,6 @@ use MagicSunday\ObituaryMatcher\Domain\PersonCandidate;
 
 use function date;
 use function is_string;
-use function iterator_to_array;
 use function sort;
 
 use const SORT_STRING;
@@ -50,36 +49,23 @@ use const SORT_STRING;
 final readonly class CandidateRepository
 {
     /**
-     * Find every searchable candidate in the tree: an old individual without an
-     * interpretable death date, visible to the current user, whose latest possible birth
-     * still implies an age of at least {@see CandidateCriteria::$minAge}.
+     * Lazily yield every searchable candidate in the tree — an old individual without an
+     * interpretable death date, visible to the current user, whose latest possible birth still
+     * implies an age of at least {@see CandidateCriteria::$minAge} — in lexicographic xref order.
      *
-     * @param Tree              $tree     The tree to search.
-     * @param CandidateCriteria $criteria The selection criteria.
+     * The xref pre-filter — a single cheap SQL SELECT that returns only id strings, no hydrated
+     * individual — is materialised and sorted up front, but each surviving xref is hydrated to an
+     * {@see Individual}, privacy-gated and PHP age-rechecked only when the consumer pulls the next
+     * value. So a consumer that stops early (the enqueue producer capping to its `--limit`) pays
+     * `O(consumed)` hydrations rather than eagerly hydrating the whole eligible population. A caller
+     * that wants the whole set simply drains the generator (`iterator_to_array(...)`).
      *
-     * @return list<PersonCandidate> The surviving candidates, in lexicographic xref order.
-     */
-    public function findCandidates(Tree $tree, CandidateCriteria $criteria): array
-    {
-        // Eagerly drain the lazy generator: the identical selection, hydration and PHP age re-check,
-        // just fully materialised. The bounded enqueue producer consumes findCandidatesLazily()
-        // directly so it can stop after --limit survivors; every caller that wants the whole set
-        // (this method's contract, and the repository test) drains it here.
-        return iterator_to_array($this->findCandidatesLazily($tree, $criteria), false);
-    }
-
-    /**
-     * Lazily yield the searchable candidates in lexicographic xref order. The xref pre-filter — a
-     * single cheap SQL SELECT that returns only id strings, no hydrated individual — is materialised
-     * and sorted up front, but each surviving xref is hydrated to an {@see Individual}, privacy-gated
-     * and PHP age-rechecked only when the consumer pulls the next value. So a consumer that stops
-     * early (the enqueue producer capping to its `--limit`) pays `O(consumed)` hydrations rather than
-     * the `O(eligible-population)` cost {@see findCandidates()} incurs. The yield order is fixed in
-     * PHP (a `SORT_STRING` over the plucked xrefs, NOT a SQL `ORDER BY`), so the producer's
-     * lowest-xref-first cap is deterministic and identical on every database engine. The order is
-     * lexicographic by design (byte-wise), NOT numeric — so for the rare tree carrying bare-numeric
-     * xrefs the cap tiebreak is lexicographic (`"10"` sorts before `"2"`); webtrees-generated xrefs
-     * are always letter-prefixed, where lexicographic and numeric order coincide.
+     * The yield order is fixed in PHP (a `SORT_STRING` over the plucked xrefs, NOT a SQL `ORDER BY`),
+     * so the producer's lowest-xref-first cap is deterministic and identical on every database engine.
+     * The order is lexicographic by design (byte-wise), NOT numeric — so for the rare tree carrying
+     * bare-numeric xrefs the cap tiebreak is lexicographic (`"10"` sorts before `"2"`);
+     * webtrees-generated xrefs are always letter-prefixed, where lexicographic and numeric order
+     * coincide.
      *
      * @param Tree              $tree     The tree to search.
      * @param CandidateCriteria $criteria The selection criteria.
@@ -195,7 +181,7 @@ final readonly class CandidateRepository
 
     /**
      * Rebuild the candidates for an explicit xref set, keyed by id, bypassing the
-     * age/death selection filter {@see findCandidates()} applies. Unlike a fresh selection
+     * age/death selection filter {@see findCandidatesLazily()} applies. Unlike a fresh selection
      * this rebuilds whoever was requested — a draining caller already holds the xrefs and
      * needs their live candidate shape, not a re-evaluation of who qualifies. An xref with
      * no individual, or one the current user may not see, is silently omitted.

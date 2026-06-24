@@ -12,7 +12,7 @@ declare(strict_types=1);
 namespace MagicSunday\ObituaryMatcher\Webtrees;
 
 /**
- * The selection criteria for {@see CandidateRepository::findCandidates()}: which old
+ * The selection criteria for {@see CandidateRepository::findCandidatesLazily()}: which old
  * individuals without a certain death date are worth searching an obituary for.
  *
  * Phase 2a is a forward search for MISSING death dates, so there is deliberately no

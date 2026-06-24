@@ -28,11 +28,13 @@ use function array_keys;
 use function array_map;
 use function count;
 use function file_get_contents;
+use function iterator_to_array;
 use function sort;
 
 /**
- * Drives {@see CandidateRepository::findCandidates()} against a real imported tree and
- * proves every selection rule on its own discriminator:
+ * Drives {@see CandidateRepository::findCandidatesLazily()} (drained eagerly via the local
+ * {@see allCandidates()} helper) against a real imported tree and proves every selection rule
+ * on its own discriminator:
  *
  * - I1 (old, no death) is searchable and kept.
  * - I2 (exact death date) and I3 (`DEAT` / `ABT 2020`) are excluded by the SQL death
@@ -131,6 +133,21 @@ final class CandidateRepositoryTest extends IntegrationTestCase
     }
 
     /**
+     * Eagerly drain the lazy candidate generator to the full ordered list — the shape these
+     * selection-semantics assertions compare against, equivalent to draining the producer's own
+     * bounded consumption without the cap.
+     *
+     * @param Tree              $tree     The tree to search.
+     * @param CandidateCriteria $criteria The selection criteria.
+     *
+     * @return list<PersonCandidate> The fully materialised candidate list, in lexicographic xref order.
+     */
+    private function allCandidates(Tree $tree, CandidateCriteria $criteria): array
+    {
+        return iterator_to_array((new CandidateRepository())->findCandidatesLazily($tree, $criteria), false);
+    }
+
+    /**
      * Finds old candidates without a death date and excludes individuals filtered by age, death, or privacy.
      */
     #[Test]
@@ -142,7 +159,7 @@ final class CandidateRepositoryTest extends IntegrationTestCase
         // age/death filter alone would keep it. Asserting it is present here makes the
         // visitor-context exclusion below a real privacy discriminator, not a vacuous
         // pass against an already-empty set.
-        $adminCandidates = (new CandidateRepository())->findCandidates(
+        $adminCandidates = $this->allCandidates(
             $tree,
             new CandidateCriteria(minAge: 90, referenceYear: self::REFERENCE_YEAR),
         );
@@ -153,7 +170,7 @@ final class CandidateRepositoryTest extends IntegrationTestCase
         // while the dated old people stay visible (MAX_ALIVE_AGE makes them dead).
         Auth::logout();
 
-        $candidates = (new CandidateRepository())->findCandidates(
+        $candidates = $this->allCandidates(
             $tree,
             new CandidateCriteria(minAge: 90, referenceYear: self::REFERENCE_YEAR),
         );
@@ -180,7 +197,7 @@ final class CandidateRepositoryTest extends IntegrationTestCase
 
         Auth::logout();
 
-        $candidates = (new CandidateRepository())->findCandidates(
+        $candidates = $this->allCandidates(
             $tree,
             new CandidateCriteria(minAge: 90, includeUnknownBirth: true, referenceYear: self::REFERENCE_YEAR),
         );
