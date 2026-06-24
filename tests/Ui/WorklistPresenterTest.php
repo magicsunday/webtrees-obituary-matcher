@@ -18,6 +18,7 @@ use MagicSunday\ObituaryMatcher\Ui\WorklistPresenter;
 use MagicSunday\ObituaryMatcher\Ui\WorklistRowView;
 use MagicSunday\ObituaryMatcher\Ui\WorklistView;
 use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\Attributes\UsesClass;
 use PHPUnit\Framework\TestCase;
@@ -41,6 +42,14 @@ use function sprintf;
 #[UsesClass(WorklistRowView::class)]
 final class WorklistPresenterTest extends TestCase
 {
+    /**
+     * Sentinel for the data provider marking a payload key that must be UNSET (absent) rather than set
+     * to a value — distinct from any legitimate payload value (including null).
+     *
+     * @var string
+     */
+    private const string ABSENT = "\0__absent__\0";
+
     /**
      * Builds a presenter entry wrapping a {@see StoredMatch} with the given status and score.
      *
@@ -180,6 +189,90 @@ final class WorklistPresenterTest extends TestCase
         $view = (new WorklistPresenter())->build([$broken], 'all', 1);
 
         self::assertSame(0, $view->rows[0]->score);
+    }
+
+    /**
+     * A tie on score is broken by personId in BYTE order, not numerically: a bare-numeric XREF pair
+     * ('1000', '915') must sort '1000' before '915' (since '1' < '9'), matching the house byte-order
+     * invariant ({@see \MagicSunday\ObituaryMatcher\Webtrees\CandidateRepository}'s SORT_STRING),
+     * whereas a numeric `<=>` would (wrongly) place 915 before 1000.
+     *
+     * @return void
+     */
+    #[Test]
+    public function tieIsBrokenByByteOrderNotNumerically(): void
+    {
+        $view = (new WorklistPresenter())->build([
+            $this->entry('915', 50, MatchStatus::Pending),
+            $this->entry('1000', 50, MatchStatus::Pending),
+        ], 'all', 1);
+
+        self::assertSame(['1000', '915'], array_map(static fn ($r) => $r->personId, $view->rows));
+    }
+
+    /**
+     * A surviving row whose payload is malformed-but-array (a non-string/absent classification, a
+     * non-array extractedFacts, a non-string deathDate) renders gracefully — the expected band and
+     * death date — instead of throwing an Undefined-array-key notice or a TypeError that would take
+     * down the entire worklist render. A malformed classification falls back to band "none"; a
+     * malformed/absent extractedFacts or a non-string deathDate yields a null death date.
+     *
+     * @param mixed       $classification    The classification payload value (or the absence marker).
+     * @param mixed       $extractedFacts    The extractedFacts payload value (or the absence marker).
+     * @param string      $expectedBand      The band key the row must carry.
+     * @param string|null $expectedDeathDate The death date the row must carry.
+     *
+     * @return void
+     */
+    #[Test]
+    #[DataProvider('malformedPayloadProvider')]
+    public function malformedPayloadRendersGracefully(
+        mixed $classification,
+        mixed $extractedFacts,
+        string $expectedBand,
+        ?string $expectedDeathDate,
+    ): void {
+        $entry   = $this->entry('I1', 90, MatchStatus::Pending);
+        $payload = $entry['match']->match;
+
+        if ($classification === self::ABSENT) {
+            unset($payload['classification']);
+        } else {
+            $payload['classification'] = $classification;
+        }
+
+        if ($extractedFacts === self::ABSENT) {
+            unset($payload['extractedFacts']);
+        } else {
+            $payload['extractedFacts'] = $extractedFacts;
+        }
+
+        /** @var ClassifiedMatchArray $payload */
+        $entry['match'] = new StoredMatch('I1', $entry['match']->obituaryUrl, MatchStatus::Pending, $payload);
+
+        $view = (new WorklistPresenter())->build([$entry], 'all', 1);
+
+        self::assertSame($expectedBand, $view->rows[0]->bandKey);
+        self::assertSame($expectedDeathDate, $view->rows[0]->deathDate);
+    }
+
+    /**
+     * Malformed-but-array payload shapes that must each degrade gracefully in {@see toRow()}, paired
+     * with the band and death date the resulting row must carry.
+     *
+     * @return array<string, array{0: mixed, 1: mixed, 2: string, 3: string|null}>
+     */
+    public static function malformedPayloadProvider(): array
+    {
+        return [
+            'classification absent'     => [self::ABSENT, ['deathDate' => '2023-09-04'], 'none', '04.09.2023'],
+            'classification non-string' => [42, ['deathDate' => '2023-09-04'], 'none', '04.09.2023'],
+            'classification array'      => [['strong'], ['deathDate' => '2023-09-04'], 'none', '04.09.2023'],
+            'extractedFacts non-array'  => ['strong', 'not-an-array', 'strong', null],
+            'extractedFacts absent'     => ['strong', self::ABSENT, 'strong', null],
+            'deathDate non-string'      => ['strong', ['deathDate' => 20230904], 'strong', null],
+            'all malformed at once'     => [self::ABSENT, 99, 'none', null],
+        ];
     }
 
     /**

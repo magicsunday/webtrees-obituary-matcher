@@ -11,15 +11,18 @@ declare(strict_types=1);
 
 namespace MagicSunday\ObituaryMatcher\Ui;
 
+use MagicSunday\ObituaryMatcher\Domain\Band;
 use MagicSunday\ObituaryMatcher\Matching\MatchStatus;
 use MagicSunday\ObituaryMatcher\Matching\StoredMatch;
 
 use function array_slice;
 use function ceil;
 use function count;
-use function is_int;
+use function is_array;
+use function is_string;
 use function max;
 use function min;
+use function strcmp;
 use function usort;
 
 /**
@@ -63,7 +66,11 @@ final readonly class WorklistPresenter
                 return $byScore;
             }
 
-            return $a['personId'] <=> $b['personId'];
+            // Byte-order tie-break (not numeric `<=>`): webtrees permits bare-numeric XREFs, and the
+            // module's house invariant sorts candidate XREFs by byte order
+            // ({@see \MagicSunday\ObituaryMatcher\Webtrees\CandidateRepository}'s SORT_STRING), so the
+            // worklist must match that ordering rather than diverge into numeric comparison.
+            return strcmp($a['personId'], $b['personId']);
         });
 
         $totalFiltered = count($filtered);
@@ -158,8 +165,8 @@ final readonly class WorklistPresenter
 
     /**
      * Reads the match score defensively: the payload is the trusted engine shape, but it was
-     * reconstructed from untrusted JSON, so the score is read through {@see read()} (which erases the
-     * static shape to mixed) and a missing or non-int value collapses to 0 — the sanctioned
+     * reconstructed from untrusted JSON, so the score is read through {@see PayloadReader} (which
+     * erases the static shape to mixed) and a missing or non-int value collapses to 0 — the sanctioned
      * mixed-at-boundary read mirroring {@see ReviewViewModel}.
      *
      * @param StoredMatch $match The stored match whose score to read.
@@ -168,29 +175,16 @@ final readonly class WorklistPresenter
      */
     private static function scoreOf(StoredMatch $match): int
     {
-        $score = self::read($match->match, 'score');
-
-        return is_int($score) ? $score : 0;
-    }
-
-    /**
-     * Reads a key from a raw array as mixed, erasing any static shape so the defensive narrowing in
-     * the caller cannot be flagged as dead — the on-disk payload is reconstructed from untrusted JSON
-     * and may be malformed-but-array.
-     *
-     * @param array<array-key, mixed> $source The raw array to read from.
-     * @param string                  $key    The key to read.
-     *
-     * @return mixed The raw value, or null when the key is absent.
-     */
-    private static function read(array $source, string $key): mixed
-    {
-        return $source[$key] ?? null;
+        return PayloadReader::asInt(PayloadReader::read($match->match, 'score'), 0);
     }
 
     /**
      * Projects a single surviving entry to its view row, copying the handler-built personUrl and
-     * reviewUrl through verbatim.
+     * reviewUrl through verbatim. The classification and the extracted death date are read through
+     * {@see PayloadReader} and narrowed defensively — the on-disk payload is reconstructed from
+     * untrusted JSON ({@see StoredMatch::fromArray()} only asserts it is an array), so a
+     * malformed-but-array row must degrade (band "none", null death date) rather than crash the whole
+     * worklist render. This narrows the payload IDENTICALLY to {@see ReviewViewModel}.
      *
      * @param array{match: StoredMatch, personName: string, personId: string, personUrl: string, reviewUrl: string|null} $entry The surviving row.
      *
@@ -201,13 +195,23 @@ final readonly class WorklistPresenter
         $match  = $entry['match'];
         $source = SourceLink::fromUrl($match->obituaryUrl);
 
+        $classification = PayloadReader::asString(
+            PayloadReader::read($match->match, 'classification'),
+            Band::None->value(),
+        );
+
+        $extractedFacts = PayloadReader::read($match->match, 'extractedFacts');
+        $deathDate      = is_array($extractedFacts)
+            ? PayloadReader::read($extractedFacts, 'deathDate')
+            : null;
+
         return new WorklistRowView(
             $entry['personName'],
             $entry['personId'],
             $entry['personUrl'],
-            BandKey::normalise($match->match['classification']),
+            BandKey::normalise($classification),
             self::scoreOf($match),
-            ObituaryDateFormatter::toGerman($match->match['extractedFacts']['deathDate'] ?? null),
+            ObituaryDateFormatter::toGerman(is_string($deathDate) ? $deathDate : null),
             $source->href,
             $source->host,
             $match->status->value,

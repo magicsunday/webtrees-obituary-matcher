@@ -95,13 +95,13 @@ final readonly class ReviewViewModel
         // is the sanctioned mixed-at-boundary use (see the plan's Global Constraints).
         $payload = $match->match;
 
-        $score          = self::asInt(self::read($payload, 'score'));
-        $classification = self::asString(self::read($payload, 'classification'), 'none');
+        $score          = PayloadReader::asInt(PayloadReader::read($payload, 'score'), 0);
+        $classification = PayloadReader::asString(PayloadReader::read($payload, 'classification'), 'none');
         $band           = BandKey::normalise($classification);
-        $ambiguous      = self::read($payload, 'ambiguous') === true;
-        $hardConflict   = self::read($payload, 'hardConflict') === true;
-        $extractedFacts = self::projectFacts(self::read($payload, 'extractedFacts'));
-        $signals        = self::read($payload, 'signals');
+        $ambiguous      = PayloadReader::read($payload, 'ambiguous') === true;
+        $hardConflict   = PayloadReader::read($payload, 'hardConflict') === true;
+        $extractedFacts = self::projectFacts(PayloadReader::read($payload, 'extractedFacts'));
+        $signals        = PayloadReader::read($payload, 'signals');
 
         $url    = $match->obituaryUrl;
         $source = SourceLink::fromUrl($url);
@@ -131,51 +131,11 @@ final readonly class ReviewViewModel
             $source->host ?? $url,
             $extractedFacts,
             self::projectSignals($signals),
-            self::projectConflicts(is_array($signals) ? self::read($signals, 'conflicts') : null),
-            self::projectRunnerUp(self::read($payload, 'runnerUp')),
+            self::projectConflicts(is_array($signals) ? PayloadReader::read($signals, 'conflicts') : null),
+            self::projectRunnerUp(PayloadReader::read($payload, 'runnerUp')),
             $confirm->canConfirm,
             $confirm->reasonKey,
         );
-    }
-
-    /**
-     * Reads a key from a raw array as mixed, erasing any static shape so the per-field defensive
-     * narrowing downstream cannot be flagged as dead — the on-disk payload is reconstructed from
-     * untrusted JSON and may be malformed-but-array.
-     *
-     * @param array<array-key, mixed> $source The raw array to read from.
-     * @param string                  $key    The key to read.
-     *
-     * @return mixed The raw value, or null when the key is absent.
-     */
-    private static function read(array $source, string $key): mixed
-    {
-        return $source[$key] ?? null;
-    }
-
-    /**
-     * Narrows a raw value to an int, defaulting to zero when it is not an int.
-     *
-     * @param mixed $value The raw value.
-     *
-     * @return int The narrowed int.
-     */
-    private static function asInt(mixed $value): int
-    {
-        return is_int($value) ? $value : 0;
-    }
-
-    /**
-     * Narrows a raw value to a string, defaulting to the given fallback when it is not a string.
-     *
-     * @param mixed  $value    The raw value.
-     * @param string $fallback The fallback for a non-string value.
-     *
-     * @return string The narrowed string.
-     */
-    private static function asString(mixed $value, string $fallback): string
-    {
-        return is_string($value) ? $value : $fallback;
     }
 
     /**

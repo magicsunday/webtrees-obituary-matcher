@@ -31,6 +31,7 @@ use MagicSunday\ObituaryMatcher\Matching\StoredMatchKey;
 use MagicSunday\ObituaryMatcher\Matching\TerminalMatchTransitionException;
 use MagicSunday\ObituaryMatcher\Support\ConfirmGate;
 use MagicSunday\ObituaryMatcher\Support\MalformedDeathDateException;
+use MagicSunday\ObituaryMatcher\Ui\PayloadReader;
 use MagicSunday\ObituaryMatcher\Ui\ReviewViewModel;
 use MagicSunday\ObituaryMatcher\Ui\TreePersonView;
 use Psr\Http\Message\ResponseInterface;
@@ -236,13 +237,14 @@ class ReviewScreenHandler implements RequestHandlerInterface
         // the two reads are narrowed defensively here EXACTLY as ReviewViewModel narrows them — keeping
         // the render gate and the write gate reading the payload identically, so a malformed-but-array
         // row degrades to the graceful warning flash instead of an Undefined-array-key 500. The reads go
-        // through read(), which erases the static ClassifiedMatchArray shape to mixed (as the view model
-        // does) so the per-field narrowing is real defence, not PHPDoc-certain dead code.
-        $factsRaw     = $this->read($row->match, 'extractedFacts');
+        // through PayloadReader::read(), the shared narrowing seam (also used by the view model), which
+        // erases the static ClassifiedMatchArray shape to mixed so the per-field narrowing is real
+        // defence, not PHPDoc-certain dead code.
+        $factsRaw     = PayloadReader::read($row->match, 'extractedFacts');
         $facts        = is_array($factsRaw) ? $factsRaw : [];
         $isoRaw       = $facts['deathDate'] ?? null;
         $iso          = is_string($isoRaw) ? $isoRaw : null;
-        $hardConflict = $this->read($row->match, 'hardConflict') === true;
+        $hardConflict = PayloadReader::read($row->match, 'hardConflict') === true;
 
         // The optional BURI inputs come from the SAME untrusted payload — narrow them exactly as the
         // death date is narrowed (the writer trims again as defence-in-depth). A whitespace-only / empty
@@ -392,24 +394,6 @@ class ReviewScreenHandler implements RequestHandlerInterface
             $birthPlace === '' ? null : $birthPlace,
             $deathDate->isOK() ? strip_tags($deathDate->display()) : null,
         );
-    }
-
-    /**
-     * Reads a key from the persisted match payload as mixed, erasing the static ClassifiedMatchArray
-     * shape so the confirm gate's per-field defensive narrowing is treated as live code rather than
-     * PHPDoc-certain dead code. The payload was reconstructed from untrusted on-disk JSON
-     * ({@see StoredMatch::fromArray()} only asserts it is an array), so it may be malformed-but-array;
-     * this mirrors {@see ReviewViewModel}'s own read() so the render gate and the write gate narrow the
-     * payload identically and cannot drift.
-     *
-     * @param array<array-key, mixed> $payload The persisted match payload.
-     * @param string                  $key     The key to read.
-     *
-     * @return mixed The raw value, or null when the key is absent.
-     */
-    private function read(array $payload, string $key): mixed
-    {
-        return $payload[$key] ?? null;
     }
 
     /**
