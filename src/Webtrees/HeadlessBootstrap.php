@@ -19,13 +19,22 @@ use Fisharebest\Webtrees\Registry;
 use Fisharebest\Webtrees\Services\UserService;
 use Fisharebest\Webtrees\Webtrees;
 use MagicSunday\ObituaryMatcher\Support\WebtreesInstallLocator;
+use PDOException;
 use RuntimeException;
 use Throwable;
 
 use function dirname;
+use function error_log;
+use function fwrite;
+use function ini_get;
 use function is_array;
 use function is_scalar;
+use function is_string;
 use function parse_ini_file;
+use function ucfirst;
+
+use const PHP_EOL;
+use const STDERR;
 
 /**
  * A reusable headless webtrees bootstrap for CLI entry points (the queue drain) that have no HTTP
@@ -103,6 +112,72 @@ final class HeadlessBootstrap
         }
 
         Auth::login($admin);
+    }
+
+    /**
+     * Boots the request-less webtrees runtime and logs in the system principal for a headless CLI
+     * entry point, with the privacy-critical S46 failure handling shared across the queue CLIs. On any
+     * boot failure it prints a fixed, config-free category to STDERR, routes the raw detail to the
+     * guarded sink ({@see self::logCliError()}) and terminates the process with a non-zero exit code.
+     *
+     * The catch arms are deliberately ordered PDOException-first: {@see DB}'s connect failure surfaces
+     * as a {@see PDOException}, whose message embeds the database host and
+     * username, and a `PDOException` EXTENDS {@see RuntimeException}. Were the `RuntimeException` arm
+     * placed first it would also match the `PDOException` (subclass) and print the leaking message to
+     * STDERR (which cron captures). The first arm therefore prints only the fixed
+     * `database connection error.` category. {@see HeadlessBootstrap}'s OWN `RuntimeException` messages
+     * are fixed, config-free strings, so the (now second) `RuntimeException` arm MAY echo them. Any
+     * other {@see Throwable} falls to the fixed-category arm.
+     *
+     * This method intentionally terminates the process via `exit(1)` on failure; that is acceptable
+     * CLI-glue behaviour for a composition-root bootstrap.
+     *
+     * @param string      $cliName The CLI name woven into the fixed STDERR category (e.g. `enqueue`).
+     * @param UserService $users   The user service used to resolve the system principal.
+     *
+     * @return void
+     */
+    public static function bootForCli(string $cliName, UserService $users): void
+    {
+        try {
+            self::boot();
+            self::loginSystemPrincipal($users);
+        } catch (PDOException $exception) {
+            fwrite(STDERR, 'Headless ' . $cliName . ' bootstrap failed: database connection error.' . PHP_EOL);
+            self::logCliError($cliName, $exception);
+
+            exit(1);
+        } catch (RuntimeException $exception) {
+            fwrite(STDERR, 'Headless ' . $cliName . ' bootstrap failed: ' . $exception->getMessage() . PHP_EOL);
+
+            exit(1);
+        } catch (Throwable $exception) {
+            fwrite(STDERR, 'Headless ' . $cliName . ' bootstrap failed: database connection error.' . PHP_EOL);
+            self::logCliError($cliName, $exception);
+
+            exit(1);
+        }
+    }
+
+    /**
+     * Routes the raw detail of a CLI failure to the configured error sink WITHOUT ever re-leaking it to
+     * STDERR (the S46 contract). `error_log()` writes to STDERR in PHP CLI when the `error_log` ini
+     * directive is unset or empty — which would re-leak a DSN/credentials-bearing message the callers
+     * deliberately keep off STDERR. The detail is therefore only recorded when a real sink (a file or
+     * syslog) is configured; otherwise the caller's fixed STDERR category is the only output.
+     *
+     * @param string    $cliName   The CLI name woven into the sink line prefix (e.g. `enqueue`).
+     * @param Throwable $exception The failure whose raw message is routed to the configured sink.
+     *
+     * @return void
+     */
+    public static function logCliError(string $cliName, Throwable $exception): void
+    {
+        $sink = ini_get('error_log');
+
+        if (is_string($sink) && ($sink !== '')) {
+            error_log(ucfirst($cliName) . ' CLI error: ' . $exception->getMessage());
+        }
     }
 
     /**
