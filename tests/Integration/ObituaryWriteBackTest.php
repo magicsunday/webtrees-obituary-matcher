@@ -538,4 +538,39 @@ final class ObituaryWriteBackTest extends IntegrationTestCase
         self::assertNotSame('', $writeBack->deatFactId);
         self::assertCount(1, iterator_to_array($this->person('I1', $tree)->facts(['DEAT'], false, null, true)));
     }
+
+    /**
+     * A literal `@` in a cemetery or the obituary URL must be escaped to `@@` in the stored GEDCOM value
+     * (GEDCOM 5.5.1 + webtrees' AbstractElement::escape convention — a bare `@` starts an XREF pointer).
+     * webtrees stores the createFact() string verbatim, so the writer must escape the value AND build its
+     * capture substring from the SAME escaped value: the capture still locates the just-written BURI, and
+     * the stored gedcom carries the escaped `2 PLAC … @@ …` / `3 PAGE …@@…` forms.
+     *
+     * @return void
+     */
+    #[Test]
+    public function escapesAnAtSignInTheCemeteryAndUrl(): void
+    {
+        $tree = $this->tree();
+
+        $writeBack = $this->writer()->writeConfirm(
+            $this->person('I1', $tree),
+            '2023-09-04',
+            'Friedhof @ St. Anna',
+            '2023-09-10',
+            'https://user@host.example/n@1'
+        );
+
+        // Capture succeeded — the writer located the just-written BURI by its ESCAPED substring.
+        self::assertNotNull($writeBack->buriFactId);
+
+        $buri = iterator_to_array($this->person('I1', $tree)->facts(['BURI'], false, null, true));
+
+        self::assertCount(1, $buri);
+
+        // The stored gedcom carries the ESCAPED forms, proving webtrees stored the escaped value verbatim.
+        $gedcom = $buri[0]->gedcom();
+        self::assertStringContainsString('2 PLAC Friedhof @@ St. Anna', $gedcom);
+        self::assertStringContainsString('3 PAGE https://user@@host.example/n@@1', $gedcom);
+    }
 }

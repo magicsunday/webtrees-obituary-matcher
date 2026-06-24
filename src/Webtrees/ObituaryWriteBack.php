@@ -22,11 +22,11 @@ use MagicSunday\ObituaryMatcher\Support\UrlHostNormalizer;
 
 use function count;
 use function date;
-use function is_string;
 use function preg_match;
 use function preg_quote;
 use function sprintf;
 use function str_contains;
+use function str_replace;
 use function trim;
 
 /**
@@ -117,7 +117,7 @@ class ObituaryWriteBack
 
         // Normalise the cemetery at THIS boundary too (the handler is not the only caller): trim, and
         // treat whitespace-only / empty as absent so we never emit a blank `2 PLAC`.
-        $cleanCemetery = is_string($cemetery) ? trim($cemetery) : null;
+        $cleanCemetery = $cemetery !== null ? trim($cemetery) : null;
         $cleanCemetery = ($cleanCemetery === '') ? null : $cleanCemetery;
 
         // The cemetery is untrusted free text — a control char would inject a GEDCOM sub-record into the
@@ -129,6 +129,11 @@ class ObituaryWriteBack
             throw new WriteBackPreconditionException('The cemetery name contains control characters.');
         }
 
+        // Normalise the funeral date at THIS boundary too (mirroring the cemetery normalisation, for
+        // robustness against direct callers): trim, and treat whitespace-only / empty as absent.
+        $cleanFuneralIso = $funeralIso !== null ? trim($funeralIso) : null;
+        $cleanFuneralIso = ($cleanFuneralIso === '') ? null : $cleanFuneralIso;
+
         // The funeral date is only relevant to the optional BURI: validate it ONLY when a cemetery is
         // present, so a no-cemetery confirm with a malformed funeral date keeps the exact 2d-3a DEAT
         // behaviour (no BURI, no abort). Throws MalformedDeathDateException when present + malformed.
@@ -136,9 +141,9 @@ class ObituaryWriteBack
 
         if (
             ($cleanCemetery !== null)
-            && ($funeralIso !== null)
+            && ($cleanFuneralIso !== null)
         ) {
-            $funeralGedcom = GedcomDateConverter::toGedcom($funeralIso);
+            $funeralGedcom = GedcomDateConverter::toGedcom($cleanFuneralIso);
         }
 
         // Live re-check immediately before the create: the person must still have no death date
@@ -185,17 +190,22 @@ class ObituaryWriteBack
      */
     private function writeDeathFact(Individual $individual, string $deathGedcom, string $sourceXref, string $obituaryUrl, string $confirmDate): string
     {
+        // A literal `@` in a GEDCOM value must be escaped to `@@` (it otherwise starts an XREF pointer);
+        // webtrees stores the createFact() string verbatim, so escape here AND build the capture
+        // substring from the SAME escaped value so captureDeatFactId still locates the just-written fact.
+        $escapedUrl = str_replace('@', '@@', $obituaryUrl);
+
         $deatGedcom = sprintf(
             "1 DEAT\n2 DATE %s\n2 SOUR @%s@\n3 PAGE %s\n3 DATA\n4 DATE %s",
             $deathGedcom,
             $sourceXref,
-            $obituaryUrl,
+            $escapedUrl,
             $confirmDate
         );
 
         $individual->createFact($deatGedcom, true);
 
-        return $this->captureDeatFactId($individual, $deathGedcom, $sourceXref, $obituaryUrl);
+        return $this->captureDeatFactId($individual, $deathGedcom, $sourceXref, $escapedUrl);
     }
 
     /**
@@ -231,17 +241,23 @@ class ObituaryWriteBack
             $buriGedcom .= "\n2 DATE " . $funeralGedcom;
         }
 
+        // A literal `@` in a GEDCOM value must be escaped to `@@` (it otherwise starts an XREF pointer);
+        // webtrees stores the createFact() string verbatim, so escape here AND build the capture
+        // substrings from the SAME escaped values so captureBuriFactId still locates the just-written fact.
+        $escapedCemetery = str_replace('@', '@@', $cemetery);
+        $escapedUrl      = str_replace('@', '@@', $obituaryUrl);
+
         $buriGedcom .= sprintf(
             "\n2 PLAC %s\n2 SOUR @%s@\n3 PAGE %s\n3 DATA\n4 DATE %s",
-            $cemetery,
+            $escapedCemetery,
             $sourceXref,
-            $obituaryUrl,
+            $escapedUrl,
             $confirmDate
         );
 
         $individual->createFact($buriGedcom, true);
 
-        return $this->captureBuriFactId($individual, $cemetery, $sourceXref, $obituaryUrl);
+        return $this->captureBuriFactId($individual, $escapedCemetery, $sourceXref, $escapedUrl);
     }
 
     /**
