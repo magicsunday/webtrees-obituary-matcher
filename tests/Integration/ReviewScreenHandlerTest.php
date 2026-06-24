@@ -952,7 +952,7 @@ final class ReviewScreenHandlerTest extends IntegrationTestCase
     }
 
     /**
-     * POST confirm whose writeDeath throws a precondition failure (a stored non-http URL) flashes a
+     * POST confirm whose writeConfirm throws a precondition failure (a stored non-http URL) flashes a
      * warning and does NOT transition: the write aborts cleanly, no GEDCOM is written and the store
      * row stays pending (Block A of the separate try/catch, spec §9).
      *
@@ -962,7 +962,7 @@ final class ReviewScreenHandlerTest extends IntegrationTestCase
     public function postConfirmWriteBackPreconditionFailDoesNotTransition(): void
     {
         // A confirmable gate state (I2 has no death date, exact ISO date) but a non-http stored URL:
-        // the gate passes, then writeDeath throws WriteBackPreconditionException on the bad URL.
+        // the gate passes, then writeConfirm throws WriteBackPreconditionException on the bad URL.
         $key = $this->seedConfirmableMatchRaw('I2', 'ftp://trauer.example/I2', '2023-09-04');
 
         $this->assertConfirmRefusedNoTransition('I2', $key);
@@ -1092,7 +1092,7 @@ final class ReviewScreenHandlerTest extends IntegrationTestCase
     /**
      * Posts a confirm for the given already-seeded row through the real handler and asserts it was
      * refused without a write: a 302 back to the review screen, exactly one warning flash and the row
-     * left pending. Shared by the gate-refusal and the writeDeath-precondition cases — both abort
+     * left pending. Shared by the gate-refusal and the writeConfirm-precondition cases — both abort
      * before any store transition (spec §9), differing only in the abort cause and the no-DEAT check.
      *
      * @param string $xref The candidate identifier whose row was seeded.
@@ -1242,7 +1242,7 @@ final class ReviewScreenHandlerTest extends IntegrationTestCase
     /**
      * Seeds a confirmable pending row carrying an arbitrary (here non-http) source URL so the confirm
      * write's URL precondition can be exercised end-to-end: the gate still passes (it reads the death
-     * date and the tree state, not the URL), then writeDeath rejects the URL.
+     * date and the tree state, not the URL), then writeConfirm rejects the URL.
      *
      * @param string $xref      The candidate identifier.
      * @param string $url       The raw source notice URL (e.g. a non-http scheme).

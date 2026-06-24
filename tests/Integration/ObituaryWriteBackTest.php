@@ -107,7 +107,7 @@ final class ObituaryWriteBackTest extends IntegrationTestCase
     }
 
     /**
-     * writeDeath writes a dated, sourced DEAT and returns a WriteBack whose deatFactId resolves the
+     * writeConfirm writes a dated, sourced DEAT and returns a WriteBack whose deatFactId resolves the
      * just-written fact (the capture round-trip), with the reserved fields at their 2d-3a values.
      *
      * @return void
@@ -118,7 +118,7 @@ final class ObituaryWriteBackTest extends IntegrationTestCase
         $tree = $this->tree();
         $i1   = $this->person('I1', $tree);
 
-        $writeBack = $this->writer()->writeDeath($i1, '2023-09-04', 'https://trauer.example/x');
+        $writeBack = $this->writer()->writeConfirm($i1, '2023-09-04', null, null, 'https://trauer.example/x');
 
         // Re-fetch so the assertion reads the committed record, not the in-memory copy.
         $reloaded = $this->person('I1', $tree);
@@ -143,7 +143,7 @@ final class ObituaryWriteBackTest extends IntegrationTestCase
 
         // The capture round-trip — the riskiest logic. The returned id must be the id of the DEAT fact
         // resolved by RE-FETCHING the individual after the write (Fact::id() is the content hash of the
-        // stored fact), proving writeDeath captured it from the live record, not from a value it could
+        // stored fact), proving writeConfirm captured it from the live record, not from a value it could
         // have synthesised before the write. assertNotNull alone would be insufficient. The competing-DEAT
         // selection in captureDeatFactId() is exercised by leavesABareDeatUntouchedAndAddsADatedDeat().
         self::assertSame($fact->id(), $writeBack->deatFactId);
@@ -167,8 +167,8 @@ final class ObituaryWriteBackTest extends IntegrationTestCase
         $i1   = $this->person('I1', $tree);
         $i2   = $this->person('I2', $tree);
 
-        $first  = $this->writer()->writeDeath($i1, '2023-09-04', 'https://trauer.example/x');
-        $second = $this->writer()->writeDeath($i2, '2024-01-15', 'https://www.trauer.example/y?utm=z');
+        $first  = $this->writer()->writeConfirm($i1, '2023-09-04', null, null, 'https://trauer.example/x');
+        $second = $this->writer()->writeConfirm($i2, '2024-01-15', null, null, 'https://www.trauer.example/y?utm=z');
 
         self::assertSame($first->sourceXref, $second->sourceXref);
         self::assertTrue($first->sourceCreated);
@@ -213,7 +213,7 @@ final class ObituaryWriteBackTest extends IntegrationTestCase
         $before = $this->deatCount('I3', $tree);
 
         try {
-            $this->writer()->writeDeath($i3, '2023-09-04', 'https://trauer.example/x');
+            $this->writer()->writeConfirm($i3, '2023-09-04', null, null, 'https://trauer.example/x');
             self::fail('expected a DeathDateAlreadyPresentException');
         } catch (DeathDateAlreadyPresentException) {
             // Expected.
@@ -236,7 +236,7 @@ final class ObituaryWriteBackTest extends IntegrationTestCase
         $before = $this->deatCount('I4', $tree);
 
         try {
-            $this->writer()->writeDeath($i4, '2023-09-04', 'https://trauer.example/x');
+            $this->writer()->writeConfirm($i4, '2023-09-04', null, null, 'https://trauer.example/x');
             self::fail('expected a DeathDateAlreadyPresentException');
         } catch (DeathDateAlreadyPresentException) {
             // Expected.
@@ -259,7 +259,7 @@ final class ObituaryWriteBackTest extends IntegrationTestCase
         $before = $this->deatCount('I6', $tree);
 
         try {
-            $this->writer()->writeDeath($i6, '2023-09-04', 'https://trauer.example/x');
+            $this->writer()->writeConfirm($i6, '2023-09-04', null, null, 'https://trauer.example/x');
             self::fail('expected a DeathDateAlreadyPresentException');
         } catch (DeathDateAlreadyPresentException) {
             // Expected.
@@ -282,7 +282,7 @@ final class ObituaryWriteBackTest extends IntegrationTestCase
         $tree = $this->tree();
         $i5   = $this->person('I5', $tree);
 
-        $writeBack = $this->writer()->writeDeath($i5, '2023-09-04', 'https://trauer.example/x');
+        $writeBack = $this->writer()->writeConfirm($i5, '2023-09-04', null, null, 'https://trauer.example/x');
 
         $facts = iterator_to_array($this->person('I5', $tree)->facts(['DEAT'], false, null, true));
 
@@ -332,7 +332,7 @@ final class ObituaryWriteBackTest extends IntegrationTestCase
         $before = $this->deatCount('I1', $tree);
 
         try {
-            $this->writer()->writeDeath($i1, '2023-09-04', $url);
+            $this->writer()->writeConfirm($i1, '2023-09-04', null, null, $url);
             self::fail('expected a WriteBackPreconditionException');
         } catch (WriteBackPreconditionException) {
             // Expected.
@@ -373,7 +373,7 @@ final class ObituaryWriteBackTest extends IntegrationTestCase
         $before = $this->deatCount('I1', $tree);
 
         try {
-            $this->writer()->writeDeath($i1, '2023-02-31', 'https://trauer.example/x');
+            $this->writer()->writeConfirm($i1, '2023-02-31', null, null, 'https://trauer.example/x');
             self::fail('expected a MalformedDeathDateException');
         } catch (MalformedDeathDateException) {
             // Expected.

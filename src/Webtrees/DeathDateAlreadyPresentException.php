@@ -14,7 +14,7 @@ namespace MagicSunday\ObituaryMatcher\Webtrees;
 use RuntimeException;
 
 /**
- * Thrown by the live re-check in {@see ObituaryWriteBack::writeDeath()} when the individual already
+ * Thrown by the live re-check in {@see ObituaryWriteBack::writeConfirm()} when the individual already
  * carries a death date (DEAT/BURI/CREM) at the moment of the write. It closes the gate↔write race:
  * the confirm handler may have passed its own gate, but a concurrent edit could have added a death
  * date in between, so the writer refuses rather than creating a second, conflicting dated DEAT.

@@ -35,8 +35,7 @@ use function trim;
  * write unit — it finds-or-creates a per-portal SOUR (one per canonical host, identified by a REFN
  * marker, pending-aware so a not-yet-accepted source is not duplicated), writes the facts with an
  * inline citation, and returns the {@see WriteBack} IDs. It is deliberately store-agnostic: the
- * caller marks the store confirmed AFTER a successful write. {@see writeDeath()} is retained as a
- * thin back-compat wrapper (a confirm with no cemetery).
+ * caller marks the store confirmed AFTER a successful write.
  *
  * Intentionally non-final: integration tests subclass it to drive the protected source/host seams
  * (`findPortalSource`/`createPortalSource`/`canonicalHost`) over a real tree — the same test-seam
@@ -158,21 +157,6 @@ class ObituaryWriteBack
         $buriFactId = $this->writeBurialFact($individual, $cleanCemetery, $funeralGedcom, $sourceXref, $obituaryUrl);
 
         return new WriteBack($deatFactId, $sourceXref, $sourceCreated, $buriFactId);
-    }
-
-    /**
-     * Writes the obituary death date into the individual as a sourced DEAT fact. Thin back-compat
-     * wrapper over {@see writeConfirm()} (a confirm with no cemetery).
-     *
-     * @param Individual $individual   The tree person to write to.
-     * @param string     $isoDeathDate The exact ISO death date from the obituary.
-     * @param string     $obituaryUrl  The source notice URL (the citation PAGE).
-     *
-     * @return WriteBack The IDs of the written records.
-     */
-    public function writeDeath(Individual $individual, string $isoDeathDate, string $obituaryUrl): WriteBack
-    {
-        return $this->writeConfirm($individual, $isoDeathDate, null, null, $obituaryUrl);
     }
 
     /**

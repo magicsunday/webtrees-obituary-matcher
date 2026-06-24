@@ -227,7 +227,7 @@ class ReviewScreenHandler implements RequestHandlerInterface
         // authorization control, so a hand-crafted POST must not bypass !hardConflict / exact-date /
         // no-tree-death-date. ConfirmGate is the single source of gate truth (shared with the view
         // model): hardConflict and the exact-date check read the persisted payload (the same source the
-        // view model used), treeHasDeathDate is read LIVE. writeDeath's own live re-check below is then
+        // view model used), treeHasDeathDate is read LIVE. writeConfirm's own live re-check below is then
         // defense-in-depth. StoredMatch::fromArray only asserts is_array on the payload (a PHPDoc cast,
         // no runtime key validation), and the on-disk JSON is untrusted (hand-edited / older schema), so
         // the two reads are narrowed defensively here EXACTLY as ReviewViewModel narrows them — keeping
