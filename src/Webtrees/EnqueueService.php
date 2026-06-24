@@ -15,7 +15,6 @@ use DateTimeImmutable;
 use Fisharebest\Webtrees\Services\TreeService;
 use Fisharebest\Webtrees\Tree;
 use InvalidArgumentException;
-use MagicSunday\ObituaryMatcher\Domain\PersonCandidate;
 use MagicSunday\ObituaryMatcher\Matching\MatchStore;
 use MagicSunday\ObituaryMatcher\Queue\FeederRequestReader;
 use MagicSunday\ObituaryMatcher\Queue\JobState;
@@ -28,12 +27,10 @@ use MagicSunday\ObituaryMatcher\Support\UrlHostNormalizer;
 use RuntimeException;
 
 use function array_keys;
-use function array_slice;
 use function count;
 use function is_dir;
 use function scandir;
 use function sort;
-use function usort;
 
 use const SCANDIR_SORT_NONE;
 use const SORT_STRING;
@@ -92,21 +89,23 @@ class EnqueueService
     {
         $tree = $this->treeService->find($treeId);
 
-        $candidates = $this->repository->findCandidates(
-            $tree,
-            new CandidateCriteria($minAge, false, $referenceYear),
-        );
-
         // Tree-filtered: only jobs for THIS tree block a re-enqueue, so a shared xref (I1 in tree A
         // vs I1 in tree B) never causes a cross-tree false-positive skip.
         $inFlight = $this->collectInFlightPersonIds($treeId);
 
-        // Drop in-flight candidates, then order deterministically by personId so the capped set is
-        // reproducible across runs regardless of the repository's scan order.
+        // Pull candidates lazily, already in lowest-xref-first order, and stop the moment the cap is
+        // filled. The generator hydrates one candidate per pull, so a run on a large tree pays at
+        // most O(limit + in-flight-stepped-over) individual hydrations instead of materialising the
+        // whole eligible population only to slice off --limit of it (issue #38).
         $eligible = [];
         $skipped  = 0;
 
-        foreach ($candidates as $candidate) {
+        foreach (
+            $this->repository->findCandidatesLazily(
+                $tree,
+                new CandidateCriteria($minAge, false, $referenceYear),
+            ) as $candidate
+        ) {
             if (isset($inFlight[$candidate->id])) {
                 ++$skipped;
 
@@ -114,11 +113,15 @@ class EnqueueService
             }
 
             $eligible[] = $candidate;
+
+            if (count($eligible) === $limit) {
+                // The cap is filled; break so the generator suspends and the remaining candidates
+                // are never hydrated. skippedInflight therefore counts the in-flight candidates
+                // stepped over WHILE filling this batch (those with a lower xref than the cap
+                // boundary), not the whole-population in-flight total.
+                break;
+            }
         }
-
-        usort($eligible, static fn (PersonCandidate $a, PersonCandidate $b): int => $a->id <=> $b->id);
-
-        $eligible = array_slice($eligible, 0, $limit);
 
         if ($eligible === []) {
             return new EnqueueSummary(null, 0, $skipped, 0);

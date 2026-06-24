@@ -248,6 +248,34 @@ abstract class AbstractEnqueueTestCase extends AbstractQueueStoreTestCase
     }
 
     /**
+     * Import a tree of {@see $count} old "Searchable" individuals (I1..I{count}), every one an
+     * eligible candidate with no death date — so a `--limit` below {@see $count} forces the producer
+     * to bound the set. Restricted to a single-digit count so the I1..I9 xrefs sort identically under
+     * lexicographic and numeric ordering.
+     *
+     * @param string $name  The unique tree name.
+     * @param int    $count The number of eligible individuals (1..9).
+     *
+     * @return Tree The imported tree.
+     */
+    protected function searchableTree(string $name, int $count): Tree
+    {
+        $gedcom = "0 HEAD\n"
+            . "1 SOUR obituary-matcher-tests\n"
+            . "1 GEDC\n"
+            . "2 VERS 5.5.1\n"
+            . "1 CHAR UTF-8\n";
+
+        for ($n = 1; $n <= $count; ++$n) {
+            $gedcom .= $this->indi('I' . $n, 'Person' . $n, '17 MAR 1930');
+        }
+
+        $gedcom .= "0 TRLR\n";
+
+        return $this->importFixtureTree($gedcom, $name);
+    }
+
+    /**
      * Build one INDI record for a "Searchable" individual with a birth date and no death date.
      *
      * @param string $xref  The xref (e.g. "I1").

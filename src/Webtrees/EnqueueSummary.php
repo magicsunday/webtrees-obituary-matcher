@@ -27,7 +27,10 @@ final readonly class EnqueueSummary
      *
      * @param string|null $jobId           The enqueued job id, or null when no job was written.
      * @param int         $candidates      The candidates written into the request (post-filter, post-cap).
-     * @param int         $skippedInflight The candidates dropped because they are already in-flight.
+     * @param int         $skippedInflight The in-flight candidates stepped over while filling the capped
+     *                                     batch (those ordered before the cap boundary); the producer
+     *                                     stops hydrating once --limit survivors are gathered, so this is
+     *                                     a within-batch tally, not the whole-population in-flight total.
      * @param int         $excludedHosts   The total excluded-host entries across the job's candidates.
      */
     public function __construct(

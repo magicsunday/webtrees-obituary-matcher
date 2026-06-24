@@ -325,6 +325,60 @@ final class EnqueueServiceTest extends AbstractEnqueueTestCase
     }
 
     /**
+     * (11) Bounding (issue #38): with more eligible candidates (I1..I5) than --limit (3), the producer
+     * emits exactly the three lowest-xref candidates — I4 and I5 are bounded out of the emitted set,
+     * which stays the deterministic lowest-xref-first prefix. The lazy/bounded HYDRATION contract the
+     * producer relies on is pinned in {@see CandidateRepositoryTest}; this test pins the emitted set.
+     *
+     * @return void
+     */
+    #[Test]
+    public function limitBoundsTheEligibleSetToTheLowestXrefPrefix(): void
+    {
+        $tree = $this->searchableTree('enqueue-bounding', 5);
+
+        $summary = $this->enqueueService()->enqueue($tree->id(), 3, 90, 'de-DE', self::REFERENCE_YEAR);
+
+        self::assertNotNull($summary->jobId);
+        self::assertSame(3, $summary->candidates);
+        self::assertSame(0, $summary->skippedInflight);
+
+        // The three lowest xrefs only; I4 and I5 are bounded out of the emitted set.
+        self::assertSame(['I1', 'I2', 'I3'], $this->queuedPersonIds($summary->jobId));
+    }
+
+    /**
+     * (12) Bare-numeric xref ordering: the cap tiebreak is lexicographic (byte-wise), NOT numeric, so
+     * over xrefs "2"/"10"/"100" a --limit of 2 enqueues the lexicographic prefix ["10", "100"], not
+     * the numeric ["2", "10"]. webtrees never generates bare-numeric xrefs, but a third-party GEDCOM
+     * with numeric record ids imports them verbatim; this freezes the engine-independent
+     * lexicographic contract so a future change back to a numeric sort cannot silently flip the
+     * enqueued set.
+     *
+     * @return void
+     */
+    #[Test]
+    public function theCapTiebreakOverBareNumericXrefsIsLexicographicNotNumeric(): void
+    {
+        $tree = $this->importFixtureTree(
+            "0 HEAD\n1 SOUR t\n1 GEDC\n2 VERS 5.5.1\n1 CHAR UTF-8\n"
+            . "0 @2@ INDI\n1 NAME Two /Searchable/\n2 GIVN Two\n2 SURN Searchable\n1 SEX M\n1 BIRT\n2 DATE 17 MAR 1930\n"
+            . "0 @10@ INDI\n1 NAME Ten /Searchable/\n2 GIVN Ten\n2 SURN Searchable\n1 SEX M\n1 BIRT\n2 DATE 17 MAR 1930\n"
+            . "0 @100@ INDI\n1 NAME Hundred /Searchable/\n2 GIVN Hundred\n2 SURN Searchable\n1 SEX M\n1 BIRT\n2 DATE 17 MAR 1930\n"
+            . "0 TRLR\n",
+            'enqueue-numeric-xref',
+        );
+
+        $summary = $this->enqueueService()->enqueue($tree->id(), 2, 90, 'de-DE', self::REFERENCE_YEAR);
+
+        self::assertNotNull($summary->jobId);
+        self::assertSame(2, $summary->candidates);
+
+        // Lexicographic prefix: "10" and "100" sort before "2"; a numeric sort would have picked "2".
+        self::assertSame(['10', '100'], $this->queuedPersonIds($summary->jobId));
+    }
+
+    /**
      * (8) Zero eligible candidates → no job written, summary jobId null and counters zero.
      *
      * @return void

@@ -12,6 +12,7 @@ declare(strict_types=1);
 namespace MagicSunday\ObituaryMatcher\Test\Integration;
 
 use Fisharebest\Webtrees\Auth;
+use Fisharebest\Webtrees\DB;
 use Fisharebest\Webtrees\Gedcom;
 use Fisharebest\Webtrees\Tree;
 use MagicSunday\ObituaryMatcher\Domain\PersonCandidate;
@@ -25,6 +26,7 @@ use PHPUnit\Framework\Attributes\UsesClass;
 
 use function array_keys;
 use function array_map;
+use function count;
 use function file_get_contents;
 use function sort;
 
@@ -231,5 +233,62 @@ final class CandidateRepositoryTest extends IntegrationTestCase
 
         self::assertSame(['I1'], $this->keys($visitorCandidates));
         self::assertArrayNotHasKey('I7', $visitorCandidates);
+    }
+
+    /**
+     * findCandidatesLazily yields the survivors as a pull-based generator, in lexicographic xref
+     * order, and stays suspended between pulls — the contract the bounded enqueue producer relies on
+     * to cap hydration at --limit instead of materialising the whole eligible population (issue #38).
+     */
+    #[Test]
+    public function findCandidatesLazilyYieldsSurvivorsInXrefOrderAsAPullBasedGenerator(): void
+    {
+        $tree = $this->repositoryTree();
+
+        Auth::logout();
+
+        // Count the executed DB queries so the third survivor's hydration can be observed as a
+        // deferred cost rather than asserted only in prose. An eager-internal generator (e.g.
+        // `yield from iterator_to_array(...)`) would hydrate the whole population on the first pull,
+        // making the query count flat across later pulls — this delta check is what discriminates the
+        // bounded lazy generator (#38) from such a revert.
+        DB::connection()->enableQueryLog();
+
+        $generator = (new CandidateRepository())->findCandidatesLazily(
+            $tree,
+            new CandidateCriteria(minAge: 90, referenceYear: self::REFERENCE_YEAR),
+        );
+
+        // The first survivor (I1) is produced on the first pull, in lexicographic xref order.
+        self::assertSame('I1', $generator->current()->id);
+
+        // The second survivor (I6) arrives next — the generator transparently steps over the
+        // SQL-passing but age-rejected I5 between the two yields.
+        $generator->next();
+        self::assertSame('I6', $generator->current()->id);
+
+        // After two pulls the generator is still open: a consumer capping at two would stop here.
+        self::assertTrue($generator->valid());
+
+        // The third survivor (I9, and the privacy-hidden I7 stepped over before it) is NOT hydrated
+        // until pulled: pulling it executes further queries, so the count strictly grows. A revert to
+        // eager-up-front hydration would leave this delta at zero and fail here.
+        $queriesBeforeThirdPull = count(DB::connection()->getQueryLog());
+
+        $generator->next();
+        self::assertSame('I9', $generator->current()->id);
+
+        self::assertGreaterThan(
+            $queriesBeforeThirdPull,
+            count(DB::connection()->getQueryLog()),
+            'the third survivor must be hydrated only when pulled (bounded lazy hydration, #38)',
+        );
+
+        // Draining past the last survivor completes the generator — the same [I1, I6, I9] visitor set
+        // findCandidates() returns, just produced lazily and in lexicographic order.
+        $generator->next();
+        self::assertFalse($generator->valid());
+
+        DB::connection()->flushQueryLog();
     }
 }
