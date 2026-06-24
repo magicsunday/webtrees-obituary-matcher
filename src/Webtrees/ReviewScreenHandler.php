@@ -53,7 +53,8 @@ use function trim;
  * callable. A POST carries a reject/uncertain/confirm review decision: the row is mutated and the
  * request redirects with a flash, and a row finalised by a concurrent reviewer between resolution and
  * mutation is reported as a warning rather than a 500. Confirm additionally writes a sourced DEAT
- * fact to the tree person before transitioning the store (a separate, non-atomic persistence).
+ * (and optional BURI) fact to the tree person — atomically, in a single record update (#41) — before
+ * transitioning the store (a separate persistence from the store transition).
  *
  * @author  Rico Sonntag <mail@ricosonntag.de>
  * @license https://opensource.org/licenses/GPL-3.0 GNU General Public License v3.0
@@ -202,9 +203,11 @@ class ReviewScreenHandler implements RequestHandlerInterface
     }
 
     /**
-     * Confirms a match: writes the sourced DEAT fact, then marks the store confirmed. The GEDCOM
-     * write and the store write are separate persistences (spec §9) — a write error aborts cleanly
-     * with no transition; a store error AFTER a successful write is surfaced (the fact is orphaned).
+     * Confirms a match: writes the sourced DEAT (and optional BURI) atomically, then marks the store
+     * confirmed. The GEDCOM write and the store write are separate persistences (spec §9), but the
+     * GEDCOM write is itself atomic (#41, a single updateRecord): a write error commits NOTHING and
+     * aborts cleanly with no transition (no orphan, safely re-tried); a store error AFTER a successful
+     * write is still surfaced, though it now leaves a recoverable confirmed-in-tree-but-Pending row.
      *
      * @param Tree        $tree          The tree the row belongs to.
      * @param string      $xref          The candidate identifier.
@@ -273,6 +276,14 @@ class ReviewScreenHandler implements RequestHandlerInterface
             // accurate now that writeConfirm validates the cemetery/funeral inputs too, not just the
             // death date.
             FlashMessages::addMessage(I18N::translate('The obituary did not carry writable data.'), 'warning');
+
+            return redirect($reviewUrl);
+        } catch (Throwable $throwable) {
+            // The write is atomic (a single updateRecord): a failure here committed NOTHING to the tree,
+            // so there is no orphan — the store stays Pending and the confirm is safely re-tried. Log the
+            // failure (webtrees' DB error log) and surface a retry warning rather than a 500.
+            Log::addErrorLog('Obituary matcher: confirm write-back failed: ' . $throwable->getMessage());
+            FlashMessages::addMessage(I18N::translate('The death notice could not be written; please try again.'), 'warning');
 
             return redirect($reviewUrl);
         }

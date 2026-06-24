@@ -1022,6 +1022,45 @@ final class ReviewScreenHandlerTest extends IntegrationTestCase
     }
 
     /**
+     * POST confirm where the atomic write itself throws a generic Throwable (e.g. an updateRecord DB
+     * failure) flashes a retry WARNING — not a 500, not a danger orphan error — and does NOT transition
+     * (#41). The write is atomic: a throw commits NOTHING, so there is no orphan and the row stays
+     * pending, safely re-confirmable. The writer seam injects the failure.
+     *
+     * @return void
+     */
+    #[Test]
+    public function postConfirmWriteBackThrowableFlashesRetryWarningAndDoesNotTransition(): void
+    {
+        Auth::user()->setPreference(UserInterface::PREF_AUTO_ACCEPT_EDITS, '1');
+
+        $key     = $this->seedConfirmableMatch('I2', '2023-09-04');
+        $handler = $this->handlerWithThrowingWriter(new RuntimeException('updateRecord failed'));
+        $request = $this->managerPostRequest(
+            ReviewScreenHandler::ROUTE_NAME,
+            ['xref'   => 'I2', 'key' => $key],
+            ['action' => 'confirm']
+        );
+
+        $response = $handler->handle($request);
+
+        self::assertSame(302, $response->getStatusCode());
+        // The write threw, so the manager loops back to the review screen, not the individual.
+        self::assertStringContainsString('obituary-review', $response->getHeaderLine('Location'));
+
+        $messages = FlashMessages::getMessages();
+        self::assertCount(1, $messages);
+        self::assertSame('warning', $messages[0]->status);
+
+        // Atomic write: nothing was committed (the seam throws before any record update), so no DEAT
+        // reached the tree and the store row is still pending — the confirm can be safely re-tried.
+        $individual = $this->individual('I2', $this->tree);
+        self::assertInstanceOf(Individual::class, $individual);
+        self::assertCount(0, iterator_to_array($individual->facts(['DEAT'], false, null, true)));
+        self::assertSame(MatchStatus::Pending, $this->store()->findOne('I2', $key)?->status);
+    }
+
+    /**
      * A POST confirm WITHOUT a valid CSRF token is rejected by the {@see CheckCsrf} middleware before
      * the handler runs: it redirects back with no write and no transition. Mirrors the reject/uncertain
      * CSRF coverage for the confirm action (spec §11).
@@ -1439,6 +1478,73 @@ final class ReviewScreenHandlerTest extends IntegrationTestCase
         $individual = $this->individual('I2', $this->tree);
         self::assertInstanceOf(Individual::class, $individual);
         self::assertCount(0, iterator_to_array($individual->facts(['DEAT'], false, null, true)));
+    }
+
+    /**
+     * Builds the handler under test scoped to this test's temp store, with the writer seam overridden
+     * to a writer whose writeConfirm throws the given Throwable — exercising the #41 atomic-write
+     * failure arm (Block A's final catch) without a real DB failure.
+     *
+     * @param Throwable $failure The exception writeConfirm throws.
+     *
+     * @return ReviewScreenHandler The handler with both the store and the throwing-writer seams overridden.
+     */
+    private function handlerWithThrowingWriter(Throwable $failure): ReviewScreenHandler
+    {
+        $writer = new class($failure) extends ObituaryWriteBack {
+            /**
+             * @param Throwable $failure The exception writeConfirm throws.
+             */
+            public function __construct(private readonly Throwable $failure)
+            {
+                parent::__construct();
+            }
+
+            /**
+             * Throws the injected failure instead of writing, simulating an atomic-write DB failure.
+             *
+             * @param Individual  $individual  The tree person (unused).
+             * @param string      $isoDeath    The ISO death date (unused).
+             * @param string|null $cemetery    The cemetery (unused).
+             * @param string|null $funeralIso  The ISO funeral date (unused).
+             * @param string      $obituaryUrl The obituary URL (unused).
+             *
+             * @return WriteBack Never returns — always throws.
+             *
+             * @throws Throwable The injected failure.
+             */
+            public function writeConfirm(
+                Individual $individual,
+                string $isoDeath,
+                ?string $cemetery,
+                ?string $funeralIso,
+                string $obituaryUrl,
+            ): WriteBack {
+                throw $this->failure;
+            }
+        };
+
+        return new class(self::MODULE_NAMESPACE, $this->dir, $writer) extends ReviewScreenHandler {
+            /**
+             * @param string            $viewNamespace The view namespace the handler renders under.
+             * @param string            $storeDir      The temp store directory injected for the test.
+             * @param ObituaryWriteBack $writer        The throwing writer injected for the test.
+             */
+            public function __construct(string $viewNamespace, private readonly string $storeDir, private readonly ObituaryWriteBack $writer)
+            {
+                parent::__construct($viewNamespace);
+            }
+
+            protected function storeForTree(Tree $tree): MatchStore
+            {
+                return new FileMatchStore($this->storeDir);
+            }
+
+            protected function obituaryWriteBack(): ObituaryWriteBack
+            {
+                return $this->writer;
+            }
+        };
     }
 
     /**

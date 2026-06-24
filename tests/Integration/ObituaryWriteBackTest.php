@@ -521,6 +521,45 @@ final class ObituaryWriteBackTest extends IntegrationTestCase
     }
 
     /**
+     * The atomic-write gate (#41): the fact ids RETURNED by writeConfirm — computed as md5 of the
+     * exact fact gedcom written in the single updateRecord — must EQUAL the ids of the facts as
+     * webtrees parsed and stored them (Fact::id() = md5 of the stored fact gedcom). This pins the
+     * `md5(written) === md5(stored)` invariant the merged Revert depends on: a record-level
+     * normalisation that altered a non-trailing fact (or a re-nesting) would break this equality and
+     * Revert could no longer resolve the facts. If this assertion fails, the atomic design is invalid.
+     *
+     * @return void
+     */
+    #[Test]
+    public function theReturnedFactIdsEqualTheStoredFactIds(): void
+    {
+        $tree = $this->tree();
+
+        $writeBack = $this->writer()->writeConfirm(
+            $this->person('I1', $tree),
+            '2023-09-04',
+            'Waldfriedhof Beispielstadt',
+            '2023-09-10',
+            'https://trauer.example/x'
+        );
+
+        self::assertNotNull($writeBack->buriFactId);
+
+        // Re-fetch so the assertions read the committed records and their stored fact ids.
+        $reloaded = $this->person('I1', $tree);
+
+        $deatFacts = iterator_to_array($reloaded->facts(['DEAT'], false, null, true));
+        $buriFacts = iterator_to_array($reloaded->facts(['BURI'], false, null, true));
+
+        self::assertCount(1, $deatFacts);
+        self::assertCount(1, $buriFacts);
+
+        // The gate: md5(the fact gedcom I wrote) === the stored fact's id() for BOTH facts.
+        self::assertSame($deatFacts[0]->id(), $writeBack->deatFactId, 'the returned DEAT id must equal the stored fact id (md5 written === md5 stored)');
+        self::assertSame($buriFacts[0]->id(), $writeBack->buriFactId, 'the returned BURI id must equal the stored fact id (md5 written === md5 stored)');
+    }
+
+    /**
      * A literal `@` in a cemetery or the obituary URL must be escaped to `@@` in the stored GEDCOM value
      * (GEDCOM 5.5.1 + webtrees' AbstractElement::escape convention — a bare `@` starts an XREF pointer).
      * webtrees stores the createFact() string verbatim, so the writer must escape the value AND build its
