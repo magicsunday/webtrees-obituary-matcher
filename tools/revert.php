@@ -45,7 +45,6 @@ use Fisharebest\Webtrees\Log;
 use Fisharebest\Webtrees\Registry;
 use Fisharebest\Webtrees\Services\GedcomImportService;
 use Fisharebest\Webtrees\Services\TreeService;
-use Fisharebest\Webtrees\Services\UserService;
 use MagicSunday\ObituaryMatcher\Matching\MatchStatus;
 use MagicSunday\ObituaryMatcher\Matching\StoredMatch;
 use MagicSunday\ObituaryMatcher\Matching\StoredMatchKey;
@@ -127,7 +126,7 @@ $url = $urlOption;
 // HeadlessBootstrap::bootForCli() reports the fixed category WITHOUT leaking the DSN/credentials,
 // routes the raw detail to the guarded error_log sink (the privacy-critical S46 handling) and exits
 // non-zero. The PDOException-first arm ordering and the guarded sink live in that shared method.
-HeadlessBootstrap::bootForCli('revert', new UserService());
+HeadlessBootstrap::bootForCli('revert');
 
 $treeService = new TreeService(new GedcomImportService());
 

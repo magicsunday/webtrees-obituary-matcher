@@ -34,7 +34,6 @@ declare(strict_types=1);
 
 use Fisharebest\Webtrees\Services\GedcomImportService;
 use Fisharebest\Webtrees\Services\TreeService;
-use Fisharebest\Webtrees\Services\UserService;
 use MagicSunday\ObituaryMatcher\Matching\IngestService;
 use MagicSunday\ObituaryMatcher\Queue\FeederRequestReader;
 use MagicSunday\ObituaryMatcher\Queue\QueueClient;
@@ -107,7 +106,7 @@ $limit = (is_string($limitOption) && ctype_digit($limitOption) && ((int) $limitO
 // HeadlessBootstrap::bootForCli() reports the fixed category WITHOUT leaking the DSN/credentials,
 // routes the raw detail to the guarded error_log sink (the privacy-critical S46 handling) and exits
 // non-zero. The PDOException-first arm ordering and the guarded sink live in that shared method.
-HeadlessBootstrap::bootForCli('drain', new UserService());
+HeadlessBootstrap::bootForCli('drain');
 
 // Resolve the queue root: the explicit --queue, else the running instance's default queue dir resolved
 // through the layout-independent locator (relative to this module's root, which is the tools/ parent).

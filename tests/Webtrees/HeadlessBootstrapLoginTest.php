@@ -17,6 +17,7 @@ use Fisharebest\Webtrees\Services\UserService;
 use Fisharebest\Webtrees\Session;
 use Illuminate\Support\Collection;
 use MagicSunday\ObituaryMatcher\Webtrees\HeadlessBootstrap;
+use MagicSunday\ObituaryMatcher\Webtrees\HeadlessBootstrapException;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
@@ -95,7 +96,7 @@ final class HeadlessBootstrapLoginTest extends TestCase
             HeadlessBootstrap::loginSystemPrincipal($users);
 
             self::fail('loginSystemPrincipal() must refuse when no administrator account exists.');
-        } catch (RuntimeException $exception) {
+        } catch (HeadlessBootstrapException $exception) {
             self::assertMatchesRegularExpression(
                 '/' . preg_quote('No admin user available', '/') . '/',
                 $exception->getMessage(),
