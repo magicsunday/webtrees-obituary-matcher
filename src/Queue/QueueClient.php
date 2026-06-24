@@ -18,19 +18,26 @@ use RecursiveIteratorIterator;
 use RuntimeException;
 use SplFileInfo;
 use Throwable;
+use UnexpectedValueException;
 
+use function array_keys;
+use function array_slice;
 use function is_array;
 use function is_dir;
 use function is_int;
 use function is_string;
+use function max;
 use function mkdir;
 use function rename;
 use function restore_error_handler;
 use function rmdir;
+use function rsort;
 use function set_error_handler;
 use function sprintf;
 use function uniqid;
 use function unlink;
+
+use const SORT_STRING;
 
 /**
  * Drives the file-drop queue state machine on top of {@see QueuePaths} and {@see AtomicFile}. A job
@@ -426,6 +433,69 @@ final readonly class QueueClient
                 $this->paths->failedIngestDir($jobId) . self::STATUS_FILE
             ),
         };
+    }
+
+    /**
+     * Returns the most-recent jobs across ALL state directories, keyed by job id, most-recent-first.
+     * The id is sorted descending as a string (chronological for the module-minted `job-<ts>-<hex>`
+     * ids); the list is capped to $limit BEFORE hydration, then each id's status is read. A job whose
+     * status cannot be read is skipped (poison-tolerant), so fewer than $limit rows may return.
+     *
+     * @param int $limit The maximum number of jobs to return.
+     *
+     * @return array<string, JobStatus> The jobId => JobStatus map, most-recent-first.
+     */
+    public function recentJobs(int $limit): array
+    {
+        $seen = [];
+
+        foreach (JobState::cases() as $state) {
+            $root = $this->paths->stateRoot($state->value);
+
+            if (!is_dir($root)) {
+                continue;
+            }
+
+            // A state dir that exists but is unreadable makes the FilesystemIterator constructor throw
+            // an UnexpectedValueException. Mirroring FileMatchStore::scanDir, that dir is skipped (its
+            // jobs simply do not surface) rather than crashing the whole read-only status list.
+            try {
+                $iterator = new FilesystemIterator($root, FilesystemIterator::SKIP_DOTS);
+            } catch (UnexpectedValueException) {
+                continue;
+            }
+
+            foreach ($iterator as $entry) {
+                if (
+                    ($entry instanceof SplFileInfo)
+                    && $entry->isDir()
+                    && $this->paths->isJobDirectoryName($entry->getFilename())
+                ) {
+                    // Dedupe: a job id should live in exactly one state dir, but a torn move could
+                    // surface the same id in two — hydrate it once.
+                    $seen[$entry->getFilename()] = true;
+                }
+            }
+        }
+
+        $ids = array_keys($seen);
+        rsort($ids, SORT_STRING);
+        $ids = array_slice($ids, 0, max(0, $limit));
+
+        $jobs = [];
+
+        foreach ($ids as $jobId) {
+            try {
+                $jobs[$jobId] = $this->status($jobId);
+            } catch (Throwable) {
+                // A job whose status is unreadable/corrupt is skipped, not fatal. This is a best-effort
+                // read-only status list, so ANY failure reading one job's status skips that job rather
+                // than crashing the whole panel.
+                continue;
+            }
+        }
+
+        return $jobs;
     }
 
     /**

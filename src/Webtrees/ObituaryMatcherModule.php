@@ -17,6 +17,8 @@ use Fisharebest\Webtrees\I18N;
 use Fisharebest\Webtrees\Individual;
 use Fisharebest\Webtrees\Menu;
 use Fisharebest\Webtrees\Module\AbstractModule;
+use Fisharebest\Webtrees\Module\ModuleConfigInterface;
+use Fisharebest\Webtrees\Module\ModuleConfigTrait;
 use Fisharebest\Webtrees\Module\ModuleCustomInterface;
 use Fisharebest\Webtrees\Module\ModuleCustomTrait;
 use Fisharebest\Webtrees\Module\ModuleMenuInterface;
@@ -44,11 +46,12 @@ use function view;
  * @license https://opensource.org/licenses/GPL-3.0 GNU General Public License v3.0
  * @link    https://github.com/magicsunday/webtrees-obituary-matcher/
  */
-class ObituaryMatcherModule extends AbstractModule implements ModuleCustomInterface, ModuleMenuInterface, ModuleTabInterface
+class ObituaryMatcherModule extends AbstractModule implements ModuleConfigInterface, ModuleCustomInterface, ModuleMenuInterface, ModuleTabInterface
 {
     use ModuleCustomTrait;
     use ModuleTabTrait;
     use ModuleMenuTrait;
+    use ModuleConfigTrait;
 
     /**
      * @var array<int, SuggestionTabPresenter> Per-request presenter cache keyed by tree id.
@@ -117,7 +120,9 @@ class ObituaryMatcherModule extends AbstractModule implements ModuleCustomInterf
      * pointing it at a non-existent path. The route is registered as a {@see ReviewScreenHandler}
      * instance bound to the module's own view namespace and allows POST for the Task 5 decision
      * dispatch. The tree-wide worklist GET route ({@see ObituaryWorklistHandler}) is registered
-     * alongside it, exposed through the manager-only main-menu entry in {@see self::getMenu()}.
+     * alongside it, exposed through the manager-only main-menu entry in {@see self::getMenu()}. The
+     * admin control-panel route ({@see ObituaryControlPanelHandler}) is registered too and allows POST
+     * for its save/trigger actions; it is surfaced in the control panel via {@see self::getConfigLink()}.
      *
      * @return void
      */
@@ -138,6 +143,21 @@ class ObituaryMatcherModule extends AbstractModule implements ModuleCustomInterf
 
         $routeMap
             ->get(ObituaryWorklistHandler::ROUTE_NAME, ObituaryWorklistHandler::ROUTE_URL, new ObituaryWorklistHandler($this->name()));
+
+        $routeMap
+            ->get(ObituaryControlPanelHandler::ROUTE_NAME, ObituaryControlPanelHandler::ROUTE_URL, new ObituaryControlPanelHandler($this))
+            ->allows(RequestMethodInterface::METHOD_POST);
+    }
+
+    /**
+     * Returns the URL of the module's admin control panel.
+     *
+     * @return string The control-panel route URL.
+     */
+    #[Override]
+    public function getConfigLink(): string
+    {
+        return route(ObituaryControlPanelHandler::ROUTE_NAME);
     }
 
     /**

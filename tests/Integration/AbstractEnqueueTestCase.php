@@ -35,6 +35,10 @@ use MagicSunday\ObituaryMatcher\Webtrees\MatchStoreFactory;
 
 use function hash;
 use function mkdir;
+use function scandir;
+use function str_starts_with;
+
+use const SCANDIR_SORT_NONE;
 
 /**
  * Shared harness for the enqueue integration tests: a throwaway file-drop queue + isolated per-tree
@@ -116,6 +120,38 @@ abstract class AbstractEnqueueTestCase extends AbstractQueueStoreTestCase
                 return new DateTimeImmutable('2026-06-23T10:15:30+00:00');
             }
         };
+    }
+
+    /**
+     * List the real job directories currently in the queued state (excluding dot + temp entries), in
+     * filesystem order.
+     *
+     * @return list<string> The queued job ids.
+     */
+    protected function queuedJobIds(): array
+    {
+        $root    = $this->paths()->stateRoot(JobState::Queued->value);
+        $entries = scandir($root, SCANDIR_SORT_NONE);
+
+        if ($entries === false) {
+            return [];
+        }
+
+        $jobs = [];
+
+        foreach ($entries as $entry) {
+            if (
+                ($entry === '.')
+                || ($entry === '..')
+                || str_starts_with($entry, '.tmp-')
+            ) {
+                continue;
+            }
+
+            $jobs[] = $entry;
+        }
+
+        return $jobs;
     }
 
     /**

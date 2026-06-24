@@ -1,0 +1,104 @@
+<?php
+
+/**
+ * This file is part of the package magicsunday/webtrees-obituary-matcher.
+ *
+ * For the full copyright and license information, please read the
+ * LICENSE file that was distributed with this source code.
+ *
+ * The admin control-panel view: the prefilled candidate settings, a per-tree feeder-trigger form and
+ * the recent-job queue status. The admin layout wraps it. Every dynamic sink is e()-escaped once and
+ * each job state key maps to a literal I18N::translate() label here (so xgettext can extract it).
+ */
+
+declare(strict_types=1);
+
+use Fisharebest\Webtrees\I18N;
+use MagicSunday\ObituaryMatcher\Ui\ControlPanelView;
+use MagicSunday\ObituaryMatcher\Webtrees\ObituaryControlPanelHandler;
+
+/** @var ControlPanelView $view */
+
+$stateLabels = [
+    'queued'        => I18N::translate('Queued'),
+    'running'       => I18N::translate('Running'),
+    'done'          => I18N::translate('Done'),
+    'failed'        => I18N::translate('Failed'),
+    'ingesting'     => I18N::translate('Ingesting'),
+    'ingested'      => I18N::translate('Ingested'),
+    'failed-ingest' => I18N::translate('Failed (ingest)'),
+];
+?>
+
+<h1><?= e(I18N::translate('Death notices')) ?></h1>
+
+<form method="post" action="<?= e(route(ObituaryControlPanelHandler::ROUTE_NAME)) ?>">
+    <?= csrf_field() ?>
+    <input type="hidden" name="action" value="save">
+
+    <label for="min_age"><?= e(I18N::translate('Minimum age')) ?></label>
+    <input type="number" id="min_age" name="min_age" value="<?= e((string) $view->minAge) ?>" min="0" max="120">
+
+    <label for="limit"><?= e(I18N::translate('Candidates per run')) ?></label>
+    <input type="number" id="limit" name="limit" value="<?= e((string) $view->limit) ?>" min="1" max="500">
+
+    <button type="submit"><?= e(I18N::translate('Save')) ?></button>
+</form>
+
+<h2><?= e(I18N::translate('Search for death notices')) ?></h2>
+
+<?php if ($view->trees === []) : ?>
+    <p><?= e(I18N::translate('No trees are available.')) ?></p>
+<?php else : ?>
+    <?php foreach ($view->trees as $tree) : ?>
+        <form method="post" action="<?= e(route(ObituaryControlPanelHandler::ROUTE_NAME)) ?>">
+            <?= csrf_field() ?>
+            <input type="hidden" name="action" value="trigger">
+            <input type="hidden" name="tree" value="<?= e((string) $tree['id']) ?>">
+            <span><?= e($tree['name']) ?></span>
+            <button type="submit"><?= e(I18N::translate('Start search')) ?></button>
+        </form>
+    <?php endforeach ?>
+<?php endif ?>
+
+<h2><?= e(I18N::translate('Recent searches')) ?></h2>
+
+<?php if ($view->jobRows === []) : ?>
+    <p><?= e(I18N::translate('No searches run yet.')) ?></p>
+<?php else : ?>
+    <table class="table wt-facts-table">
+        <thead>
+            <tr>
+                <th><?= e(I18N::translate('Job')) ?></th>
+                <th><?= e(I18N::translate('Status')) ?></th>
+                <th><?= e(I18N::translate('Counts')) ?></th>
+                <th><?= e(I18N::translate('Finished')) ?></th>
+            </tr>
+        </thead>
+        <tbody>
+            <?php foreach ($view->jobRows as $row) : ?>
+                <tr>
+                    <td><?= e($row->jobId) ?></td>
+                    <td><?= e($stateLabels[$row->stateKey] ?? $row->stateKey) ?></td>
+                    <td>
+                        <?php if ($row->counts === []) : ?>
+                            —
+                        <?php else : ?>
+                            <?php
+                            $pairs = [];
+
+                            foreach ($row->counts as $countKey => $countValue) {
+                                // Each pair is e()-escaped here; the '='/', ' join glue is static, so
+                                // the joined string is echoed RAW below to avoid double-escaping.
+                                $pairs[] = e($countKey) . '=' . e((string) $countValue);
+                            }
+                            ?>
+                            <?= implode(', ', $pairs) ?>
+                        <?php endif ?>
+                    </td>
+                    <td><?= e($row->finishedAt ?? '—') ?></td>
+                </tr>
+            <?php endforeach ?>
+        </tbody>
+    </table>
+<?php endif ?>
