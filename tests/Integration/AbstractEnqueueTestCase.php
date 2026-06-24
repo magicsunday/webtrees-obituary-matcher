@@ -234,17 +234,11 @@ abstract class AbstractEnqueueTestCase extends AbstractQueueStoreTestCase
      */
     protected function ottoTree(string $name): Tree
     {
-        $gedcom = "0 HEAD\n"
-            . "1 SOUR obituary-matcher-tests\n"
-            . "1 GEDC\n"
-            . "2 VERS 5.5.1\n"
-            . "1 CHAR UTF-8\n"
-            . $this->indi('I1', 'Otto', '17 MAR 1930')
+        $body = $this->indi('I1', 'Otto', '17 MAR 1930')
             . $this->indi('I2', 'Berta', '03 JUN 1928')
-            . $this->indi('I3', 'Cesar', '21 NOV 1925')
-            . "0 TRLR\n";
+            . $this->indi('I3', 'Cesar', '21 NOV 1925');
 
-        return $this->importFixtureTree($gedcom, $name);
+        return $this->importFixtureTree($this->gedcom($body), $name);
     }
 
     /**
@@ -260,19 +254,32 @@ abstract class AbstractEnqueueTestCase extends AbstractQueueStoreTestCase
      */
     protected function searchableTree(string $name, int $count): Tree
     {
-        $gedcom = "0 HEAD\n"
+        $body = '';
+
+        for ($n = 1; $n <= $count; ++$n) {
+            $body .= $this->indi('I' . $n, 'Person' . $n, '17 MAR 1930');
+        }
+
+        return $this->importFixtureTree($this->gedcom($body), $name);
+    }
+
+    /**
+     * Wrap a sequence of INDI records in the shared GEDCOM header + trailer, so the fixture-tree
+     * builders ({@see ottoTree()}, {@see searchableTree()}) do not each repeat the boilerplate.
+     *
+     * @param string $body The concatenated INDI records.
+     *
+     * @return string The full GEDCOM document.
+     */
+    private function gedcom(string $body): string
+    {
+        return "0 HEAD\n"
             . "1 SOUR obituary-matcher-tests\n"
             . "1 GEDC\n"
             . "2 VERS 5.5.1\n"
-            . "1 CHAR UTF-8\n";
-
-        for ($n = 1; $n <= $count; ++$n) {
-            $gedcom .= $this->indi('I' . $n, 'Person' . $n, '17 MAR 1930');
-        }
-
-        $gedcom .= "0 TRLR\n";
-
-        return $this->importFixtureTree($gedcom, $name);
+            . "1 CHAR UTF-8\n"
+            . $body
+            . "0 TRLR\n";
     }
 
     /**
