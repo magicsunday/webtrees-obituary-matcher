@@ -11,6 +11,7 @@ declare(strict_types=1);
 
 namespace MagicSunday\ObituaryMatcher\Ui;
 
+use MagicSunday\ObituaryMatcher\Domain\Band;
 use MagicSunday\ObituaryMatcher\Domain\ClassifiedMatch;
 use MagicSunday\ObituaryMatcher\Matching\StoredMatch;
 use MagicSunday\ObituaryMatcher\Matching\StoredMatchKey;
@@ -65,20 +66,32 @@ final readonly class SuggestionViewModel
      */
     public static function fromStoredMatch(StoredMatch $match): self
     {
+        // The payload is the trusted engine shape, but it was reconstructed from untrusted on-disk JSON
+        // ({@see StoredMatch::fromArray()} only asserts it is an array — no per-key validation), so every
+        // key is read through the shared {@see PayloadReader} narrowing seam and degraded defensively:
+        // a malformed-but-array row (hand-edited / older schema) must render the individual-page tab
+        // gracefully (band "none", score 0, null death date, false flags) rather than throw an
+        // Undefined-array-key notice or a TypeError that would crash the tab for every visitor. This
+        // narrows the payload IDENTICALLY to {@see WorklistPresenter} and {@see ReviewViewModel}.
         $payload = $match->match;
 
         $url    = $match->obituaryUrl;
         $source = SourceLink::fromUrl($url);
 
+        $classification = PayloadReader::asString(
+            PayloadReader::read($payload, 'classification'),
+            Band::None->value(),
+        );
+
         return new self(
-            $payload['score'],
-            BandKey::normalise($payload['classification']),
-            ObituaryDateFormatter::toGerman($payload['extractedFacts']['deathDate'] ?? null),
+            PayloadReader::asInt(PayloadReader::read($payload, 'score'), 0),
+            BandKey::normalise($classification),
+            ObituaryDateFormatter::toGerman(PayloadReader::nestedString($payload, 'extractedFacts', 'deathDate')),
             $source->href,
             $source->host,
             $match->status->value,
-            $payload['ambiguous'],
-            $payload['hardConflict'],
+            PayloadReader::read($payload, 'ambiguous') === true,
+            PayloadReader::read($payload, 'hardConflict') === true,
             StoredMatchKey::fromUrl($url),
         );
     }

@@ -103,6 +103,16 @@ final class ConfigurableConfirmStore implements MatchStore
     /**
      * Delegates to the wrapped store.
      *
+     * @return list<StoredMatch> Every stored row across all statuses.
+     */
+    public function all(): array
+    {
+        return $this->delegate->all();
+    }
+
+    /**
+     * Delegates to the wrapped store.
+     *
      * @param string $personId The candidate identifier.
      * @param string $rowKey   The canonical row key.
      *

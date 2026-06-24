@@ -18,9 +18,11 @@ use MagicSunday\ObituaryMatcher\Matching\StoredMatch;
 use MagicSunday\ObituaryMatcher\Matching\StoredMatchKey;
 use MagicSunday\ObituaryMatcher\Ui\BandKey;
 use MagicSunday\ObituaryMatcher\Ui\ObituaryDateFormatter;
+use MagicSunday\ObituaryMatcher\Ui\PayloadReader;
 use MagicSunday\ObituaryMatcher\Ui\SourceLink;
 use MagicSunday\ObituaryMatcher\Ui\SuggestionViewModel;
 use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\Attributes\UsesClass;
 use PHPUnit\Framework\TestCase;
@@ -43,8 +45,17 @@ use PHPUnit\Framework\TestCase;
 #[UsesClass(Band::class)]
 #[UsesClass(ObituaryDateFormatter::class)]
 #[UsesClass(SourceLink::class)]
+#[UsesClass(PayloadReader::class)]
 final class SuggestionViewModelTest extends TestCase
 {
+    /**
+     * Sentinel for the data provider marking a payload key that must be UNSET (absent) rather than set
+     * to a value — distinct from any legitimate payload value (including null).
+     *
+     * @var string
+     */
+    private const string ABSENT = "\0__absent__\0";
+
     /**
      * Builds a trusted classified-match payload with overridable fields.
      *
@@ -133,6 +144,94 @@ final class SuggestionViewModelTest extends TestCase
         $vm = SuggestionViewModel::fromStoredMatch($this->stored($this->payload(url: 'HTTP://trauer.example/x')));
         self::assertSame('HTTP://trauer.example/x', $vm->sourceUrl);
         self::assertSame('trauer.example', $vm->sourceHost);
+    }
+
+    /**
+     * A malformed-but-array on-disk payload (absent/non-string classification, absent/non-int score,
+     * non-array extractedFacts, non-string deathDate, absent ambiguous/hardConflict flags) projects
+     * gracefully — band "none", score 0, null death date, false flags — instead of throwing an
+     * Undefined-array-key notice or a TypeError that would crash the individual-page obituary tab for
+     * every visitor. The narrowing mirrors {@see \MagicSunday\ObituaryMatcher\Ui\WorklistPresenter} and
+     * {@see \MagicSunday\ObituaryMatcher\Ui\ReviewViewModel} so all three projections degrade identically.
+     *
+     * @param mixed       $classification    The classification payload value (or the absence marker).
+     * @param mixed       $score             The score payload value (or the absence marker).
+     * @param mixed       $extractedFacts    The extractedFacts payload value (or the absence marker).
+     * @param string      $expectedBand      The band key the model must carry.
+     * @param int         $expectedScore     The score the model must carry.
+     * @param string|null $expectedDeathDate The death date the model must carry.
+     *
+     * @return void
+     */
+    #[Test]
+    #[DataProvider('malformedPayloadProvider')]
+    public function malformedPayloadProjectsGracefully(
+        mixed $classification,
+        mixed $score,
+        mixed $extractedFacts,
+        string $expectedBand,
+        int $expectedScore,
+        ?string $expectedDeathDate,
+    ): void {
+        $payload = $this->malform($this->payload(), $classification, $score, $extractedFacts);
+
+        $vm = SuggestionViewModel::fromStoredMatch($this->stored($payload));
+
+        self::assertSame($expectedBand, $vm->bandKey);
+        self::assertSame($expectedScore, $vm->score);
+        self::assertSame($expectedDeathDate, $vm->deathDate);
+        self::assertFalse($vm->ambiguous);
+        self::assertFalse($vm->hardConflict);
+    }
+
+    /**
+     * Applies the malformations to a copy of the payload, dropping the flag keys, and re-asserts the
+     * trusted shape. The mixed-valued parameter erases the static shape so PHPStan no longer tracks the
+     * removed/typewrong keys — the re-asserted shape then models a malformed-but-array on-disk JSON
+     * row, exactly as {@see StoredMatch::fromArray()} would reconstruct from disk.
+     *
+     * @param array<string, mixed> $payload        The original payload, shape-erased.
+     * @param mixed                $classification The classification override (or the absence marker).
+     * @param mixed                $score          The score override (or the absence marker).
+     * @param mixed                $extractedFacts The extractedFacts override (or the absence marker).
+     *
+     * @return ClassifiedMatchArray The malformed-but-array payload.
+     */
+    private function malform(array $payload, mixed $classification, mixed $score, mixed $extractedFacts): array
+    {
+        foreach (['classification' => $classification, 'score' => $score, 'extractedFacts' => $extractedFacts] as $key => $value) {
+            if ($value === self::ABSENT) {
+                unset($payload[$key]);
+            } else {
+                $payload[$key] = $value;
+            }
+        }
+
+        // The flag keys are dropped too, so a missing-key read must collapse to false, not warn.
+        unset($payload['ambiguous'], $payload['hardConflict']);
+
+        /** @var ClassifiedMatchArray $payload */
+        return $payload;
+    }
+
+    /**
+     * Malformed-but-array payload shapes that must each project gracefully, paired with the band,
+     * score and death date the resulting model must carry.
+     *
+     * @return array<string, array{0: mixed, 1: mixed, 2: mixed, 3: string, 4: int, 5: string|null}>
+     */
+    public static function malformedPayloadProvider(): array
+    {
+        return [
+            'classification absent'     => [self::ABSENT, 90, ['deathDate' => '2023-09-04'], 'none', 90, '04.09.2023'],
+            'classification non-string' => [42, 90, ['deathDate' => '2023-09-04'], 'none', 90, '04.09.2023'],
+            'score absent'              => ['strong', self::ABSENT, ['deathDate' => '2023-09-04'], 'strong', 0, '04.09.2023'],
+            'score non-int'             => ['strong', 'NaN', ['deathDate' => '2023-09-04'], 'strong', 0, '04.09.2023'],
+            'extractedFacts non-array'  => ['strong', 90, 'not-an-array', 'strong', 90, null],
+            'extractedFacts absent'     => ['strong', 90, self::ABSENT, 'strong', 90, null],
+            'deathDate non-string'      => ['strong', 90, ['deathDate' => 20230904], 'strong', 90, null],
+            'all malformed at once'     => [self::ABSENT, self::ABSENT, 99, 'none', 0, null],
+        ];
     }
 
     /**

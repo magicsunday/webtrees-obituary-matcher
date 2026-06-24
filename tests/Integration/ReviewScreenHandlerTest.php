@@ -796,6 +796,16 @@ final class ReviewScreenHandlerTest extends IntegrationTestCase
             {
                 return [];
             }
+
+            /**
+             * Unused by the race scenario; returns no rows.
+             *
+             * @return list<StoredMatch> The empty result.
+             */
+            public function all(): array
+            {
+                return [];
+            }
         };
 
         // A handler subclass that injects the racing store via the storeForTree seam.

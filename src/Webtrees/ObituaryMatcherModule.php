@@ -12,11 +12,15 @@ declare(strict_types=1);
 namespace MagicSunday\ObituaryMatcher\Webtrees;
 
 use Fig\Http\Message\RequestMethodInterface;
+use Fisharebest\Webtrees\Auth;
 use Fisharebest\Webtrees\I18N;
 use Fisharebest\Webtrees\Individual;
+use Fisharebest\Webtrees\Menu;
 use Fisharebest\Webtrees\Module\AbstractModule;
 use Fisharebest\Webtrees\Module\ModuleCustomInterface;
 use Fisharebest\Webtrees\Module\ModuleCustomTrait;
+use Fisharebest\Webtrees\Module\ModuleMenuInterface;
+use Fisharebest\Webtrees\Module\ModuleMenuTrait;
 use Fisharebest\Webtrees\Module\ModuleTabInterface;
 use Fisharebest\Webtrees\Module\ModuleTabTrait;
 use Fisharebest\Webtrees\Registry;
@@ -26,6 +30,7 @@ use MagicSunday\ObituaryMatcher\Ui\SuggestionTabPresenter;
 use Override;
 
 use function realpath;
+use function route;
 use function view;
 
 /**
@@ -39,10 +44,11 @@ use function view;
  * @license https://opensource.org/licenses/GPL-3.0 GNU General Public License v3.0
  * @link    https://github.com/magicsunday/webtrees-obituary-matcher/
  */
-class ObituaryMatcherModule extends AbstractModule implements ModuleCustomInterface, ModuleTabInterface
+class ObituaryMatcherModule extends AbstractModule implements ModuleCustomInterface, ModuleMenuInterface, ModuleTabInterface
 {
     use ModuleCustomTrait;
     use ModuleTabTrait;
+    use ModuleMenuTrait;
 
     /**
      * @var array<int, SuggestionTabPresenter> Per-request presenter cache keyed by tree id.
@@ -110,7 +116,8 @@ class ObituaryMatcherModule extends AbstractModule implements ModuleCustomInterf
      * {@see realpath()} so a missing resources directory leaves the namespace unregistered instead of
      * pointing it at a non-existent path. The route is registered as a {@see ReviewScreenHandler}
      * instance bound to the module's own view namespace and allows POST for the Task 5 decision
-     * dispatch.
+     * dispatch. The tree-wide worklist GET route ({@see ObituaryWorklistHandler}) is registered
+     * alongside it, exposed through the manager-only main-menu entry in {@see self::getMenu()}.
      *
      * @return void
      */
@@ -123,9 +130,37 @@ class ObituaryMatcherModule extends AbstractModule implements ModuleCustomInterf
             View::registerNamespace($this->name(), $views . '/');
         }
 
-        Registry::routeFactory()->routeMap()
+        $routeMap = Registry::routeFactory()->routeMap();
+
+        $routeMap
             ->get(ReviewScreenHandler::ROUTE_NAME, ReviewScreenHandler::ROUTE_URL, new ReviewScreenHandler($this->name()))
             ->allows(RequestMethodInterface::METHOD_POST);
+
+        $routeMap
+            ->get(ObituaryWorklistHandler::ROUTE_NAME, ObituaryWorklistHandler::ROUTE_URL, new ObituaryWorklistHandler($this->name()));
+    }
+
+    /**
+     * The manager-only main-menu entry linking the tree-wide obituary worklist, or null when the
+     * current user is not a manager of the given tree. The label reuses the tab's `Death notices`
+     * key so the menu and tab read consistently.
+     *
+     * @param Tree $tree The tree whose worklist the menu entry links.
+     *
+     * @return Menu|null The worklist menu entry, or null when the user is not a manager.
+     */
+    #[Override]
+    public function getMenu(Tree $tree): ?Menu
+    {
+        if (!Auth::isManager($tree)) {
+            return null;
+        }
+
+        return new Menu(
+            I18N::translate('Death notices'),
+            route(ObituaryWorklistHandler::ROUTE_NAME, ['tree' => $tree->name()]),
+            'menu-obituary-worklist',
+        );
     }
 
     /**

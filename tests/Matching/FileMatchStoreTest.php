@@ -359,6 +359,38 @@ final class FileMatchStoreTest extends TempDirTestCase
     }
 
     /**
+     * all returns every stored row regardless of status: a pending, a rejected and an uncertain row
+     * seeded across three candidates all surface, each carrying its persisted status. allPending
+     * (Pending only) is the discriminator — all must not filter by status.
+     *
+     * @return void
+     */
+    #[Test]
+    public function allReturnsEveryRowAcrossAllStatuses(): void
+    {
+        $store = new FileMatchStore($this->tmp);
+        $store->upsertPending($this->pendingMatch('I1', 'https://obituary.example/a'));
+        $store->upsertPending($this->pendingMatch('I2', 'https://obituary.example/b'));
+        $store->markRejected('I2', 'https://obituary.example/b', null);
+        $store->upsertPending($this->pendingMatch('I3', 'https://obituary.example/c'));
+        $store->markUncertain('I3', 'https://obituary.example/c', null);
+
+        $all = $store->all();
+
+        self::assertCount(3, $all);
+
+        $byPerson = [];
+
+        foreach ($all as $row) {
+            $byPerson[$row->personId] = $row->status;
+        }
+
+        self::assertSame(MatchStatus::Pending, $byPerson['I1']);
+        self::assertSame(MatchStatus::Rejected, $byPerson['I2']);
+        self::assertSame(MatchStatus::Uncertain, $byPerson['I3']);
+    }
+
+    /**
      * markRejected persists a rejected row even when no prior suggestion exists for the key.
      *
      * @return void

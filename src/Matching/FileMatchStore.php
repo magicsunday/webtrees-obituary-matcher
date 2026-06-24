@@ -135,6 +135,16 @@ final readonly class FileMatchStore implements MatchStore
     /**
      * {@inheritDoc}
      *
+     * @return list<StoredMatch> Every stored row across all statuses.
+     */
+    public function all(): array
+    {
+        return $this->allRows();
+    }
+
+    /**
+     * {@inheritDoc}
+     *
      * @param string $personId The candidate identifier.
      * @param string $rowKey   The canonical row key.
      *

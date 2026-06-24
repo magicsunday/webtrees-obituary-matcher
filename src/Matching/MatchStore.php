@@ -51,6 +51,14 @@ interface MatchStore
     public function allPending(): array;
 
     /**
+     * Returns every stored row regardless of status (Pending, Confirmed, Rejected, Uncertain).
+     * A corrupt/unreadable row is skipped, not fatal — the remaining valid rows still surface.
+     *
+     * @return list<StoredMatch> Every stored row across all statuses.
+     */
+    public function all(): array;
+
+    /**
      * Returns the single stored match addressed by its candidate identifier and row key, or null
      * when no such row exists. The row key is {@see StoredMatchKey::fromUrl()} over the source URL.
      *
