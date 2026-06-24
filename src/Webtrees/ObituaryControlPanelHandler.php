@@ -21,12 +21,8 @@ use Fisharebest\Webtrees\I18N;
 use Fisharebest\Webtrees\Services\GedcomImportService;
 use Fisharebest\Webtrees\Services\TreeService;
 use Fisharebest\Webtrees\Validator;
-use MagicSunday\ObituaryMatcher\Queue\FeederRequestReader;
 use MagicSunday\ObituaryMatcher\Queue\QueueClient;
 use MagicSunday\ObituaryMatcher\Queue\QueuePaths;
-use MagicSunday\ObituaryMatcher\Support\FeederRequestFactory;
-use MagicSunday\ObituaryMatcher\Support\QueryGenerator;
-use MagicSunday\ObituaryMatcher\Support\UrlHostNormalizer;
 use MagicSunday\ObituaryMatcher\Support\WebtreesInstallLocator;
 use MagicSunday\ObituaryMatcher\Ui\ControlPanelPresenter;
 use Psr\Http\Message\ResponseInterface;
@@ -418,14 +414,6 @@ class ObituaryControlPanelHandler implements RequestHandlerInterface
      */
     protected function enqueueService(QueuePaths $paths): EnqueueService
     {
-        return new EnqueueService(
-            $paths,
-            new QueueClient($paths),
-            new FeederRequestReader($paths, 5_242_880),
-            new CandidateRepository(),
-            new FeederRequestFactory(new QueryGenerator()),
-            new UrlHostNormalizer(),
-            new TreeService(new GedcomImportService()),
-        );
+        return EnqueueServiceFactory::create($paths);
     }
 }

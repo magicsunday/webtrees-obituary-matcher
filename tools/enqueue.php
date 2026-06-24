@@ -36,17 +36,10 @@ declare(strict_types=1);
  */
 
 use Fisharebest\Webtrees\I18N;
-use Fisharebest\Webtrees\Services\GedcomImportService;
-use Fisharebest\Webtrees\Services\TreeService;
-use MagicSunday\ObituaryMatcher\Queue\FeederRequestReader;
-use MagicSunday\ObituaryMatcher\Queue\QueueClient;
 use MagicSunday\ObituaryMatcher\Queue\QueuePaths;
-use MagicSunday\ObituaryMatcher\Support\FeederRequestFactory;
-use MagicSunday\ObituaryMatcher\Support\QueryGenerator;
-use MagicSunday\ObituaryMatcher\Support\UrlHostNormalizer;
 use MagicSunday\ObituaryMatcher\Support\WebtreesInstallLocator;
-use MagicSunday\ObituaryMatcher\Webtrees\CandidateRepository;
 use MagicSunday\ObituaryMatcher\Webtrees\EnqueueService;
+use MagicSunday\ObituaryMatcher\Webtrees\EnqueueServiceFactory;
 use MagicSunday\ObituaryMatcher\Webtrees\HeadlessBootstrap;
 
 // This file lives in the global namespace, so `use function`/`use const` for built-ins is a no-op
@@ -147,15 +140,7 @@ $locale = I18N::languageTag();
 // service-only seam with no CLI flag.
 $paths = new QueuePaths($queueRoot);
 
-$enqueueService = new EnqueueService(
-    $paths,
-    new QueueClient($paths),
-    new FeederRequestReader($paths, 5_242_880),
-    new CandidateRepository(),
-    new FeederRequestFactory(new QueryGenerator()),
-    new UrlHostNormalizer(),
-    new TreeService(new GedcomImportService()),
-);
+$enqueueService = EnqueueServiceFactory::create($paths);
 
 try {
     $summary = $enqueueService->enqueue($treeId, $limit, $minAge, $locale);
