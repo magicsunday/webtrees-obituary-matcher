@@ -111,23 +111,6 @@ final class RevertFlowTest extends IntegrationTestCase
     }
 
     /**
-     * Resolve an individual, asserting it exists so the test fails loudly on a broken fixture.
-     *
-     * @param string $xref The individual XREF.
-     * @param Tree   $tree The fixture tree.
-     *
-     * @return Individual The resolved individual.
-     */
-    private function person(string $xref, Tree $tree): Individual
-    {
-        $individual = $this->individual($xref, $tree);
-
-        self::assertInstanceOf(Individual::class, $individual);
-
-        return $individual;
-    }
-
-    /**
      * The file-backed match store rooted at the per-test temp directory.
      *
      * @return MatchStore The store under test.

@@ -14,7 +14,6 @@ namespace MagicSunday\ObituaryMatcher\Test\Integration;
 use Fisharebest\Webtrees\Auth;
 use Fisharebest\Webtrees\Contracts\UserInterface;
 use Fisharebest\Webtrees\DB;
-use Fisharebest\Webtrees\Individual;
 use Fisharebest\Webtrees\Tree;
 use MagicSunday\ObituaryMatcher\Support\GedcomDateConverter;
 use MagicSunday\ObituaryMatcher\Support\MalformedDeathDateException;
@@ -74,24 +73,6 @@ final class ObituaryWriteBackTest extends IntegrationTestCase
             . "0 @I6@ INDI\n1 NAME Greta /Asche/\n1 SEX F\n1 CREM\n2 DATE 03 MAR 1995\n"
             . "0 @I7@ INDI\n1 NAME Wili /Grablos/\n1 SEX M\n1 BIRT\n2 DATE 1 JAN 1940\n1 BURI\n"
         );
-    }
-
-    /**
-     * Resolve an individual, asserting it exists so PHPStan narrows away the null and the test fails
-     * loudly on a broken fixture rather than a later type error.
-     *
-     * @param string $xref The individual XREF.
-     * @param Tree   $tree The fixture tree.
-     *
-     * @return Individual The resolved individual.
-     */
-    private function person(string $xref, Tree $tree): Individual
-    {
-        $individual = $this->individual($xref, $tree);
-
-        self::assertInstanceOf(Individual::class, $individual);
-
-        return $individual;
     }
 
     /**

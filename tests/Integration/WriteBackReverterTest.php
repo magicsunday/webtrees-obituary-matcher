@@ -13,7 +13,6 @@ namespace MagicSunday\ObituaryMatcher\Test\Integration;
 
 use Fisharebest\Webtrees\Auth;
 use Fisharebest\Webtrees\Contracts\UserInterface;
-use Fisharebest\Webtrees\Individual;
 use Fisharebest\Webtrees\Registry;
 use Fisharebest\Webtrees\Source;
 use Fisharebest\Webtrees\Tree;
@@ -50,24 +49,6 @@ final class WriteBackReverterTest extends IntegrationTestCase
         return $this->importFixtureTree(
             "0 @I1@ INDI\n1 NAME Otto /Vorbild/\n1 SEX M\n"
         );
-    }
-
-    /**
-     * Resolve an individual, asserting it exists so PHPStan narrows away the null and the test fails
-     * loudly on a broken fixture rather than a later type error.
-     *
-     * @param string $xref The individual XREF.
-     * @param Tree   $tree The fixture tree.
-     *
-     * @return Individual The resolved individual.
-     */
-    private function person(string $xref, Tree $tree): Individual
-    {
-        $individual = $this->individual($xref, $tree);
-
-        self::assertInstanceOf(Individual::class, $individual);
-
-        return $individual;
     }
 
     /**
