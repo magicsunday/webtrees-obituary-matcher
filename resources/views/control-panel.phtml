@@ -6,9 +6,9 @@
  * For the full copyright and license information, please read the
  * LICENSE file that was distributed with this source code.
  *
- * Minimal placeholder control-panel view (Task 4). It renders just enough for the handler's
- * integration tests — the prefilled settings, a per-tree trigger form and the empty-queue state.
- * Task 6 replaces it with the full styled template.
+ * The admin control-panel view: the prefilled candidate settings, a per-tree feeder-trigger form and
+ * the recent-job queue status. The admin layout wraps it. Every dynamic sink is e()-escaped once and
+ * each job state key maps to a literal I18N::translate() label here (so xgettext can extract it).
  */
 
 declare(strict_types=1);
@@ -26,7 +26,7 @@ $stateLabels = [
     'failed'        => I18N::translate('Failed'),
     'ingesting'     => I18N::translate('Ingesting'),
     'ingested'      => I18N::translate('Ingested'),
-    'failed-ingest' => I18N::translate('Failed ingest'),
+    'failed-ingest' => I18N::translate('Failed (ingest)'),
 ];
 ?>
 
@@ -37,10 +37,10 @@ $stateLabels = [
     <input type="hidden" name="action" value="save">
 
     <label for="min_age"><?= e(I18N::translate('Minimum age')) ?></label>
-    <input type="number" id="min_age" name="min_age" value="<?= e((string) $view->minAge) ?>">
+    <input type="number" id="min_age" name="min_age" value="<?= e((string) $view->minAge) ?>" min="0" max="120">
 
     <label for="limit"><?= e(I18N::translate('Candidates per run')) ?></label>
-    <input type="number" id="limit" name="limit" value="<?= e((string) $view->limit) ?>">
+    <input type="number" id="limit" name="limit" value="<?= e((string) $view->limit) ?>" min="1" max="500">
 
     <button type="submit"><?= e(I18N::translate('Save')) ?></button>
 </form>
@@ -66,16 +66,32 @@ $stateLabels = [
 <?php if ($view->jobRows === []) : ?>
     <p><?= e(I18N::translate('No searches run yet.')) ?></p>
 <?php else : ?>
-    <ul>
-        <?php foreach ($view->jobRows as $row) : ?>
-            <li>
-                <?= e($row->jobId) ?>
-                &mdash;
-                <?= e($stateLabels[$row->stateKey] ?? $row->stateKey) ?>
-                <?php if ($row->finishedAt !== null) : ?>
-                    (<?= e($row->finishedAt) ?>)
-                <?php endif ?>
-            </li>
-        <?php endforeach ?>
-    </ul>
+    <table class="table wt-facts-table">
+        <thead>
+            <tr>
+                <th><?= e(I18N::translate('Job')) ?></th>
+                <th><?= e(I18N::translate('Status')) ?></th>
+                <th><?= e(I18N::translate('Counts')) ?></th>
+                <th><?= e(I18N::translate('Finished')) ?></th>
+            </tr>
+        </thead>
+        <tbody>
+            <?php foreach ($view->jobRows as $row) : ?>
+                <tr>
+                    <td><?= e($row->jobId) ?></td>
+                    <td><?= e($stateLabels[$row->stateKey] ?? $row->stateKey) ?></td>
+                    <td>
+                        <?php if ($row->counts === []) : ?>
+                            &mdash;
+                        <?php else : ?>
+                            <?php foreach ($row->counts as $countKey => $countValue) : ?>
+                                <?= e($countKey) ?>=<?= e((string) $countValue) ?>
+                            <?php endforeach ?>
+                        <?php endif ?>
+                    </td>
+                    <td><?= e($row->finishedAt ?? '—') ?></td>
+                </tr>
+            <?php endforeach ?>
+        </tbody>
+    </table>
 <?php endif ?>

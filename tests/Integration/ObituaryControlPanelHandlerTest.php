@@ -55,6 +55,7 @@ use RuntimeException;
 use Throwable;
 
 use function count;
+use function dirname;
 use function http_build_query;
 use function substr_count;
 
@@ -155,6 +156,40 @@ final class ObituaryControlPanelHandlerTest extends AbstractEnqueueTestCase
         // BOTH POST forms (save + the per-tree trigger) carry a CSRF token, or the live POST
         // would be bounced by webtrees' CheckCsrf middleware (the direct-handle() tests bypass it).
         self::assertGreaterThanOrEqual(2, substr_count($html, 'name="_csrf"'));
+    }
+
+    /**
+     * A GET render projects a multi-state queue: a done job and a running job each render their state
+     * label badge, the done job's non-empty counts render as generic `key=value` pairs and the running
+     * job's null finishedAt renders the `—` placeholder. This pins the Task 6 template completion —
+     * generic counts, the per-state labels and the null-finishedAt placeholder.
+     *
+     * @return void
+     */
+    #[Test]
+    public function getRendersJobStatesGenericCountsAndNullFinishedPlaceholder(): void
+    {
+        $this->searchableTree('panel-states', 1);
+
+        // A terminal done job carrying a counts map and a finish timestamp, plus a non-terminal running
+        // job whose finishedAt is null — seeded straight into the handler's seamed queue root.
+        $this->seedStatusJob(
+            'job-0002-done',
+            JobState::Done,
+            ['counts' => ['candidates' => 4, 'notices' => 2], 'finishedAt' => '2026-06-23T10:15:35+00:00'],
+        );
+        $this->seedStatusJob('job-0001-run', JobState::Running, []);
+
+        $html = (string) $this->handler()->handle($this->panelRequest(RequestMethodInterface::METHOD_GET))->getBody();
+
+        // Each seeded state renders its i18n label badge.
+        self::assertStringContainsString('Done', $html);
+        self::assertStringContainsString('Running', $html);
+        // The done job's counts render generically as key=value pairs (keys are not hardcoded in the view).
+        self::assertStringContainsString('candidates=4', $html);
+        self::assertStringContainsString('notices=2', $html);
+        // The non-terminal running job's null finishedAt renders the placeholder.
+        self::assertStringContainsString('—', $html);
     }
 
     /**
@@ -443,6 +478,25 @@ final class ObituaryControlPanelHandlerTest extends AbstractEnqueueTestCase
         self::assertInstanceOf(StreamFactoryInterface::class, $factory);
 
         return $factory->createStream($contents);
+    }
+
+    /**
+     * Seeds a job's status.json into the handler's seamed queue root, so the GET render's recent-jobs
+     * projection ({@see QueueClient::recentJobs()}) hydrates and renders it. Mirrors how
+     * QueueClientTest seeds a terminal status: write the status.json into the job's state directory.
+     *
+     * @param string               $jobId The job identifier (also the directory name).
+     * @param JobState             $state The state directory to seed the job into.
+     * @param array<string, mixed> $extra Extra status.json fields (e.g. counts, finishedAt) merged in.
+     *
+     * @return void
+     */
+    private function seedStatusJob(string $jobId, JobState $state, array $extra): void
+    {
+        $path = $this->paths()->stateDir($state, $jobId) . '/status.json';
+
+        AtomicFile::ensureDirectory(dirname($path));
+        AtomicFile::writeJson($path, ['state' => $state->value] + $extra);
     }
 
     /**
