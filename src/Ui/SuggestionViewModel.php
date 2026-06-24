@@ -16,9 +16,6 @@ use MagicSunday\ObituaryMatcher\Domain\ClassifiedMatch;
 use MagicSunday\ObituaryMatcher\Matching\StoredMatch;
 use MagicSunday\ObituaryMatcher\Matching\StoredMatchKey;
 
-use function is_array;
-use function is_string;
-
 /**
  * A read-only, view-ready projection of a {@see StoredMatch} for the individual tab. It exposes the
  * trusted score, ambiguity and hard-conflict flags verbatim, normalises the classification to a
@@ -86,15 +83,10 @@ final readonly class SuggestionViewModel
             Band::None->value(),
         );
 
-        $extractedFacts = PayloadReader::read($payload, 'extractedFacts');
-        $deathDate      = is_array($extractedFacts)
-            ? PayloadReader::read($extractedFacts, 'deathDate')
-            : null;
-
         return new self(
             PayloadReader::asInt(PayloadReader::read($payload, 'score'), 0),
             BandKey::normalise($classification),
-            ObituaryDateFormatter::toGerman(is_string($deathDate) ? $deathDate : null),
+            ObituaryDateFormatter::toGerman(PayloadReader::nestedString($payload, 'extractedFacts', 'deathDate')),
             $source->href,
             $source->host,
             $match->status->value,

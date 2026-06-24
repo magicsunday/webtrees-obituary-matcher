@@ -11,6 +11,7 @@ declare(strict_types=1);
 
 namespace MagicSunday\ObituaryMatcher\Ui;
 
+use function is_array;
 use function is_int;
 use function is_string;
 
@@ -74,5 +75,29 @@ final class PayloadReader
     public static function asInt(mixed $value, int $default): int
     {
         return is_int($value) ? $value : $default;
+    }
+
+    /**
+     * Reads a nested string value from a two-level payload, narrowing defensively: the outer key must
+     * hold an array and the inner key a string, otherwise null. Used where an extracted-facts sub-value
+     * (for example the death date) is read from the untrusted on-disk payload.
+     *
+     * @param array<array-key, mixed> $source   The outer payload array.
+     * @param string                  $outerKey The key holding the nested array.
+     * @param string                  $innerKey The key holding the string inside the nested array.
+     *
+     * @return string|null The narrowed nested string, or null when either level is absent/mistyped.
+     */
+    public static function nestedString(array $source, string $outerKey, string $innerKey): ?string
+    {
+        $outer = self::read($source, $outerKey);
+
+        if (!is_array($outer)) {
+            return null;
+        }
+
+        $value = self::read($outer, $innerKey);
+
+        return is_string($value) ? $value : null;
     }
 }

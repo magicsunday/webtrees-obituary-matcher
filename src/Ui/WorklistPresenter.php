@@ -18,8 +18,6 @@ use MagicSunday\ObituaryMatcher\Matching\StoredMatch;
 use function array_slice;
 use function ceil;
 use function count;
-use function is_array;
-use function is_string;
 use function max;
 use function min;
 use function strcmp;
@@ -200,18 +198,13 @@ final readonly class WorklistPresenter
             Band::None->value(),
         );
 
-        $extractedFacts = PayloadReader::read($match->match, 'extractedFacts');
-        $deathDate      = is_array($extractedFacts)
-            ? PayloadReader::read($extractedFacts, 'deathDate')
-            : null;
-
         return new WorklistRowView(
             $entry['personName'],
             $entry['personId'],
             $entry['personUrl'],
             BandKey::normalise($classification),
             self::scoreOf($match),
-            ObituaryDateFormatter::toGerman(is_string($deathDate) ? $deathDate : null),
+            ObituaryDateFormatter::toGerman(PayloadReader::nestedString($match->match, 'extractedFacts', 'deathDate')),
             $source->href,
             $source->host,
             $match->status->value,
