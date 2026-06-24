@@ -151,7 +151,7 @@ final class HeadlessBootstrap
 
             exit(1);
         } catch (Throwable $exception) {
-            fwrite(STDERR, 'Headless ' . $cliName . ' bootstrap failed: database connection error.' . PHP_EOL);
+            fwrite(STDERR, 'Headless ' . $cliName . ' bootstrap failed: an unexpected error occurred.' . PHP_EOL);
             self::logCliError($cliName, $exception);
 
             exit(1);
