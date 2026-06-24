@@ -33,9 +33,10 @@ use function str_contains;
 use function strpos;
 
 /**
- * Integration tests for {@see ObituaryWriteBack::writeDeath()} — the actual sourced DEAT write over a
- * real tree: precondition rejections, the live re-check race guard, the dated+sourced DEAT fact, and
- * the deatFactId capture round-trip.
+ * Integration tests for {@see ObituaryWriteBack::writeConfirm()} — the actual sourced write over a
+ * real tree: precondition rejections, the live re-check race guard, the dated+sourced DEAT fact and
+ * the deatFactId capture round-trip, plus the optional sourced BURI (cemetery → PLAC, funeral → DATE)
+ * with its buriFactId capture and the existing-burial skip.
  *
  * @author  Rico Sonntag <mail@ricosonntag.de>
  * @license https://opensource.org/licenses/GPL-3.0 GNU General Public License v3.0
