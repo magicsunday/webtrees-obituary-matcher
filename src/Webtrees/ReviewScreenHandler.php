@@ -268,7 +268,11 @@ class ReviewScreenHandler implements RequestHandlerInterface
 
             return redirect($reviewUrl);
         } catch (WriteBackPreconditionException|MalformedDeathDateException) {
-            FlashMessages::addMessage(I18N::translate('The obituary did not carry a writable death date.'), 'warning');
+            // Covers every pre-write precondition failure — a malformed death OR funeral date, an
+            // unusable source URL, or a cemetery carrying control characters — so the copy stays
+            // accurate now that writeConfirm validates the cemetery/funeral inputs too, not just the
+            // death date.
+            FlashMessages::addMessage(I18N::translate('The obituary did not carry writable data.'), 'warning');
 
             return redirect($reviewUrl);
         }
