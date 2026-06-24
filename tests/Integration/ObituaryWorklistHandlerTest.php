@@ -242,6 +242,28 @@ final class ObituaryWorklistHandlerTest extends IntegrationTestCase
     }
 
     /**
+     * The status-filter bar renders one link per filter key (all/open/confirmed/rejected/uncertain),
+     * each carrying only its own `status` query parameter (and NO `page`, so switching filter lands on
+     * page one).
+     *
+     * @return void
+     */
+    #[Test]
+    public function statusFilterBarRendersAllFiveFilterLinks(): void
+    {
+        MatchSeeder::seed($this->store(), 'I1', MatchStatus::Pending, 'strong', '2023-09-04');
+
+        $html = (string) $this->handler()->handle($this->worklistRequest(Auth::user()))->getBody();
+
+        foreach (['all', 'open', 'confirmed', 'rejected', 'uncertain'] as $key) {
+            self::assertStringContainsString('status=' . $key, $html);
+        }
+
+        // A filter link never pins a page, so switching filter always resets to page one.
+        self::assertStringNotContainsString('status=open&amp;page=', $html);
+    }
+
+    /**
      * Seeds a confirmed row for the given candidate: a pending row is upserted via the seeder, then the
      * store transitions it to Confirmed with a synthetic write-back (mirroring a completed confirm).
      *

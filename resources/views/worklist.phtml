@@ -3,28 +3,143 @@
 declare(strict_types=1);
 
 use Fisharebest\Webtrees\I18N;
+use Fisharebest\Webtrees\Tree;
 use MagicSunday\ObituaryMatcher\Ui\WorklistView;
+use MagicSunday\ObituaryMatcher\Webtrees\ObituaryWorklistHandler;
 
+/** @var Tree $tree */
 /** @var WorklistView $view */
 
-// Minimal placeholder rendered by Task 4; Task 6 replaces it with the full template. It surfaces only
-// what the handler's integration tests pin: the total count and, per row, the person id/name and the
-// per-item review link (only when the row is non-terminal). Every dynamic sink is e()-escaped once.
+$bandLabels = [
+    'strong'   => I18N::translate('Strong match'),
+    'probable' => I18N::translate('Probable match'),
+    'possible' => I18N::translate('Possible match'),
+    'weak'     => I18N::translate('Weak match'),
+    'none'     => I18N::translate('No match'),
+];
 
+$bandIcons = [
+    'strong'   => '●',
+    'probable' => '●',
+    'possible' => '◐',
+    'weak'     => '○',
+    'none'     => '○',
+];
+
+$statusLabels = [
+    'pending'   => I18N::translate('Pending'),
+    'uncertain' => I18N::translate('Uncertain'),
+    'confirmed' => I18N::translate('Confirmed'),
+    'rejected'  => I18N::translate('Rejected'),
+];
+
+$statusFilters = [
+    'all'       => I18N::translate('All'),
+    'open'      => I18N::translate('Open'),
+    'confirmed' => I18N::translate('Confirmed'),
+    'rejected'  => I18N::translate('Rejected'),
+    'uncertain' => I18N::translate('Uncertain'),
+];
 ?>
 <div class="om-worklist">
-    <p class="om-worklist-counts"><?= e(I18N::translate('Total: %d', $view->counts['total'])) ?></p>
+    <h2><?= e(I18N::translate('Death notices')) ?></h2>
 
-    <ul class="om-worklist-rows">
-        <?php foreach ($view->rows as $row) : ?>
-            <li class="om-worklist-row">
-                <a href="<?= e($row->personUrl) ?>"><?= e($row->personId) ?></a>
-                <span class="om-worklist-name"><?= e($row->personName) ?></span>
+    <p class="om-worklist-counts">
+        <?= e(I18N::translate('Total: %d', $view->counts['total'])) ?>
+    </p>
 
-                <?php if ($row->reviewUrl !== null) : ?>
-                    <a class="om-worklist-review" href="<?= e($row->reviewUrl) ?>"><?= e(I18N::translate('Review')) ?></a>
-                <?php endif ?>
-            </li>
-        <?php endforeach ?>
-    </ul>
+    <?php if ($view->counts['total'] === 0) : ?>
+        <p class="om-worklist-empty"><?= e(I18N::translate('No obituary matches in this tree yet.')) ?></p>
+    <?php else : ?>
+        <p class="om-worklist-breakdown">
+            <?= e(I18N::translate(
+                '%1$s open · %2$s confirmed · %3$s rejected · %4$s uncertain',
+                I18N::number($view->counts['open']),
+                I18N::number($view->counts['confirmed']),
+                I18N::number($view->counts['rejected']),
+                I18N::number($view->counts['uncertain']),
+            )) ?>
+        </p>
+
+        <ul class="om-worklist-filters nav nav-pills">
+            <?php foreach ($statusFilters as $key => $label) : ?>
+                <li class="nav-item">
+                    <a class="nav-link<?= $view->statusFilter === $key ? ' active' : '' ?>"
+                       href="<?= e(route(ObituaryWorklistHandler::ROUTE_NAME, ['tree' => $tree->name(), 'status' => $key])) ?>"><?= e($label) ?></a>
+                </li>
+            <?php endforeach ?>
+        </ul>
+
+        <?php if ($view->rows === []) : ?>
+            <p class="om-worklist-empty"><?= e(I18N::translate('No matches for this filter.')) ?></p>
+        <?php else : ?>
+            <table class="table table-sm om-worklist-table">
+                <thead>
+                    <tr>
+                        <th><?= e(I18N::translate('Individual')) ?></th>
+                        <th><?= e(I18N::translate('Match')) ?></th>
+                        <th><?= e(I18N::translate('Score')) ?></th>
+                        <th><?= e(I18N::translate('Date of death')) ?></th>
+                        <th><?= e(I18N::translate('Source')) ?></th>
+                        <th><?= e(I18N::translate('Status')) ?></th>
+                        <th><span class="visually-hidden"><?= e(I18N::translate('Review')) ?></span></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <?php foreach ($view->rows as $row) : ?>
+                        <tr class="om-worklist-row om-band-<?= e($row->bandKey) ?>" data-xref="<?= e($row->personId) ?>">
+                            <td>
+                                <a href="<?= e($row->personUrl) ?>"><?= e($row->personName) ?></a>
+                            </td>
+                            <td class="om-band">
+                                <span aria-hidden="true"><?= e($bandIcons[$row->bandKey] ?? '○') ?></span>
+                                <?= e($bandLabels[$row->bandKey] ?? $row->bandKey) ?>
+                            </td>
+                            <td class="om-score"><?= e((string) $row->score) ?></td>
+                            <td class="om-death"><?= e($row->deathDate ?? '') ?></td>
+                            <td class="om-source">
+                                <?php if ($row->sourceUrl !== null) : ?>
+                                    <a href="<?= e($row->sourceUrl) ?>" target="_blank" rel="noopener noreferrer"><?= e($row->sourceHost ?? '') ?></a>
+                                <?php else : ?>
+                                    <?= e($row->sourceHost ?? '') ?>
+                                <?php endif ?>
+                            </td>
+                            <td class="om-status"><?= e($statusLabels[$row->statusKey] ?? $row->statusKey) ?></td>
+                            <td class="om-review">
+                                <?php if ($row->reviewUrl !== null) : ?>
+                                    <a class="btn btn-primary btn-sm" href="<?= e($row->reviewUrl) ?>"><?= e(I18N::translate('Review')) ?></a>
+                                <?php endif ?>
+                            </td>
+                        </tr>
+                    <?php endforeach ?>
+                </tbody>
+            </table>
+
+            <?php if ($view->totalPages > 1) : ?>
+                <nav class="om-worklist-pagination" aria-label="<?= e(I18N::translate('Pagination')) ?>">
+                    <ul class="pagination">
+                        <li class="page-item<?= $view->page <= 1 ? ' disabled' : '' ?>">
+                            <?php if ($view->page > 1) : ?>
+                                <a class="page-link"
+                                   href="<?= e(route(ObituaryWorklistHandler::ROUTE_NAME, ['tree' => $tree->name(), 'status' => $view->statusFilter, 'page' => $view->page - 1])) ?>"><?= e(I18N::translate('previous')) ?></a>
+                            <?php else : ?>
+                                <span class="page-link"><?= e(I18N::translate('previous')) ?></span>
+                            <?php endif ?>
+                        </li>
+                        <li class="page-item disabled">
+                            <span class="page-link"><?= e(I18N::translate('Page %1$s of %2$s', I18N::number($view->page), I18N::number($view->totalPages))) ?></span>
+                        </li>
+                        <li class="page-item<?= $view->page >= $view->totalPages ? ' disabled' : '' ?>">
+                            <?php if ($view->page < $view->totalPages) : ?>
+                                <a class="page-link"
+                                   href="<?= e(route(ObituaryWorklistHandler::ROUTE_NAME, ['tree' => $tree->name(), 'status' => $view->statusFilter, 'page' => $view->page + 1])) ?>"><?= e(I18N::translate('next')) ?></a>
+                            <?php else : ?>
+                                <span class="page-link"><?= e(I18N::translate('next')) ?></span>
+                            <?php endif ?>
+                        </li>
+                    </ul>
+                </nav>
+            <?php endif ?>
+        <?php endif ?>
+    <?php endif ?>
 </div>
