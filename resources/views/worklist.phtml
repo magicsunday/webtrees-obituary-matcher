@@ -1,0 +1,30 @@
+<?php
+
+declare(strict_types=1);
+
+use Fisharebest\Webtrees\I18N;
+use MagicSunday\ObituaryMatcher\Ui\WorklistView;
+
+/** @var WorklistView $view */
+
+// Minimal placeholder rendered by Task 4; Task 6 replaces it with the full template. It surfaces only
+// what the handler's integration tests pin: the total count and, per row, the person id/name and the
+// per-item review link (only when the row is non-terminal). Every dynamic sink is e()-escaped once.
+
+?>
+<div class="om-worklist">
+    <p class="om-worklist-counts"><?= e(I18N::translate('Total: %d', $view->counts['total'])) ?></p>
+
+    <ul class="om-worklist-rows">
+        <?php foreach ($view->rows as $row) : ?>
+            <li class="om-worklist-row">
+                <a href="<?= e($row->personUrl) ?>"><?= e($row->personId) ?></a>
+                <span class="om-worklist-name"><?= e($row->personName) ?></span>
+
+                <?php if ($row->reviewUrl !== null) : ?>
+                    <a class="om-worklist-review" href="<?= e($row->reviewUrl) ?>"><?= e(I18N::translate('Review')) ?></a>
+                <?php endif ?>
+            </li>
+        <?php endforeach ?>
+    </ul>
+</div>
