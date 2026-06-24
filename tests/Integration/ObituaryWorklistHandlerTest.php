@@ -237,6 +237,8 @@ final class ObituaryWorklistHandlerTest extends IntegrationTestCase
         self::assertStringContainsString('IHTML', $html);
         // The live markup is stripped at the boundary and the plain text e()-escaped: no live tag leaks.
         self::assertStringNotContainsString('<b>Max</b>', $html);
+        // The plain name text SURVIVES the strip — distinguishes "stripped + escaped" from "dropped entirely".
+        self::assertStringContainsString('Mustermann', $html);
     }
 
     /**
