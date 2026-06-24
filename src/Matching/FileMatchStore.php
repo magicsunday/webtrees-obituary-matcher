@@ -317,6 +317,45 @@ final readonly class FileMatchStore implements MatchStore
     }
 
     /**
+     * {@inheritDoc}
+     *
+     * @param string $personId    The candidate identifier.
+     * @param string $obituaryUrl The source notice URL (raw, pre-normalisation).
+     *
+     * @return void
+     *
+     * @throws TerminalMatchTransitionException When the row is missing or not Confirmed.
+     */
+    public function revert(string $personId, string $obituaryUrl): void
+    {
+        $path     = $this->pathForRowKey($personId, StoredMatchKey::fromUrl($obituaryUrl));
+        $existing = $this->readRow($path);
+
+        if (!$existing instanceof StoredMatch) {
+            throw new TerminalMatchTransitionException(
+                sprintf('Cannot revert match for person %s: the row no longer exists.', $personId)
+            );
+        }
+
+        if ($existing->status !== MatchStatus::Confirmed) {
+            throw new TerminalMatchTransitionException(
+                sprintf('Cannot revert match for person %s: it is not confirmed.', $personId)
+            );
+        }
+
+        $reverted = new StoredMatch(
+            $personId,
+            $obituaryUrl,
+            MatchStatus::Pending,
+            $existing->match,
+        );
+
+        $this->ensureLayout($personId);
+
+        AtomicFile::writeJson($path, $reverted->toArray());
+    }
+
+    /**
      * Returns the absolute path of the JSON row for the given (candidate, row key) pair: the candidate
      * keys its own sub-directory ({@see dirForPerson()}) and the bare row key is the file name.
      *

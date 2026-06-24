@@ -381,4 +381,23 @@ abstract class IntegrationTestCase extends TestCase
     {
         return Registry::individualFactory()->make($xref, $tree);
     }
+
+    /**
+     * Resolve an individual, asserting it exists so PHPStan narrows away the null
+     * and the test fails loudly on a broken fixture rather than on a later type
+     * error.
+     *
+     * @param string $xref The XREF identifier of the individual to resolve
+     * @param Tree   $tree The tree the individual belongs to
+     *
+     * @return Individual The resolved individual
+     */
+    protected function person(string $xref, Tree $tree): Individual
+    {
+        $individual = $this->individual($xref, $tree);
+
+        self::assertInstanceOf(Individual::class, $individual);
+
+        return $individual;
+    }
 }

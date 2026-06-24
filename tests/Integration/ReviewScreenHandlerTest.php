@@ -751,6 +751,19 @@ final class ReviewScreenHandlerTest extends IntegrationTestCase
             }
 
             /**
+             * Throws to simulate the row turning terminal between resolve and mutate.
+             *
+             * @param string $personId    The candidate identifier.
+             * @param string $obituaryUrl The source URL.
+             *
+             * @return void
+             */
+            public function revert(string $personId, string $obituaryUrl): void
+            {
+                throw new TerminalMatchTransitionException('raced');
+            }
+
+            /**
              * Unused by the race scenario; accepts the write and reports success.
              *
              * @param StoredMatch $match The suggestion to store.

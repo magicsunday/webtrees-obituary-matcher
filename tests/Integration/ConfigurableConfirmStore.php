@@ -140,4 +140,17 @@ final class ConfigurableConfirmStore implements MatchStore
     {
         $this->delegate->markUncertain($personId, $obituaryUrl, $reason);
     }
+
+    /**
+     * Delegates to the wrapped store.
+     *
+     * @param string $personId    The candidate identifier.
+     * @param string $obituaryUrl The source URL.
+     *
+     * @return void
+     */
+    public function revert(string $personId, string $obituaryUrl): void
+    {
+        $this->delegate->revert($personId, $obituaryUrl);
+    }
 }
