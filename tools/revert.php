@@ -123,48 +123,11 @@ if (
 $url = $urlOption;
 
 // Boot the request-less webtrees runtime and log in the system principal so the revert sees every
-// fact. A boot failure (missing config, no admin account, …) is unrecoverable: report the category
-// WITHOUT leaking the DSN/credentials and exit non-zero.
-//
-// HeadlessBootstrap::boot() calls DB::connect(), whose failure surfaces as a PDOException — and in
-// PHP PDOException EXTENDS RuntimeException. Its message embeds the db host + username; cron captures
-// STDERR, so that message must NEVER reach it. Therefore the PDOException arm MUST come FIRST: were the
-// RuntimeException arm placed first it would match the PDOException too (subclass) and print the
-// leaking message. Print a fixed category and route the detail to error_log (the boot may have no DB
-// or DI container yet, so error_log is the only safe sink).
-//
-// HeadlessBootstrap's OWN RuntimeException messages are fixed, config-free strings, so they MAY be
-// printed by the (now second) RuntimeException arm. Any OTHER Throwable falls to the fixed-category
-// Throwable arm.
-$logDetailToConfiguredSink = static function (Throwable $exception): void {
-    // error_log() writes to STDERR in PHP CLI when the `error_log` ini directive is unset — which
-    // would re-leak the DSN we deliberately keep off STDERR. Only record the raw detail when a real
-    // sink (a file or syslog) is configured; otherwise the fixed STDERR category is the only output.
-    $sink = ini_get('error_log');
-
-    if (is_string($sink) && ($sink !== '')) {
-        error_log('Revert CLI error: ' . $exception->getMessage());
-    }
-};
-
-try {
-    HeadlessBootstrap::boot();
-    HeadlessBootstrap::loginSystemPrincipal(new UserService());
-} catch (PDOException $exception) {
-    fwrite(STDERR, 'Headless revert bootstrap failed: database connection error.' . PHP_EOL);
-    $logDetailToConfiguredSink($exception);
-
-    exit(1);
-} catch (RuntimeException $exception) {
-    fwrite(STDERR, 'Headless revert bootstrap failed: ' . $exception->getMessage() . PHP_EOL);
-
-    exit(1);
-} catch (Throwable $exception) {
-    fwrite(STDERR, 'Headless revert bootstrap failed: database connection error.' . PHP_EOL);
-    $logDetailToConfiguredSink($exception);
-
-    exit(1);
-}
+// fact. A boot failure (missing config, no admin account, …) is unrecoverable: the shared
+// HeadlessBootstrap::bootForCli() reports the fixed category WITHOUT leaking the DSN/credentials,
+// routes the raw detail to the guarded error_log sink (the privacy-critical S46 handling) and exits
+// non-zero. The PDOException-first arm ordering and the guarded sink live in that shared method.
+HeadlessBootstrap::bootForCli('revert', new UserService());
 
 $treeService = new TreeService(new GedcomImportService());
 
