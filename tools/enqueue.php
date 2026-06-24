@@ -38,7 +38,6 @@ declare(strict_types=1);
 use Fisharebest\Webtrees\I18N;
 use Fisharebest\Webtrees\Services\GedcomImportService;
 use Fisharebest\Webtrees\Services\TreeService;
-use Fisharebest\Webtrees\Services\UserService;
 use MagicSunday\ObituaryMatcher\Queue\FeederRequestReader;
 use MagicSunday\ObituaryMatcher\Queue\QueueClient;
 use MagicSunday\ObituaryMatcher\Queue\QueuePaths;
@@ -113,50 +112,11 @@ $minAge = (is_string($minAgeOption) && ctype_digit($minAgeOption) && ((int) $min
     : 90;
 
 // Boot the request-less webtrees runtime and log in the system principal so the producer sees every
-// candidate. A boot failure (missing config, no admin account, …) is unrecoverable: report the
-// category WITHOUT leaking the DSN/credentials and exit non-zero. The same guarded sink is reused for
-// the enqueue-failure catch below, so its prefix is the generic CLI category.
-//
-// HeadlessBootstrap::boot() calls DB::connect(), whose failure surfaces as a PDOException — and in
-// PHP PDOException EXTENDS RuntimeException. Its message embeds the db host + username (e.g.
-// "Access denied for user 'wt'@'host'"); cron captures STDERR, so that message must NEVER reach it.
-// Therefore the PDOException arm MUST come FIRST: were the RuntimeException arm placed first it would
-// match the PDOException too (subclass) and print the leaking message. Print a fixed category and
-// route the detail to error_log (the boot may have no DB or DI container yet, so error_log is the
-// only safe sink).
-//
-// HeadlessBootstrap's OWN RuntimeException messages are fixed, config-free strings ("No admin user
-// available…", "Could not locate/parse the sibling webtrees config…"), so they MAY be printed by the
-// (now second) RuntimeException arm. Any OTHER Throwable falls to the fixed-category Throwable arm.
-$logDetailToConfiguredSink = static function (Throwable $exception): void {
-    // error_log() writes to STDERR in PHP CLI when the `error_log` ini directive is unset — which
-    // would re-leak the DSN we deliberately keep off STDERR. Only record the raw detail when a real
-    // sink (a file or syslog) is configured; otherwise the fixed STDERR category is the only output.
-    $sink = ini_get('error_log');
-
-    if (is_string($sink) && ($sink !== '')) {
-        error_log('Enqueue CLI error: ' . $exception->getMessage());
-    }
-};
-
-try {
-    HeadlessBootstrap::boot();
-    HeadlessBootstrap::loginSystemPrincipal(new UserService());
-} catch (PDOException $exception) {
-    fwrite(STDERR, 'Headless enqueue bootstrap failed: database connection error.' . PHP_EOL);
-    $logDetailToConfiguredSink($exception);
-
-    exit(1);
-} catch (RuntimeException $exception) {
-    fwrite(STDERR, 'Headless enqueue bootstrap failed: ' . $exception->getMessage() . PHP_EOL);
-
-    exit(1);
-} catch (Throwable $exception) {
-    fwrite(STDERR, 'Headless enqueue bootstrap failed: database connection error.' . PHP_EOL);
-    $logDetailToConfiguredSink($exception);
-
-    exit(1);
-}
+// candidate. A boot failure (missing config, no admin account, …) is unrecoverable: the shared
+// HeadlessBootstrap::bootForCli() reports the fixed category WITHOUT leaking the DSN/credentials,
+// routes the raw detail to the guarded error_log sink (the privacy-critical S46 handling) and exits
+// non-zero. The PDOException-first arm ordering and the guarded sink live in that shared method.
+HeadlessBootstrap::bootForCli('enqueue');
 
 // Resolve the queue root: the explicit --queue, else the running instance's default queue dir resolved
 // through the layout-independent locator (relative to this module's root, which is the tools/ parent).
@@ -213,7 +173,7 @@ try {
     // uses (error_log defaults to STDERR in CLI, so only log when a real sink is configured — the
     // S46 lesson). DomainException (the operator's own numeric --tree) is handled above, safe to echo.
     fwrite(STDERR, 'Enqueue failed.' . PHP_EOL);
-    $logDetailToConfiguredSink($exception);
+    HeadlessBootstrap::logCliError('enqueue', $exception);
 
     exit(1);
 }

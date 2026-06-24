@@ -19,13 +19,21 @@ use Fisharebest\Webtrees\Registry;
 use Fisharebest\Webtrees\Services\UserService;
 use Fisharebest\Webtrees\Webtrees;
 use MagicSunday\ObituaryMatcher\Support\WebtreesInstallLocator;
-use RuntimeException;
+use PDOException;
 use Throwable;
 
 use function dirname;
+use function error_log;
+use function fwrite;
+use function ini_get;
 use function is_array;
 use function is_scalar;
+use function is_string;
 use function parse_ini_file;
+use function ucfirst;
+
+use const PHP_EOL;
+use const STDERR;
 
 /**
  * A reusable headless webtrees bootstrap for CLI entry points (the queue drain) that have no HTTP
@@ -92,17 +100,83 @@ final class HeadlessBootstrap
      *
      * @return void
      *
-     * @throws RuntimeException When no administrator account is available.
+     * @throws HeadlessBootstrapException When no administrator account is available.
      */
     public static function loginSystemPrincipal(UserService $users): void
     {
         $admin = $users->administrators()->first();
 
         if ($admin === null) {
-            throw new RuntimeException('No admin user available for the headless drain');
+            throw new HeadlessBootstrapException('No admin user available');
         }
 
         Auth::login($admin);
+    }
+
+    /**
+     * Boots the request-less webtrees runtime and logs in the system principal for a headless CLI
+     * entry point, with the privacy-critical S46 failure handling shared across the queue CLIs. On any
+     * boot failure it prints a fixed, config-free category to STDERR, routes the raw detail to the
+     * guarded sink ({@see self::logCliError()}) and terminates the process with a non-zero exit code.
+     *
+     * Only the module's OWN {@see HeadlessBootstrapException} — which carries fixed, config-free
+     * messages by construction — is echoed verbatim to STDERR. The catch arms are deliberately ordered
+     * PDOException-first: {@see DB}'s connect failure surfaces as a {@see PDOException}, whose message
+     * embeds the database host and username; it is caught FIRST and reported only as the fixed
+     * `database connection error.` category, so the DSN never reaches STDERR (which cron captures). The
+     * module's `HeadlessBootstrapException` is caught second and its message echoed (provably leak-free).
+     * Every other {@see Throwable} — including a generic framework `RuntimeException` whose message
+     * could embed a path — falls to the final fixed-category arm with the guarded sink, never echoing
+     * its message.
+     *
+     * This method intentionally terminates the process via `exit(1)` on failure; that is acceptable
+     * CLI-glue behaviour for a composition-root bootstrap.
+     *
+     * @param string $cliName The CLI name woven into the fixed STDERR category (e.g. `enqueue`).
+     *
+     * @return void
+     */
+    public static function bootForCli(string $cliName): void
+    {
+        try {
+            self::boot();
+            self::loginSystemPrincipal(new UserService());
+        } catch (PDOException $exception) {
+            fwrite(STDERR, 'Headless ' . $cliName . ' bootstrap failed: database connection error.' . PHP_EOL);
+            self::logCliError($cliName, $exception);
+
+            exit(1);
+        } catch (HeadlessBootstrapException $exception) {
+            fwrite(STDERR, 'Headless ' . $cliName . ' bootstrap failed: ' . $exception->getMessage() . PHP_EOL);
+
+            exit(1);
+        } catch (Throwable $exception) {
+            fwrite(STDERR, 'Headless ' . $cliName . ' bootstrap failed: an unexpected error occurred.' . PHP_EOL);
+            self::logCliError($cliName, $exception);
+
+            exit(1);
+        }
+    }
+
+    /**
+     * Routes the raw detail of a CLI failure to the configured error sink WITHOUT ever re-leaking it to
+     * STDERR (the S46 contract). `error_log()` writes to STDERR in PHP CLI when the `error_log` ini
+     * directive is unset or empty — which would re-leak a DSN/credentials-bearing message the callers
+     * deliberately keep off STDERR. The detail is therefore only recorded when a real sink (a file or
+     * syslog) is configured; otherwise the caller's fixed STDERR category is the only output.
+     *
+     * @param string    $cliName   The CLI name woven into the sink line prefix (e.g. `enqueue`).
+     * @param Throwable $exception The failure whose raw message is routed to the configured sink.
+     *
+     * @return void
+     */
+    public static function logCliError(string $cliName, Throwable $exception): void
+    {
+        $sink = ini_get('error_log');
+
+        if (is_string($sink) && ($sink !== '')) {
+            error_log(ucfirst($cliName) . ' CLI error: ' . $exception->getMessage());
+        }
     }
 
     /**
@@ -131,20 +205,20 @@ final class HeadlessBootstrap
      *
      * @return void
      *
-     * @throws RuntimeException When the webtrees config cannot be located or parsed.
+     * @throws HeadlessBootstrapException When the webtrees config cannot be located or parsed.
      */
     private static function connectDatabase(): void
     {
         $configFile = (new WebtreesInstallLocator(dirname(__DIR__, 2)))->configFile();
 
         if ($configFile === null) {
-            throw new RuntimeException('Could not locate the webtrees config for the headless drain');
+            throw new HeadlessBootstrapException('Could not locate the webtrees config');
         }
 
         $config = parse_ini_file($configFile);
 
         if (!is_array($config)) {
-            throw new RuntimeException('Could not parse the webtrees config for the headless drain');
+            throw new HeadlessBootstrapException('Could not parse the webtrees config');
         }
 
         DB::connect(
