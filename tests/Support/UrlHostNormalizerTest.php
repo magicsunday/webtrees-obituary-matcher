@@ -42,6 +42,7 @@ final class UrlHostNormalizerTest extends TestCase
         yield 'no scheme is null' => ['example.test/x', null];
         yield 'unparseable is null' => ['https://', null];
         yield 'control char host null' => ["https://exa\nmple.test/x", null];
+        yield 'bare www reduced to empty is null' => ['https://www.', null];
     }
 
     /**

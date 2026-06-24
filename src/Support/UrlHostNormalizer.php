@@ -24,8 +24,9 @@ use const PHP_URL_SCHEME;
 
 /**
  * Derives the canonical host of an obituary source URL: http(s)-only, lowercased, leading
- * `www.` stripped. A non-http(s) scheme, an unparseable URL or a host carrying control
- * characters yields null, so every consumer can reject a bad host uniformly.
+ * `www.` stripped. A non-http(s) scheme, an unparseable URL, a host carrying control
+ * characters, or a host that reduces to the empty string after the `www.` strip (e.g.
+ * `https://www.`) all yield null, so every consumer can reject a bad host uniformly.
  *
  * This is the single source of host canonicalisation shared by the enqueue producer (which
  * lists the portals a candidate is already pending on) and {@see ObituaryWriteBack} (which
@@ -84,7 +85,15 @@ final readonly class UrlHostNormalizer
         $host = mb_strtolower($host, 'UTF-8');
 
         if (str_starts_with($host, 'www.')) {
-            return substr($host, 4);
+            $host = substr($host, 4);
+        }
+
+        // A host that reduced to the empty string — `https://www.` strips to `""` — is not a usable
+        // canonical host: returning `""` would leak an empty entry into the producer's excludedHosts
+        // hint list (which only null-drops). Collapse it to null so every consumer rejects it
+        // uniformly, the same contract as an unparseable or non-http(s) URL.
+        if ($host === '') {
+            return null;
         }
 
         return $host;
