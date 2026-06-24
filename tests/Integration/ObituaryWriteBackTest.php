@@ -123,11 +123,12 @@ final class ObituaryWriteBackTest extends IntegrationTestCase
 
         self::assertSame($expectedGedcom, $gedcom);
 
-        // The capture round-trip — the riskiest logic. The returned id must be the id of the DEAT fact
-        // resolved by RE-FETCHING the individual after the write (Fact::id() is the content hash of the
-        // stored fact), proving writeConfirm captured it from the live record, not from a value it could
-        // have synthesised before the write. assertNotNull alone would be insufficient. The competing-DEAT
-        // selection in captureDeatFactId() is exercised by leavesABareDeatUntouchedAndAddsADatedDeat().
+        // The id invariant — the riskiest logic. writeConfirm computes the returned id as the md5 of the
+        // exact gedcom it writes; this asserts it EQUALS the STORED fact's id (Fact::id() is the md5 of the
+        // re-parsed stored gedcom), pinning the verbatim-storage invariant (updateRecord stores a
+        // non-trailing fact byte-for-byte) that the merged Revert relies on to resolve facts by id.
+        // assertNotNull alone would be insufficient. The competing-DEAT case (two DEATs, the returned id
+        // must resolve the NEW dated fact) is exercised by leavesABareDeatUntouchedAndAddsADatedDeat().
         self::assertSame($fact->id(), $writeBack->deatFactId);
         self::assertNotSame('', $writeBack->deatFactId);
 
@@ -252,9 +253,9 @@ final class ObituaryWriteBackTest extends IntegrationTestCase
 
     /**
      * A bare DEAT (no DATE) does NOT count as a death date: the write succeeds, adding a SECOND, dated
-     * DEAT, and the original bare DEAT survives byte-unchanged. This is also the competing-DEAT case
-     * that exercises captureDeatFactId's substring selection — with two DEAT facts present, the returned
-     * deatFactId must resolve the NEW sourced obituary fact, not the pre-existing bare one.
+     * DEAT, and the original bare DEAT survives byte-unchanged. This is also the competing-DEAT case for
+     * the returned-id invariant — with two DEAT facts present, the returned deatFactId (the md5 of the
+     * exact gedcom written) must resolve the NEW sourced obituary fact, not the pre-existing bare one.
      *
      * @return void
      */
@@ -290,8 +291,8 @@ final class ObituaryWriteBackTest extends IntegrationTestCase
         self::assertStringContainsString('2 SOUR @' . $writeBack->sourceXref . '@', $dated->gedcom());
         self::assertStringContainsString('3 PAGE https://trauer.example/x', $dated->gedcom());
 
-        // captureDeatFactId selected the right fact among two DEATs: the returned id resolves the dated
-        // obituary fact, never the bare one.
+        // The returned id (md5 of the exact written gedcom) resolves the dated obituary fact among the two
+        // DEATs, never the bare one.
         self::assertSame($dated->id(), $writeBack->deatFactId);
         self::assertNotSame($bare->id(), $writeBack->deatFactId);
     }
