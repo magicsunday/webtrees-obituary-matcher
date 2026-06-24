@@ -20,9 +20,10 @@ use function is_string;
 
 /**
  * The persistence record of a confirm's GEDCOM write-back, stored on a {@see StoredMatch} when it
- * is confirmed, so a later Revert can undo exactly what was written. 2d-3a populates `deatFactId`,
- * `sourceXref` and `sourceCreated`; `buriFactId` (2d-3b) and `citationIds` (standalone citations)
- * are reserved and stay `null`/`[]` so the persisted shape does not change between slices.
+ * is confirmed, so a later Revert can undo exactly what was written. `deatFactId`, `sourceXref` and
+ * `sourceCreated` are always populated; `buriFactId` (2d-3b) carries the written BURI fact id when a
+ * cemetery was written and stays `null` otherwise; `citationIds` (standalone citations) is reserved
+ * and stays `[]`.
  *
  * @phpstan-type WriteBackArray array{deatFactId: string, buriFactId: string|null, sourceXref: string, sourceCreated: bool, citationIds: list<string>}
  *
@@ -38,7 +39,7 @@ final readonly class WriteBack
      * @param string       $deatFactId    The fact id of the written DEAT fact.
      * @param string       $sourceXref    The portal source record xref the citation points at.
      * @param bool         $sourceCreated Whether this confirm newly created the portal source.
-     * @param string|null  $buriFactId    Reserved for 2d-3b (BURI); null in 2d-3a.
+     * @param string|null  $buriFactId    The fact id of the written BURI fact; null when no burial was written.
      * @param list<string> $citationIds   Reserved; empty in 2d-3a (the citation is inline in DEAT).
      */
     public function __construct(

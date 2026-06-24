@@ -20,18 +20,22 @@ use MagicSunday\ObituaryMatcher\Support\GedcomDateConverter;
 use MagicSunday\ObituaryMatcher\Support\MalformedDeathDateException;
 use MagicSunday\ObituaryMatcher\Support\UrlHostNormalizer;
 
+use function count;
 use function date;
 use function preg_match;
 use function preg_quote;
 use function sprintf;
 use function str_contains;
+use function str_replace;
+use function trim;
 
 /**
- * Writes the obituary's death date into a tree person as a sourced GEDCOM DEAT fact (2d-3a). It is
- * the only framework-facing write unit — it finds-or-creates a per-portal SOUR (one per canonical
- * host, identified by a REFN marker, pending-aware so a not-yet-accepted source is not duplicated),
- * writes the DEAT with an inline citation, and returns the {@see WriteBack} IDs. It is deliberately
- * store-agnostic: the caller marks the store confirmed AFTER a successful write.
+ * Writes the obituary's facts into a tree person via {@see writeConfirm()} — a sourced GEDCOM DEAT
+ * fact, and (from Task 2) a sourced BURI when a cemetery is present. It is the only framework-facing
+ * write unit — it finds-or-creates a per-portal SOUR (one per canonical host, identified by a REFN
+ * marker, pending-aware so a not-yet-accepted source is not duplicated), writes the facts with an
+ * inline citation, and returns the {@see WriteBack} IDs. It is deliberately store-agnostic: the
+ * caller marks the store confirmed AFTER a successful write.
  *
  * Intentionally non-final: integration tests subclass it to drive the protected source/host seams
  * (`findPortalSource`/`createPortalSource`/`canonicalHost`) over a real tree — the same test-seam
@@ -67,21 +71,29 @@ class ObituaryWriteBack
     }
 
     /**
-     * Writes the obituary death date into the individual as a sourced DEAT fact and returns the
-     * write-back IDs. GEDCOM-only — the caller marks the store confirmed after a successful return.
+     * Writes the obituary's facts (a sourced DEAT, and a sourced BURI when a cemetery is present)
+     * into the individual and returns the write-back IDs. GEDCOM-only — the caller marks the store
+     * confirmed after a successful return. All preconditions run before any record is created.
      *
-     * @param Individual $individual   The tree person to write to.
-     * @param string     $isoDeathDate The exact ISO death date from the obituary.
-     * @param string     $obituaryUrl  The source notice URL (the citation PAGE).
+     * @param Individual  $individual  The tree person to write to.
+     * @param string      $isoDeath    The exact ISO death date from the obituary.
+     * @param string|null $cemetery    The extracted cemetery name, or null when none was found.
+     * @param string|null $funeralIso  The exact ISO funeral date, or null when none/non-exact.
+     * @param string      $obituaryUrl The source notice URL (the citation PAGE).
      *
      * @return WriteBack The IDs of the written records.
      *
-     * @throws WriteBackPreconditionException   When the URL is not a clean http(s) single-line value.
-     * @throws MalformedDeathDateException      When the death date is not an exact calendar date.
+     * @throws WriteBackPreconditionException   When the URL/host/cemetery is not a clean value.
+     * @throws MalformedDeathDateException      When the death (or a cemetery's funeral) date is not exact.
      * @throws DeathDateAlreadyPresentException When the person gained a death date before the write.
      */
-    public function writeDeath(Individual $individual, string $isoDeathDate, string $obituaryUrl): WriteBack
-    {
+    public function writeConfirm(
+        Individual $individual,
+        string $isoDeath,
+        ?string $cemetery,
+        ?string $funeralIso,
+        string $obituaryUrl,
+    ): WriteBack {
         // Precondition: a clean, single-line http(s) URL (no GEDCOM-line injection via 3 PAGE).
         if (
             (preg_match('~^https?://~i', $obituaryUrl) !== 1)
@@ -96,17 +108,46 @@ class ObituaryWriteBack
             throw new WriteBackPreconditionException('The obituary URL has no parseable host.');
         }
 
-        // The host is embedded in the SOUR TITL/PUBL/REFN — guard it against GEDCOM-line injection too,
-        // even though normalizeForIdentity/parse_url normally strip control chars.
         if (preg_match('/[\x00-\x1F\x7F]/', $host) === 1) {
             throw new WriteBackPreconditionException('The obituary host contains control characters.');
         }
 
         // Throws MalformedDeathDateException on a non-exact/calendar-invalid date, before any write.
-        $gedcomDate = GedcomDateConverter::toGedcom($isoDeathDate);
+        $deathGedcom = GedcomDateConverter::toGedcom($isoDeath);
+
+        // Normalise the cemetery at THIS boundary too (the handler is not the only caller): trim, and
+        // treat whitespace-only / empty as absent so we never emit a blank `2 PLAC`.
+        $cleanCemetery = $cemetery !== null ? trim($cemetery) : null;
+        $cleanCemetery = ($cleanCemetery === '') ? null : $cleanCemetery;
+
+        // The cemetery is untrusted free text — a control char would inject a GEDCOM sub-record into the
+        // 2 PLAC line. Reject before any write so the confirm aborts atomically.
+        if (
+            ($cleanCemetery !== null)
+            && (preg_match('/[\x00-\x1F\x7F]/', $cleanCemetery) === 1)
+        ) {
+            throw new WriteBackPreconditionException('The cemetery name contains control characters.');
+        }
+
+        // Normalise the funeral date at THIS boundary too (mirroring the cemetery normalisation, for
+        // robustness against direct callers): trim, and treat whitespace-only / empty as absent.
+        $cleanFuneralIso = $funeralIso !== null ? trim($funeralIso) : null;
+        $cleanFuneralIso = ($cleanFuneralIso === '') ? null : $cleanFuneralIso;
+
+        // The funeral date is only relevant to the optional BURI: validate it ONLY when a cemetery is
+        // present, so a no-cemetery confirm with a malformed funeral date keeps the exact 2d-3a DEAT
+        // behaviour (no BURI, no abort). Throws MalformedDeathDateException when present + malformed.
+        $funeralGedcom = null;
+
+        if (
+            ($cleanCemetery !== null)
+            && ($cleanFuneralIso !== null)
+        ) {
+            $funeralGedcom = GedcomDateConverter::toGedcom($cleanFuneralIso);
+        }
 
         // Live re-check immediately before the create: the person must still have no death date
-        // (covers DEAT/BURI/CREM). Closes the gate↔write TOCTOU; never silently succeeds.
+        // (covers a DATED DEAT/BURI/CREM). Closes the gate↔write TOCTOU; never silently succeeds.
         if ($individual->getDeathDate()->isOK()) {
             throw new DeathDateAlreadyPresentException('The individual already has a death date.');
         }
@@ -123,23 +164,100 @@ class ObituaryWriteBack
 
         $sourceXref = $source->xref();
 
-        // The citation recording date in GEDCOM format (uppercase month). date('d M Y') would emit a
-        // mixed-case "Sep"/"Dec" — convert today's ISO through the same converter so 4 DATE is GEDCOM-valid.
+        // The citation recording date in GEDCOM format (uppercase month). Read the clock ONCE so the
+        // DEAT and the (optional) BURI cite the same instant. date('d M Y') would emit a mixed-case
+        // "Sep"/"Dec" — convert today's ISO through the same converter so 4 DATE is GEDCOM-valid.
         $confirmDate = GedcomDateConverter::toGedcom(date('Y-m-d'));
+
+        $deatFactId = $this->writeDeathFact($individual, $deathGedcom, $sourceXref, $obituaryUrl, $confirmDate);
+        $buriFactId = $this->writeBurialFact($individual, $cleanCemetery, $funeralGedcom, $sourceXref, $obituaryUrl, $confirmDate);
+
+        return new WriteBack($deatFactId, $sourceXref, $sourceCreated, $buriFactId);
+    }
+
+    /**
+     * Writes the sourced DEAT fact and returns its captured fact id.
+     *
+     * @param Individual $individual  The tree person.
+     * @param string     $deathGedcom The GEDCOM death date.
+     * @param string     $sourceXref  The portal source xref to cite.
+     * @param string     $obituaryUrl The citation PAGE.
+     * @param string     $confirmDate The GEDCOM citation recording date (read once per confirm).
+     *
+     * @return string The written DEAT fact id.
+     *
+     * @throws WriteBackPreconditionException When the written fact cannot be located.
+     */
+    private function writeDeathFact(Individual $individual, string $deathGedcom, string $sourceXref, string $obituaryUrl, string $confirmDate): string
+    {
+        // A literal `@` in a GEDCOM value must be escaped to `@@` (it otherwise starts an XREF pointer);
+        // webtrees stores the createFact() string verbatim, so escape here AND build the capture
+        // substring from the SAME escaped value so captureDeatFactId still locates the just-written fact.
+        $escapedUrl = str_replace('@', '@@', $obituaryUrl);
 
         $deatGedcom = sprintf(
             "1 DEAT\n2 DATE %s\n2 SOUR @%s@\n3 PAGE %s\n3 DATA\n4 DATE %s",
-            $gedcomDate,
+            $deathGedcom,
             $sourceXref,
-            $obituaryUrl,
+            $escapedUrl,
             $confirmDate
         );
 
         $individual->createFact($deatGedcom, true);
 
-        $deatFactId = $this->captureDeatFactId($individual, $gedcomDate, $sourceXref, $obituaryUrl);
+        return $this->captureDeatFactId($individual, $deathGedcom, $sourceXref, $escapedUrl);
+    }
 
-        return new WriteBack($deatFactId, $sourceXref, $sourceCreated);
+    /**
+     * Writes a sourced BURI fact when a cemetery is present and the individual has no existing burial,
+     * and returns its captured fact id (null when no BURI was written).
+     *
+     * @param Individual  $individual    The tree person.
+     * @param string|null $cemetery      The validated, non-empty cemetery name, or null.
+     * @param string|null $funeralGedcom The GEDCOM funeral date, or null.
+     * @param string      $sourceXref    The portal source xref to cite.
+     * @param string      $obituaryUrl   The citation PAGE.
+     * @param string      $confirmDate   The GEDCOM citation recording date (read once per confirm).
+     *
+     * @return string|null The written BURI fact id, or null when none was written.
+     *
+     * @throws WriteBackPreconditionException When a written BURI cannot be located.
+     */
+    private function writeBurialFact(Individual $individual, ?string $cemetery, ?string $funeralGedcom, string $sourceXref, string $obituaryUrl, string $confirmDate): ?string
+    {
+        // Never create a second BURI: an existing burial may carry place/date/notes a duplicate would
+        // shadow. Merging into it is a later hardening slice. (count() matches the existing deatCount()
+        // helper — facts() returns a Countable collection.)
+        if (
+            ($cemetery === null)
+            || (count($individual->facts(['BURI'], false, null, true)) > 0)
+        ) {
+            return null;
+        }
+
+        $buriGedcom = '1 BURI';
+
+        if ($funeralGedcom !== null) {
+            $buriGedcom .= "\n2 DATE " . $funeralGedcom;
+        }
+
+        // A literal `@` in a GEDCOM value must be escaped to `@@` (it otherwise starts an XREF pointer);
+        // webtrees stores the createFact() string verbatim, so escape here AND build the capture
+        // substrings from the SAME escaped values so captureBuriFactId still locates the just-written fact.
+        $escapedCemetery = str_replace('@', '@@', $cemetery);
+        $escapedUrl      = str_replace('@', '@@', $obituaryUrl);
+
+        $buriGedcom .= sprintf(
+            "\n2 PLAC %s\n2 SOUR @%s@\n3 PAGE %s\n3 DATA\n4 DATE %s",
+            $escapedCemetery,
+            $sourceXref,
+            $escapedUrl,
+            $confirmDate
+        );
+
+        $individual->createFact($buriGedcom, true);
+
+        return $this->captureBuriFactId($individual, $escapedCemetery, $sourceXref, $escapedUrl);
     }
 
     /**
@@ -169,6 +287,35 @@ class ObituaryWriteBack
         }
 
         throw new WriteBackPreconditionException('The written DEAT fact could not be located.');
+    }
+
+    /**
+     * Finds the just-written BURI fact (by its PLAC + SOUR + PAGE substrings) and returns its id.
+     *
+     * @param Individual $individual  The individual the fact was written to.
+     * @param string     $cemetery    The PLAC written.
+     * @param string     $sourceXref  The cited source xref.
+     * @param string     $obituaryUrl The citation PAGE.
+     *
+     * @return string The fact id.
+     *
+     * @throws WriteBackPreconditionException When the written BURI cannot be located.
+     */
+    private function captureBuriFactId(Individual $individual, string $cemetery, string $sourceXref, string $obituaryUrl): string
+    {
+        foreach ($individual->facts(['BURI'], false, null, true) as $fact) {
+            $gedcom = $fact->gedcom();
+
+            if (
+                str_contains($gedcom, '2 PLAC ' . $cemetery)
+                && str_contains($gedcom, '2 SOUR @' . $sourceXref . '@')
+                && str_contains($gedcom, '3 PAGE ' . $obituaryUrl)
+            ) {
+                return $fact->id();
+            }
+        }
+
+        throw new WriteBackPreconditionException('The written BURI fact could not be located.');
     }
 
     /**

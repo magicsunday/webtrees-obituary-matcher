@@ -44,6 +44,7 @@ use function preg_match;
 use function redirect;
 use function route;
 use function strip_tags;
+use function trim;
 
 /**
  * The review-screen route handler. It renders a read-only split-view of one stored match (tree
@@ -226,7 +227,7 @@ class ReviewScreenHandler implements RequestHandlerInterface
         // authorization control, so a hand-crafted POST must not bypass !hardConflict / exact-date /
         // no-tree-death-date. ConfirmGate is the single source of gate truth (shared with the view
         // model): hardConflict and the exact-date check read the persisted payload (the same source the
-        // view model used), treeHasDeathDate is read LIVE. writeDeath's own live re-check below is then
+        // view model used), treeHasDeathDate is read LIVE. writeConfirm's own live re-check below is then
         // defense-in-depth. StoredMatch::fromArray only asserts is_array on the payload (a PHPDoc cast,
         // no runtime key validation), and the on-disk JSON is untrusted (hand-edited / older schema), so
         // the two reads are narrowed defensively here EXACTLY as ReviewViewModel narrows them — keeping
@@ -240,6 +241,17 @@ class ReviewScreenHandler implements RequestHandlerInterface
         $iso          = is_string($isoRaw) ? $isoRaw : null;
         $hardConflict = $this->read($row->match, 'hardConflict') === true;
 
+        // The optional BURI inputs come from the SAME untrusted payload — narrow them exactly as the
+        // death date is narrowed (the writer trims again as defence-in-depth). A whitespace-only / empty
+        // value collapses to null so the writer never emits a blank PLAC and skips the BURI entirely.
+        $cemeteryRaw = $facts['cemetery'] ?? null;
+        $cemetery    = is_string($cemeteryRaw) ? trim($cemeteryRaw) : null;
+        $cemetery    = ($cemetery === '') ? null : $cemetery;
+
+        $funeralRaw = $facts['funeralDate'] ?? null;
+        $funeralIso = is_string($funeralRaw) ? trim($funeralRaw) : null;
+        $funeralIso = ($funeralIso === '') ? null : $funeralIso;
+
         if (!ConfirmGate::evaluate($hardConflict, $individual->getDeathDate()->isOK(), $iso)->canConfirm) {
             FlashMessages::addMessage(I18N::translate('This match can no longer be confirmed.'), 'warning');
 
@@ -250,13 +262,17 @@ class ReviewScreenHandler implements RequestHandlerInterface
         // the tree and the store both stay in their pre-confirm state.
         try {
             // $iso is guaranteed an exact ISO date by the gate above, so it is a string here.
-            $writeBack = $this->obituaryWriteBack()->writeDeath($individual, (string) $iso, $row->obituaryUrl);
+            $writeBack = $this->obituaryWriteBack()->writeConfirm($individual, (string) $iso, $cemetery, $funeralIso, $row->obituaryUrl);
         } catch (DeathDateAlreadyPresentException) {
             FlashMessages::addMessage(I18N::translate('This individual already has a death date; nothing was written.'), 'warning');
 
             return redirect($reviewUrl);
         } catch (WriteBackPreconditionException|MalformedDeathDateException) {
-            FlashMessages::addMessage(I18N::translate('The obituary did not carry a writable death date.'), 'warning');
+            // Covers every pre-write precondition failure — a malformed death OR funeral date, an
+            // unusable source URL, or a cemetery carrying control characters — so the copy stays
+            // accurate now that writeConfirm validates the cemetery/funeral inputs too, not just the
+            // death date.
+            FlashMessages::addMessage(I18N::translate('The obituary did not carry writable data.'), 'warning');
 
             return redirect($reviewUrl);
         }

@@ -452,7 +452,7 @@ final class ObituaryWriteBackSourceTest extends IntegrationTestCase
         );
 
         // The pending blob is authoritative: the edited host resolves to the same record. Only the
-        // xref is asserted (and consumed by writeDeath, which cites `2 SOUR @xref@`): a deeper
+        // xref is asserted (and consumed by writeConfirm, which cites `2 SOUR @xref@`): a deeper
         // gedcom-content assertion is defeated by webtrees' per-request record memoization — the
         // positive-control find(hostA) above caches the Source under this xref, so a later 3-arg
         // make() returns the cached (hostA-blob) instance regardless of the pending blob passed. The

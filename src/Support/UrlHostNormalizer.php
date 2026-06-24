@@ -33,7 +33,7 @@ use const PHP_URL_SCHEME;
  * keys a per-portal source by host). It is pure: no webtrees coupling, no I/O.
  *
  * NOTE: the scheme gate lives HERE, not at the caller. The old inlined version in
- * {@see ObituaryWriteBack::canonicalHost()} relied on `writeDeath` pre-checking `^https?://`
+ * {@see ObituaryWriteBack::canonicalHost()} relied on `writeConfirm` pre-checking `^https?://`
  * before calling it — but the enqueue producer calls this helper DIRECTLY, with no such
  * pre-check, so the helper itself must reject a non-http(s) scheme (else `ftp://example.test`
  * would wrongly yield `example.test`).

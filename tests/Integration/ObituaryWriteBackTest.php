@@ -30,11 +30,13 @@ use function is_string;
 use function iterator_to_array;
 use function sprintf;
 use function str_contains;
+use function strpos;
 
 /**
- * Integration tests for {@see ObituaryWriteBack::writeDeath()} — the actual sourced DEAT write over a
- * real tree: precondition rejections, the live re-check race guard, the dated+sourced DEAT fact, and
- * the deatFactId capture round-trip.
+ * Integration tests for {@see ObituaryWriteBack::writeConfirm()} — the actual sourced write over a
+ * real tree: precondition rejections, the live re-check race guard, the dated+sourced DEAT fact and
+ * the deatFactId capture round-trip, plus the optional sourced BURI (cemetery → PLAC, funeral → DATE)
+ * with its buriFactId capture and the existing-burial skip.
  *
  * @author  Rico Sonntag <mail@ricosonntag.de>
  * @license https://opensource.org/licenses/GPL-3.0 GNU General Public License v3.0
@@ -57,7 +59,7 @@ final class ObituaryWriteBackTest extends IntegrationTestCase
      * administrator (an editor of every tree), and auto-accept is turned ON so a written DEAT/source
      * lands immediately and the assertions read committed records.
      *
-     * @return Tree The freshly-imported fixture tree with I1–I6.
+     * @return Tree The freshly-imported fixture tree with I1–I7.
      */
     private function tree(): Tree
     {
@@ -70,6 +72,7 @@ final class ObituaryWriteBackTest extends IntegrationTestCase
             . "0 @I4@ INDI\n1 NAME Klara /Grab/\n1 SEX F\n1 BURI\n2 DATE 12 MAY 1985\n"
             . "0 @I5@ INDI\n1 NAME Paul /Leer/\n1 SEX M\n1 DEAT\n"
             . "0 @I6@ INDI\n1 NAME Greta /Asche/\n1 SEX F\n1 CREM\n2 DATE 03 MAR 1995\n"
+            . "0 @I7@ INDI\n1 NAME Wili /Grablos/\n1 SEX M\n1 BIRT\n2 DATE 1 JAN 1940\n1 BURI\n"
         );
     }
 
@@ -105,7 +108,7 @@ final class ObituaryWriteBackTest extends IntegrationTestCase
     }
 
     /**
-     * writeDeath writes a dated, sourced DEAT and returns a WriteBack whose deatFactId resolves the
+     * writeConfirm writes a dated, sourced DEAT and returns a WriteBack whose deatFactId resolves the
      * just-written fact (the capture round-trip), with the reserved fields at their 2d-3a values.
      *
      * @return void
@@ -116,7 +119,7 @@ final class ObituaryWriteBackTest extends IntegrationTestCase
         $tree = $this->tree();
         $i1   = $this->person('I1', $tree);
 
-        $writeBack = $this->writer()->writeDeath($i1, '2023-09-04', 'https://trauer.example/x');
+        $writeBack = $this->writer()->writeConfirm($i1, '2023-09-04', null, null, 'https://trauer.example/x');
 
         // Re-fetch so the assertion reads the committed record, not the in-memory copy.
         $reloaded = $this->person('I1', $tree);
@@ -141,7 +144,7 @@ final class ObituaryWriteBackTest extends IntegrationTestCase
 
         // The capture round-trip — the riskiest logic. The returned id must be the id of the DEAT fact
         // resolved by RE-FETCHING the individual after the write (Fact::id() is the content hash of the
-        // stored fact), proving writeDeath captured it from the live record, not from a value it could
+        // stored fact), proving writeConfirm captured it from the live record, not from a value it could
         // have synthesised before the write. assertNotNull alone would be insufficient. The competing-DEAT
         // selection in captureDeatFactId() is exercised by leavesABareDeatUntouchedAndAddsADatedDeat().
         self::assertSame($fact->id(), $writeBack->deatFactId);
@@ -165,8 +168,8 @@ final class ObituaryWriteBackTest extends IntegrationTestCase
         $i1   = $this->person('I1', $tree);
         $i2   = $this->person('I2', $tree);
 
-        $first  = $this->writer()->writeDeath($i1, '2023-09-04', 'https://trauer.example/x');
-        $second = $this->writer()->writeDeath($i2, '2024-01-15', 'https://www.trauer.example/y?utm=z');
+        $first  = $this->writer()->writeConfirm($i1, '2023-09-04', null, null, 'https://trauer.example/x');
+        $second = $this->writer()->writeConfirm($i2, '2024-01-15', null, null, 'https://www.trauer.example/y?utm=z');
 
         self::assertSame($first->sourceXref, $second->sourceXref);
         self::assertTrue($first->sourceCreated);
@@ -211,7 +214,7 @@ final class ObituaryWriteBackTest extends IntegrationTestCase
         $before = $this->deatCount('I3', $tree);
 
         try {
-            $this->writer()->writeDeath($i3, '2023-09-04', 'https://trauer.example/x');
+            $this->writer()->writeConfirm($i3, '2023-09-04', null, null, 'https://trauer.example/x');
             self::fail('expected a DeathDateAlreadyPresentException');
         } catch (DeathDateAlreadyPresentException) {
             // Expected.
@@ -234,7 +237,7 @@ final class ObituaryWriteBackTest extends IntegrationTestCase
         $before = $this->deatCount('I4', $tree);
 
         try {
-            $this->writer()->writeDeath($i4, '2023-09-04', 'https://trauer.example/x');
+            $this->writer()->writeConfirm($i4, '2023-09-04', null, null, 'https://trauer.example/x');
             self::fail('expected a DeathDateAlreadyPresentException');
         } catch (DeathDateAlreadyPresentException) {
             // Expected.
@@ -257,7 +260,7 @@ final class ObituaryWriteBackTest extends IntegrationTestCase
         $before = $this->deatCount('I6', $tree);
 
         try {
-            $this->writer()->writeDeath($i6, '2023-09-04', 'https://trauer.example/x');
+            $this->writer()->writeConfirm($i6, '2023-09-04', null, null, 'https://trauer.example/x');
             self::fail('expected a DeathDateAlreadyPresentException');
         } catch (DeathDateAlreadyPresentException) {
             // Expected.
@@ -280,7 +283,7 @@ final class ObituaryWriteBackTest extends IntegrationTestCase
         $tree = $this->tree();
         $i5   = $this->person('I5', $tree);
 
-        $writeBack = $this->writer()->writeDeath($i5, '2023-09-04', 'https://trauer.example/x');
+        $writeBack = $this->writer()->writeConfirm($i5, '2023-09-04', null, null, 'https://trauer.example/x');
 
         $facts = iterator_to_array($this->person('I5', $tree)->facts(['DEAT'], false, null, true));
 
@@ -330,7 +333,7 @@ final class ObituaryWriteBackTest extends IntegrationTestCase
         $before = $this->deatCount('I1', $tree);
 
         try {
-            $this->writer()->writeDeath($i1, '2023-09-04', $url);
+            $this->writer()->writeConfirm($i1, '2023-09-04', null, null, $url);
             self::fail('expected a WriteBackPreconditionException');
         } catch (WriteBackPreconditionException) {
             // Expected.
@@ -371,12 +374,203 @@ final class ObituaryWriteBackTest extends IntegrationTestCase
         $before = $this->deatCount('I1', $tree);
 
         try {
-            $this->writer()->writeDeath($i1, '2023-02-31', 'https://trauer.example/x');
+            $this->writer()->writeConfirm($i1, '2023-02-31', null, null, 'https://trauer.example/x');
             self::fail('expected a MalformedDeathDateException');
         } catch (MalformedDeathDateException) {
             // Expected.
         }
 
         self::assertSame($before, $this->deatCount('I1', $tree), 'no DEAT fact may be written on a malformed date');
+    }
+
+    /**
+     * A cemetery (with a funeral date) writes a sourced BURI citing the same portal source as the DEAT,
+     * with the DATE preceding the PLAC line.
+     *
+     * @return void
+     */
+    #[Test]
+    public function aCemeteryWritesASourcedBurialCitingTheSameSource(): void
+    {
+        $tree = $this->tree();
+
+        $writeBack = $this->writer()->writeConfirm($this->person('I1', $tree), '2023-09-04', 'Waldfriedhof Beispielstadt', '2023-09-10', 'https://trauer.example/x');
+
+        self::assertNotNull($writeBack->buriFactId);
+
+        $buri = iterator_to_array($this->person('I1', $tree)->facts(['BURI'], false, null, true));
+
+        self::assertCount(1, $buri);
+        $gedcom = $buri[0]->gedcom();
+        self::assertStringContainsString('2 PLAC Waldfriedhof Beispielstadt', $gedcom);
+        self::assertStringContainsString('2 DATE 10 SEP 2023', $gedcom);
+        self::assertStringContainsString('2 SOUR @' . $writeBack->sourceXref . '@', $gedcom);
+        self::assertStringContainsString('3 PAGE https://trauer.example/x', $gedcom);
+        self::assertTrue(strpos($gedcom, '2 DATE') < strpos($gedcom, '2 PLAC'), 'BURI DATE must precede PLAC');
+    }
+
+    /**
+     * No cemetery → no BURI is written and buriFactId stays null.
+     *
+     * @return void
+     */
+    #[Test]
+    public function noCemeteryWritesNoBurial(): void
+    {
+        $tree      = $this->tree();
+        $writeBack = $this->writer()->writeConfirm($this->person('I1', $tree), '2023-09-04', null, null, 'https://trauer.example/x');
+
+        self::assertNull($writeBack->buriFactId);
+        self::assertCount(0, iterator_to_array($this->person('I1', $tree)->facts(['BURI'], false, null, true)));
+    }
+
+    /**
+     * A whitespace-only cemetery normalises to absent → no BURI is written.
+     *
+     * @return void
+     */
+    #[Test]
+    public function aWhitespaceOnlyCemeteryWritesNoBurial(): void
+    {
+        $tree      = $this->tree();
+        $writeBack = $this->writer()->writeConfirm($this->person('I1', $tree), '2023-09-04', '   ', '2023-09-10', 'https://trauer.example/x');
+
+        self::assertNull($writeBack->buriFactId);
+        self::assertCount(0, iterator_to_array($this->person('I1', $tree)->facts(['BURI'], false, null, true)));
+    }
+
+    /**
+     * A cemetery without a funeral date writes a BURI carrying the PLAC but no DATE line.
+     *
+     * @return void
+     */
+    #[Test]
+    public function aCemeteryWithoutAFuneralDateWritesABurialWithoutADateLine(): void
+    {
+        $tree      = $this->tree();
+        $writeBack = $this->writer()->writeConfirm($this->person('I1', $tree), '2023-09-04', 'Waldfriedhof', null, 'https://trauer.example/x');
+
+        self::assertNotNull($writeBack->buriFactId);
+        $gedcom = iterator_to_array($this->person('I1', $tree)->facts(['BURI'], false, null, true))[0]->gedcom();
+        self::assertStringContainsString('2 PLAC Waldfriedhof', $gedcom);
+        self::assertStringNotContainsString('2 DATE', $gedcom);
+    }
+
+    /**
+     * An existing BURI skips the burial write (buriFactId null) but the death still writes.
+     *
+     * @return void
+     */
+    #[Test]
+    public function anExistingBurialSkipsTheBurialWriteButTheDeathStillWrites(): void
+    {
+        // I7 carries a BARE `1 BURI` (no date) — verified not to trip getDeathDate()->isOK()
+        // (getAllDeathDates only matches a death event WITH a `2 DATE`), so the death-date guard passes,
+        // the DEAT writes, and the existing-BURI check skips the burial.
+        $tree      = $this->tree();
+        $writeBack = $this->writer()->writeConfirm($this->person('I7', $tree), '2023-09-04', 'Waldfriedhof', '2023-09-10', 'https://trauer.example/x');
+
+        self::assertNull($writeBack->buriFactId);
+        self::assertNotSame('', $writeBack->deatFactId);
+        self::assertCount(1, iterator_to_array($this->person('I7', $tree)->facts(['BURI'], false, null, true)));
+        self::assertCount(1, iterator_to_array($this->person('I7', $tree)->facts(['DEAT'], false, null, true)));
+    }
+
+    /**
+     * A control char in the cemetery aborts atomically: the precondition guard runs before any write,
+     * so neither DEAT nor BURI is written.
+     *
+     * @return void
+     */
+    #[Test]
+    public function aControlCharCemeteryAbortsWithNothingWritten(): void
+    {
+        $tree = $this->tree();
+
+        $this->expectException(WriteBackPreconditionException::class);
+
+        try {
+            $this->writer()->writeConfirm($this->person('I1', $tree), '2023-09-04', "Wald\nfriedhof", '2023-09-10', 'https://trauer.example/x');
+        } finally {
+            // Atomic: neither DEAT nor BURI written (the cemetery guard runs before find-or-create +
+            // any createFact).
+            self::assertCount(0, iterator_to_array($this->person('I1', $tree)->facts(['DEAT'], false, null, true)));
+            self::assertCount(0, iterator_to_array($this->person('I1', $tree)->facts(['BURI'], false, null, true)));
+        }
+    }
+
+    /**
+     * A malformed funeral date WITH a cemetery aborts atomically: the funeral date is validated (because
+     * a cemetery is present) before any write, so nothing is written.
+     *
+     * @return void
+     */
+    #[Test]
+    public function aMalformedFuneralDateWithACemeteryAbortsWithNothingWritten(): void
+    {
+        $tree = $this->tree();
+
+        $this->expectException(MalformedDeathDateException::class);
+
+        try {
+            $this->writer()->writeConfirm($this->person('I1', $tree), '2023-09-04', 'Waldfriedhof', '2023-02-31', 'https://trauer.example/x');
+        } finally {
+            self::assertCount(0, iterator_to_array($this->person('I1', $tree)->facts(['DEAT'], false, null, true)));
+            self::assertCount(0, iterator_to_array($this->person('I1', $tree)->facts(['BURI'], false, null, true)));
+        }
+    }
+
+    /**
+     * A malformed funeral date WITHOUT a cemetery does not abort: no BURI is written, the funeral date is
+     * irrelevant and never validated, and the DEAT writes exactly as in 2d-3a.
+     *
+     * @return void
+     */
+    #[Test]
+    public function aMalformedFuneralDateWithoutACemeteryDoesNotAbort(): void
+    {
+        // No cemetery → no BURI → the funeral date is irrelevant and must NOT be validated/abort:
+        // the DEAT still writes exactly as in 2d-3a.
+        $tree      = $this->tree();
+        $writeBack = $this->writer()->writeConfirm($this->person('I1', $tree), '2023-09-04', null, '2023-02-31', 'https://trauer.example/x');
+
+        self::assertNull($writeBack->buriFactId);
+        self::assertNotSame('', $writeBack->deatFactId);
+        self::assertCount(1, iterator_to_array($this->person('I1', $tree)->facts(['DEAT'], false, null, true)));
+    }
+
+    /**
+     * A literal `@` in a cemetery or the obituary URL must be escaped to `@@` in the stored GEDCOM value
+     * (GEDCOM 5.5.1 + webtrees' AbstractElement::escape convention — a bare `@` starts an XREF pointer).
+     * webtrees stores the createFact() string verbatim, so the writer must escape the value AND build its
+     * capture substring from the SAME escaped value: the capture still locates the just-written BURI, and
+     * the stored gedcom carries the escaped `2 PLAC … @@ …` / `3 PAGE …@@…` forms.
+     *
+     * @return void
+     */
+    #[Test]
+    public function escapesAnAtSignInTheCemeteryAndUrl(): void
+    {
+        $tree = $this->tree();
+
+        $writeBack = $this->writer()->writeConfirm(
+            $this->person('I1', $tree),
+            '2023-09-04',
+            'Friedhof @ St. Anna',
+            '2023-09-10',
+            'https://user@host.example/n@1'
+        );
+
+        // Capture succeeded — the writer located the just-written BURI by its ESCAPED substring.
+        self::assertNotNull($writeBack->buriFactId);
+
+        $buri = iterator_to_array($this->person('I1', $tree)->facts(['BURI'], false, null, true));
+
+        self::assertCount(1, $buri);
+
+        // The stored gedcom carries the ESCAPED forms, proving webtrees stored the escaped value verbatim.
+        $gedcom = $buri[0]->gedcom();
+        self::assertStringContainsString('2 PLAC Friedhof @@ St. Anna', $gedcom);
+        self::assertStringContainsString('3 PAGE https://user@@host.example/n@@1', $gedcom);
     }
 }

@@ -893,6 +893,48 @@ final class ReviewScreenHandlerTest extends IntegrationTestCase
     }
 
     /**
+     * POST confirm on a row whose `extractedFacts` carry a cemetery (and an exact funeral date) writes
+     * the sourced BURI alongside the DEAT and persists the write-back's `buriFactId` on the confirmed
+     * row (spec §2/§9 — 2d-3b). I2 has no death date and the seeded row carries an exact ISO date, so
+     * the gate passes; auto-accept is ON so the written BURI commits. The handler reads the cemetery and
+     * funeral date defensively from the persisted payload and threads them into the confirm write-back,
+     * so the BURI lands in the tree (with the same SOUR the DEAT cites) and the write-back records it.
+     *
+     * @return void
+     */
+    #[Test]
+    public function aConfirmWithACemeteryWritesABurialAndPersistsTheWriteBack(): void
+    {
+        Auth::user()->setPreference(UserInterface::PREF_AUTO_ACCEPT_EDITS, '1');
+
+        $key = $this->seedConfirmableMatchWithCemetery('I2', '2023-09-04', 'Waldfriedhof', '2023-09-10');
+
+        $this->postConfirmAndAssertSuccessRedirect('I2', $key);
+
+        // GEDCOM: the sourced BURI landed on the individual, carrying the obituary's cemetery as its PLAC
+        // and the exact funeral date as its DATE.
+        $individual = $this->individual('I2', $this->tree);
+        self::assertInstanceOf(Individual::class, $individual);
+
+        $buri = iterator_to_array($individual->facts(['BURI'], false, null, true));
+        self::assertCount(1, $buri);
+        self::assertStringContainsString('2 PLAC Waldfriedhof', $buri[0]->gedcom());
+        self::assertStringContainsString('2 DATE 10 SEP 2023', $buri[0]->gedcom());
+
+        // Persistence: the store row is Confirmed and the write-back records the BURI fact id, and the
+        // BURI cites the SAME portal SOUR the write-back captured (so a later Revert can undo it).
+        $row = $this->store()->findOne('I2', $key);
+        self::assertInstanceOf(StoredMatch::class, $row);
+        self::assertSame(MatchStatus::Confirmed, $row->status);
+        self::assertIsArray($row->writeBack);
+        self::assertArrayHasKey('buriFactId', $row->writeBack);
+        self::assertNotNull($row->writeBack['buriFactId']);
+        self::assertNotSame('', $row->writeBack['buriFactId']);
+        self::assertArrayHasKey('sourceXref', $row->writeBack);
+        self::assertStringContainsString('2 SOUR @' . $row->writeBack['sourceXref'] . '@', $buri[0]->gedcom());
+    }
+
+    /**
      * POST confirm on a row the gate refuses (the tree person already has a death date) writes nothing
      * and does not transition: the server-side ConfirmGate re-check fails (I1 carries a DEAT), so the
      * handler flashes a warning, redirects back to review and leaves the row pending. The disabled
@@ -910,7 +952,7 @@ final class ReviewScreenHandlerTest extends IntegrationTestCase
     }
 
     /**
-     * POST confirm whose writeDeath throws a precondition failure (a stored non-http URL) flashes a
+     * POST confirm whose writeConfirm throws a precondition failure (a stored non-http URL) flashes a
      * warning and does NOT transition: the write aborts cleanly, no GEDCOM is written and the store
      * row stays pending (Block A of the separate try/catch, spec §9).
      *
@@ -920,7 +962,7 @@ final class ReviewScreenHandlerTest extends IntegrationTestCase
     public function postConfirmWriteBackPreconditionFailDoesNotTransition(): void
     {
         // A confirmable gate state (I2 has no death date, exact ISO date) but a non-http stored URL:
-        // the gate passes, then writeDeath throws WriteBackPreconditionException on the bad URL.
+        // the gate passes, then writeConfirm throws WriteBackPreconditionException on the bad URL.
         $key = $this->seedConfirmableMatchRaw('I2', 'ftp://trauer.example/I2', '2023-09-04');
 
         $this->assertConfirmRefusedNoTransition('I2', $key);
@@ -1050,7 +1092,7 @@ final class ReviewScreenHandlerTest extends IntegrationTestCase
     /**
      * Posts a confirm for the given already-seeded row through the real handler and asserts it was
      * refused without a write: a 302 back to the review screen, exactly one warning flash and the row
-     * left pending. Shared by the gate-refusal and the writeDeath-precondition cases — both abort
+     * left pending. Shared by the gate-refusal and the writeConfirm-precondition cases — both abort
      * before any store transition (spec §9), differing only in the abort cause and the no-DEAT check.
      *
      * @param string $xref The candidate identifier whose row was seeded.
@@ -1200,7 +1242,7 @@ final class ReviewScreenHandlerTest extends IntegrationTestCase
     /**
      * Seeds a confirmable pending row carrying an arbitrary (here non-http) source URL so the confirm
      * write's URL precondition can be exercised end-to-end: the gate still passes (it reads the death
-     * date and the tree state, not the URL), then writeDeath rejects the URL.
+     * date and the tree state, not the URL), then writeConfirm rejects the URL.
      *
      * @param string $xref      The candidate identifier.
      * @param string $url       The raw source notice URL (e.g. a non-http scheme).
@@ -1216,6 +1258,39 @@ final class ReviewScreenHandlerTest extends IntegrationTestCase
         $this->store()->upsertPending(new StoredMatch($xref, $url, MatchStatus::Pending, $payload));
 
         return StoredMatchKey::fromUrl($url);
+    }
+
+    /**
+     * Seeds a confirmable pending row whose `extractedFacts` carry the obituary's cemetery and exact
+     * funeral date alongside the death date — exactly as the ingest stamps them — so the confirm
+     * write-back's BURI path can be exercised end-to-end through the handler. The gate still passes
+     * (it reads the death date and the tree state, not the cemetery), then the write emits a sourced
+     * DEAT and a sourced BURI.
+     *
+     * @param string $xref       The candidate identifier.
+     * @param string $deathDate  The exact ISO (`YYYY-MM-DD`) death date the obituary carries.
+     * @param string $cemetery   The extracted cemetery name.
+     * @param string $funeralIso The exact ISO (`YYYY-MM-DD`) funeral date the obituary carries.
+     *
+     * @return string The canonical row key for the seeded row.
+     */
+    private function seedConfirmableMatchWithCemetery(
+        string $xref,
+        string $deathDate,
+        string $cemetery,
+        string $funeralIso,
+    ): string {
+        $obituaryUrl               = 'https://trauer.example/' . $xref;
+        $payload                   = ClassifiedMatch::emptyArray($xref, $obituaryUrl);
+        $payload['extractedFacts'] = [
+            'deathDate'   => $deathDate,
+            'cemetery'    => $cemetery,
+            'funeralDate' => $funeralIso,
+        ];
+
+        $this->store()->upsertPending(new StoredMatch($xref, $obituaryUrl, MatchStatus::Pending, $payload));
+
+        return StoredMatchKey::fromUrl($obituaryUrl);
     }
 
     /**
