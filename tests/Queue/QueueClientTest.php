@@ -36,7 +36,9 @@ use ReflectionMethod;
 use RuntimeException;
 use Throwable;
 
+use function array_keys;
 use function chmod;
+use function dirname;
 use function file_put_contents;
 use function glob;
 use function mkdir;
@@ -603,6 +605,93 @@ final class QueueClientTest extends TempDirTestCase
 
         $status = $client->status('job-1');
         self::assertSame([], $status->counts);
+    }
+
+    /**
+     * The recent-jobs enumeration scans every state directory, sorts the discovered job ids
+     * descending as strings (chronological for the module-minted ids) and caps the result to the
+     * requested limit BEFORE hydration: the two newest of three jobs seeded across done/running/failed
+     * are returned, most-recent-first.
+     */
+    #[Test]
+    public function recentJobsReturnsMostRecentDescendingCappedAcrossStates(): void
+    {
+        $client = new QueueClient(new QueuePaths($this->tmp));
+        $this->seedJob('job-0003-aaa', JobState::Done);
+        $this->seedJob('job-0002-bbb', JobState::Running);
+        $this->seedJob('job-0001-ccc', JobState::Failed);
+
+        $recent = $client->recentJobs(2);
+
+        self::assertSame(['job-0003-aaa', 'job-0002-bbb'], array_keys($recent));
+        self::assertContainsOnlyInstancesOf(JobStatus::class, $recent);
+    }
+
+    /**
+     * An empty queue (no state directories populated) yields an empty map rather than throwing.
+     */
+    #[Test]
+    public function recentJobsIsEmptyForAnEmptyQueue(): void
+    {
+        self::assertSame([], (new QueueClient(new QueuePaths($this->tmp)))->recentJobs(10));
+    }
+
+    /**
+     * A job whose status.json cannot be decoded is skipped (poison-tolerant): the corrupt job is left
+     * out of the result and the readable job still surfaces, so one bad row never aborts the scan.
+     */
+    #[Test]
+    public function recentJobsSkipsAJobWithAnUnreadableStatus(): void
+    {
+        $this->seedJob('job-0002-ok', JobState::Done);
+        $this->seedCorruptJob('job-0001-bad', JobState::Done);
+
+        $recent = (new QueueClient(new QueuePaths($this->tmp)))->recentJobs(10);
+
+        self::assertSame(['job-0002-ok'], array_keys($recent));
+    }
+
+    /**
+     * Seeds a job directory carrying a minimal, valid terminal status.json under the given state, so
+     * {@see QueueClient::status()} can hydrate it. A transient state (queued/running/ingesting) is
+     * synthesised from the directory location alone, so the status.json is ignored there but harmless.
+     *
+     * @param string   $jobId The job identifier whose state directory is created.
+     * @param JobState $state The state directory to seed the job into.
+     *
+     * @return void
+     */
+    private function seedJob(string $jobId, JobState $state): void
+    {
+        $path = (new QueuePaths($this->tmp))->stateDir($state, $jobId) . '/status.json';
+
+        AtomicFile::ensureDirectory(dirname($path));
+        AtomicFile::writeJson(
+            $path,
+            [
+                'state'    => $state->value,
+                'counts'   => [],
+                'warnings' => [],
+            ]
+        );
+    }
+
+    /**
+     * Seeds a job directory whose status.json is non-JSON, so {@see QueueClient::status()} throws a
+     * {@see RuntimeException} when hydrating it — the poison row {@see QueueClient::recentJobs()} must
+     * skip.
+     *
+     * @param string   $jobId The job identifier whose state directory is created.
+     * @param JobState $state The state directory to seed the corrupt job into.
+     *
+     * @return void
+     */
+    private function seedCorruptJob(string $jobId, JobState $state): void
+    {
+        $path = (new QueuePaths($this->tmp))->stateDir($state, $jobId) . '/status.json';
+
+        AtomicFile::ensureDirectory(dirname($path));
+        file_put_contents($path, 'not-json{');
     }
 
     /**
