@@ -28,12 +28,13 @@ use MagicSunday\ObituaryMatcher\Ui\ControlPanelPresenter;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use Psr\Http\Server\RequestHandlerInterface;
-use RuntimeException;
+use Throwable;
 
 use function ctype_digit;
 use function redirect;
 use function route;
 use function strip_tags;
+use function strlen;
 
 /**
  * The admin-only control-panel route handler. A GET renders the slim panel — the persisted age/limit
@@ -240,7 +241,10 @@ class ObituaryControlPanelHandler implements RequestHandlerInterface
             FlashMessages::addMessage(I18N::translate('Unknown tree.'), 'danger');
 
             return redirect(route(self::ROUTE_NAME));
-        } catch (RuntimeException) {
+        } catch (Throwable) {
+            // The final arm catches ANY Throwable (DomainException is handled above for the distinct
+            // 'Unknown tree.' message) so no unexpected enqueue failure escapes handle() as a 500: the
+            // handler's contract is that the trigger path always flashes + PRG-redirects.
             FlashMessages::addMessage(I18N::translate('Search job could not be queued.'), 'danger');
 
             return redirect(route(self::ROUTE_NAME));
@@ -365,7 +369,11 @@ class ObituaryControlPanelHandler implements RequestHandlerInterface
      */
     private function parseStrictInt(string $value, int $min, int $max): ?int
     {
-        if (!ctype_digit($value)) {
+        // The length cap (well above any 3-digit bound, generous enough for a leading-zero like '0500')
+        // is a defensive guard against a pathologically long digit string before the bounds check does
+        // the real work: a huge digit run saturates the (int) cast to PHP_INT_MAX (which the bounds then
+        // reject anyway), so this only short-circuits the pathological case.
+        if (!ctype_digit($value) || (strlen($value) > 9)) {
             return null;
         }
 

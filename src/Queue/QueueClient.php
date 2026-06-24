@@ -18,6 +18,7 @@ use RecursiveIteratorIterator;
 use RuntimeException;
 use SplFileInfo;
 use Throwable;
+use UnexpectedValueException;
 
 use function array_keys;
 use function array_slice;
@@ -455,7 +456,16 @@ final readonly class QueueClient
                 continue;
             }
 
-            foreach (new FilesystemIterator($root, FilesystemIterator::SKIP_DOTS) as $entry) {
+            // A state dir that exists but is unreadable makes the FilesystemIterator constructor throw
+            // an UnexpectedValueException. Mirroring FileMatchStore::scanDir, that dir is skipped (its
+            // jobs simply do not surface) rather than crashing the whole read-only status list.
+            try {
+                $iterator = new FilesystemIterator($root, FilesystemIterator::SKIP_DOTS);
+            } catch (UnexpectedValueException) {
+                continue;
+            }
+
+            foreach ($iterator as $entry) {
                 if (
                     ($entry instanceof SplFileInfo)
                     && $entry->isDir()
@@ -477,8 +487,10 @@ final readonly class QueueClient
         foreach ($ids as $jobId) {
             try {
                 $jobs[$jobId] = $this->status($jobId);
-            } catch (RuntimeException) {
-                // A job whose status is unreadable/corrupt is skipped, not fatal.
+            } catch (Throwable) {
+                // A job whose status is unreadable/corrupt is skipped, not fatal. This is a best-effort
+                // read-only status list, so ANY failure reading one job's status skips that job rather
+                // than crashing the whole panel.
                 continue;
             }
         }

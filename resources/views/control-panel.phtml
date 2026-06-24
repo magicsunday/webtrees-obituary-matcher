@@ -84,9 +84,16 @@ $stateLabels = [
                         <?php if ($row->counts === []) : ?>
                             —
                         <?php else : ?>
-                            <?php foreach ($row->counts as $countKey => $countValue) : ?>
-                                <?= e($countKey) ?>=<?= e((string) $countValue) ?>
-                            <?php endforeach ?>
+                            <?php
+                            $pairs = [];
+
+                            foreach ($row->counts as $countKey => $countValue) {
+                                // Each pair is e()-escaped here; the '='/', ' join glue is static, so
+                                // the joined string is echoed RAW below to avoid double-escaping.
+                                $pairs[] = e($countKey) . '=' . e((string) $countValue);
+                            }
+                            ?>
+                            <?= implode(', ', $pairs) ?>
                         <?php endif ?>
                     </td>
                     <td><?= e($row->finishedAt ?? '—') ?></td>

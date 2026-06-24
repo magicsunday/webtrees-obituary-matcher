@@ -28,6 +28,7 @@ use Fisharebest\Webtrees\Services\ModuleService;
 use Fisharebest\Webtrees\Services\TreeService;
 use Fisharebest\Webtrees\Services\UserService;
 use Fisharebest\Webtrees\View;
+use LogicException;
 use MagicSunday\ObituaryMatcher\Queue\AtomicFile;
 use MagicSunday\ObituaryMatcher\Queue\FeederRequestReader;
 use MagicSunday\ObituaryMatcher\Queue\JobState;
@@ -187,9 +188,13 @@ final class ObituaryControlPanelHandlerTest extends AbstractEnqueueTestCase
         // Each seeded state renders its i18n label badge.
         self::assertStringContainsString('Done', $html);
         self::assertStringContainsString('Running', $html);
-        // The done job's counts render generically as key=value pairs (keys are not hardcoded in the view).
+        // The done job's counts render generically as key=value pairs (keys are not hardcoded in the view),
+        // joined with a ', ' separator so two pairs read as "candidates=4, notices=2" and never run
+        // together as "4notices".
         self::assertStringContainsString('candidates=4', $html);
         self::assertStringContainsString('notices=2', $html);
+        self::assertStringContainsString('candidates=4, notices=2', $html);
+        self::assertStringNotContainsString('4notices', $html);
         // The non-terminal running job's null finishedAt renders the placeholder.
         self::assertStringContainsString('—', $html);
     }
@@ -336,6 +341,46 @@ final class ObituaryControlPanelHandlerTest extends AbstractEnqueueTestCase
 
         self::assertSame(StatusCodeInterface::STATUS_FOUND, $response->getStatusCode());
         self::assertSame(0, $this->queuedJobCount());
+    }
+
+    /**
+     * A generic Throwable from the producer (NOT a DomainException or RuntimeException — e.g. a
+     * LogicException) still flashes and PRG-redirects rather than escaping handle() as an unhandled 500:
+     * the final catch arm was widened to Throwable to guarantee the always-PRG-redirect contract.
+     *
+     * @return void
+     */
+    #[Test]
+    public function triggerProducerGenericThrowableFlashesAndRedirects(): void
+    {
+        $tree = $this->searchableTree('panel-generic-throwable', 1);
+
+        $response = $this->throwingHandler(new LogicException('unexpected producer failure'))
+            ->handle($this->panelPost(['action' => 'trigger', 'tree' => (string) $tree->id()]));
+
+        self::assertSame(StatusCodeInterface::STATUS_FOUND, $response->getStatusCode());
+        self::assertSame(0, $this->queuedJobCount());
+    }
+
+    /**
+     * A pathologically long digit string for min_age (well over the length cap and far over the 120
+     * ceiling) is rejected, not persisted: the strict parser's length guard short-circuits before the
+     * (int) cast would saturate to PHP_INT_MAX.
+     *
+     * @return void
+     */
+    #[Test]
+    public function savePathologicallyLongDigitStringIsRejected(): void
+    {
+        $this->module->setPreference('min_age', '90');
+        $this->module->setPreference('limit', '50');
+
+        $this->handler()->handle(
+            $this->panelPost(['action' => 'save', 'min_age' => '9999999999', 'limit' => '50'])
+        );
+
+        self::assertSame('90', $this->module->getPreference('min_age'));
+        self::assertSame('50', $this->module->getPreference('limit'));
     }
 
     /**
