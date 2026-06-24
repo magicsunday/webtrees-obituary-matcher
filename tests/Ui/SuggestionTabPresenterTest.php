@@ -98,6 +98,16 @@ final class SuggestionTabPresenterTest extends TestCase
             }
 
             /**
+             * Returns every stored match regardless of status.
+             *
+             * @return list<StoredMatch> Every stored row across all statuses.
+             */
+            public function all(): array
+            {
+                return $this->rows;
+            }
+
+            /**
              * Marks the row as rejected.
              *
              * @param string      $personId    The candidate identifier.
@@ -300,6 +310,16 @@ final class SuggestionTabPresenterTest extends TestCase
             }
 
             /**
+             * Returns every stored match regardless of status.
+             *
+             * @return list<StoredMatch> Every stored row across all statuses.
+             */
+            public function all(): array
+            {
+                return $this->rows;
+            }
+
+            /**
              * Marks the row as rejected.
              *
              * @param string      $personId    The candidate identifier.
@@ -423,6 +443,16 @@ final class SuggestionTabPresenterTest extends TestCase
              * @return list<StoredMatch> The pending matches (always empty in this fake).
              */
             public function allPending(): array
+            {
+                return [];
+            }
+
+            /**
+             * Returns every stored match regardless of status (always empty in this fake).
+             *
+             * @return list<StoredMatch> Every stored row across all statuses (always empty).
+             */
+            public function all(): array
             {
                 return [];
             }
