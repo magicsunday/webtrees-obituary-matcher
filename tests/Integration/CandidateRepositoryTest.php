@@ -219,7 +219,7 @@ final class CandidateRepositoryTest extends IntegrationTestCase
         // I1 is the visible old person; I99 does not exist in the fixture and must be
         // dropped rather than producing a null entry. The young I4 is requested too, to
         // prove findByXrefs applies NO selection filter — it rebuilds whoever was asked
-        // for, regardless of the age/death criteria findCandidates uses.
+        // for, regardless of the age/death criteria findCandidatesLazily uses.
         $candidates = (new CandidateRepository())->findByXrefs($tree, ['I1', 'I4', 'I99']);
 
         self::assertSame(['I1', 'I4'], $this->keys($candidates));
@@ -302,7 +302,7 @@ final class CandidateRepositoryTest extends IntegrationTestCase
         );
 
         // Draining past the last survivor completes the generator — the same [I1, I6, I9] visitor set
-        // findCandidates() returns, just produced lazily and in lexicographic order.
+        // a full drain returns, just produced lazily and in lexicographic order.
         $generator->next();
         self::assertFalse($generator->valid());
 
