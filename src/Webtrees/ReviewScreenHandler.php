@@ -44,6 +44,7 @@ use function preg_match;
 use function redirect;
 use function route;
 use function strip_tags;
+use function trim;
 
 /**
  * The review-screen route handler. It renders a read-only split-view of one stored match (tree
@@ -240,6 +241,17 @@ class ReviewScreenHandler implements RequestHandlerInterface
         $iso          = is_string($isoRaw) ? $isoRaw : null;
         $hardConflict = $this->read($row->match, 'hardConflict') === true;
 
+        // The optional BURI inputs come from the SAME untrusted payload — narrow them exactly as the
+        // death date is narrowed (the writer trims again as defence-in-depth). A whitespace-only / empty
+        // value collapses to null so the writer never emits a blank PLAC and skips the BURI entirely.
+        $cemeteryRaw = $facts['cemetery'] ?? null;
+        $cemetery    = is_string($cemeteryRaw) ? trim($cemeteryRaw) : null;
+        $cemetery    = ($cemetery === '') ? null : $cemetery;
+
+        $funeralRaw = $facts['funeralDate'] ?? null;
+        $funeralIso = is_string($funeralRaw) ? trim($funeralRaw) : null;
+        $funeralIso = ($funeralIso === '') ? null : $funeralIso;
+
         if (!ConfirmGate::evaluate($hardConflict, $individual->getDeathDate()->isOK(), $iso)->canConfirm) {
             FlashMessages::addMessage(I18N::translate('This match can no longer be confirmed.'), 'warning');
 
@@ -250,7 +262,7 @@ class ReviewScreenHandler implements RequestHandlerInterface
         // the tree and the store both stay in their pre-confirm state.
         try {
             // $iso is guaranteed an exact ISO date by the gate above, so it is a string here.
-            $writeBack = $this->obituaryWriteBack()->writeDeath($individual, (string) $iso, $row->obituaryUrl);
+            $writeBack = $this->obituaryWriteBack()->writeConfirm($individual, (string) $iso, $cemetery, $funeralIso, $row->obituaryUrl);
         } catch (DeathDateAlreadyPresentException) {
             FlashMessages::addMessage(I18N::translate('This individual already has a death date; nothing was written.'), 'warning');
 
