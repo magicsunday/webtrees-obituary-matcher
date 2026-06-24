@@ -20,6 +20,7 @@ use MagicSunday\ObituaryMatcher\Support\GedcomDateConverter;
 use MagicSunday\ObituaryMatcher\Support\MalformedDeathDateException;
 use MagicSunday\ObituaryMatcher\Support\UrlHostNormalizer;
 
+use function count;
 use function date;
 use function is_string;
 use function preg_match;
@@ -154,9 +155,9 @@ class ObituaryWriteBack
         $sourceXref = $source->xref();
 
         $deatFactId = $this->writeDeathFact($individual, $deathGedcom, $sourceXref, $obituaryUrl);
+        $buriFactId = $this->writeBurialFact($individual, $cleanCemetery, $funeralGedcom, $sourceXref, $obituaryUrl);
 
-        // BURI is wired in Task 2; for now no burial is written.
-        return new WriteBack($deatFactId, $sourceXref, $sourceCreated);
+        return new WriteBack($deatFactId, $sourceXref, $sourceCreated, $buriFactId);
     }
 
     /**
@@ -206,6 +207,50 @@ class ObituaryWriteBack
     }
 
     /**
+     * Writes a sourced BURI fact when a cemetery is present and the individual has no existing burial,
+     * and returns its captured fact id (null when no BURI was written).
+     *
+     * @param Individual  $individual    The tree person.
+     * @param string|null $cemetery      The validated, non-empty cemetery name, or null.
+     * @param string|null $funeralGedcom The GEDCOM funeral date, or null.
+     * @param string      $sourceXref    The portal source xref to cite.
+     * @param string      $obituaryUrl   The citation PAGE.
+     *
+     * @return string|null The written BURI fact id, or null when none was written.
+     *
+     * @throws WriteBackPreconditionException When a written BURI cannot be located.
+     */
+    private function writeBurialFact(Individual $individual, ?string $cemetery, ?string $funeralGedcom, string $sourceXref, string $obituaryUrl): ?string
+    {
+        // Never create a second BURI: an existing burial may carry place/date/notes a duplicate would
+        // shadow. Merging into it is a later hardening slice. (count() matches the existing deatCount()
+        // helper — facts() returns a Countable collection.)
+        if (($cemetery === null) || (count($individual->facts(['BURI'], false, null, true)) > 0)) {
+            return null;
+        }
+
+        $confirmDate = GedcomDateConverter::toGedcom(date('Y-m-d'));
+
+        $buriGedcom = '1 BURI';
+
+        if ($funeralGedcom !== null) {
+            $buriGedcom .= "\n2 DATE " . $funeralGedcom;
+        }
+
+        $buriGedcom .= sprintf(
+            "\n2 PLAC %s\n2 SOUR @%s@\n3 PAGE %s\n3 DATA\n4 DATE %s",
+            $cemetery,
+            $sourceXref,
+            $obituaryUrl,
+            $confirmDate
+        );
+
+        $individual->createFact($buriGedcom, true);
+
+        return $this->captureBuriFactId($individual, $cemetery, $sourceXref, $obituaryUrl);
+    }
+
+    /**
      * Finds the just-written DEAT fact (by its DATE + SOUR + PAGE substrings) and returns its id.
      *
      * @param Individual $individual  The individual the fact was written to.
@@ -232,6 +277,35 @@ class ObituaryWriteBack
         }
 
         throw new WriteBackPreconditionException('The written DEAT fact could not be located.');
+    }
+
+    /**
+     * Finds the just-written BURI fact (by its PLAC + SOUR + PAGE substrings) and returns its id.
+     *
+     * @param Individual $individual  The individual the fact was written to.
+     * @param string     $cemetery    The PLAC written.
+     * @param string     $sourceXref  The cited source xref.
+     * @param string     $obituaryUrl The citation PAGE.
+     *
+     * @return string The fact id.
+     *
+     * @throws WriteBackPreconditionException When the written BURI cannot be located.
+     */
+    private function captureBuriFactId(Individual $individual, string $cemetery, string $sourceXref, string $obituaryUrl): string
+    {
+        foreach ($individual->facts(['BURI'], false, null, true) as $fact) {
+            $gedcom = $fact->gedcom();
+
+            if (
+                str_contains($gedcom, '2 PLAC ' . $cemetery)
+                && str_contains($gedcom, '2 SOUR @' . $sourceXref . '@')
+                && str_contains($gedcom, '3 PAGE ' . $obituaryUrl)
+            ) {
+                return $fact->id();
+            }
+        }
+
+        throw new WriteBackPreconditionException('The written BURI fact could not be located.');
     }
 
     /**
