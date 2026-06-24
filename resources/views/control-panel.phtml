@@ -33,6 +33,7 @@ $stateLabels = [
 <h1><?= e(I18N::translate('Death notices')) ?></h1>
 
 <form method="post" action="<?= e(route(ObituaryControlPanelHandler::ROUTE_NAME)) ?>">
+    <?= csrf_field() ?>
     <input type="hidden" name="action" value="save">
 
     <label for="min_age"><?= e(I18N::translate('Minimum age')) ?></label>
@@ -51,6 +52,7 @@ $stateLabels = [
 <?php else : ?>
     <?php foreach ($view->trees as $tree) : ?>
         <form method="post" action="<?= e(route(ObituaryControlPanelHandler::ROUTE_NAME)) ?>">
+            <?= csrf_field() ?>
             <input type="hidden" name="action" value="trigger">
             <input type="hidden" name="tree" value="<?= e((string) $tree['id']) ?>">
             <span><?= e($tree['name']) ?></span>

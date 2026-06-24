@@ -56,6 +56,7 @@ use Throwable;
 
 use function count;
 use function http_build_query;
+use function substr_count;
 
 /**
  * Integration tests for the admin control-panel route: the admin gate, the GET render (prefilled
@@ -151,6 +152,9 @@ final class ObituaryControlPanelHandlerTest extends AbstractEnqueueTestCase
         self::assertStringContainsString('panel-get', $html);
         // The empty-queue state renders.
         self::assertStringContainsString('No searches run yet.', $html);
+        // BOTH POST forms (save + the per-tree trigger) carry a CSRF token, or the live POST
+        // would be bounced by webtrees' CheckCsrf middleware (the direct-handle() tests bypass it).
+        self::assertGreaterThanOrEqual(2, substr_count($html, 'name="_csrf"'));
     }
 
     /**
