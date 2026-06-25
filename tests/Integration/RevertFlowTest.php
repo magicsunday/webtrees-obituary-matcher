@@ -25,6 +25,9 @@ use MagicSunday\ObituaryMatcher\Matching\WriteBack;
 use MagicSunday\ObituaryMatcher\Test\Support\RemovesFlatTempStoreTrait;
 use MagicSunday\ObituaryMatcher\Webtrees\ObituaryWriteBack;
 use MagicSunday\ObituaryMatcher\Webtrees\RevertConsistencyGate;
+use MagicSunday\ObituaryMatcher\Webtrees\RevertOutcome;
+use MagicSunday\ObituaryMatcher\Webtrees\RevertReason;
+use MagicSunday\ObituaryMatcher\Webtrees\RevertService;
 use MagicSunday\ObituaryMatcher\Webtrees\WriteBackReverter;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -34,25 +37,30 @@ use PHPUnit\Framework\Attributes\UsesClass;
 use function iterator_to_array;
 
 /**
- * Flow tests for the load-bearing store-transition consistency gate the `tools/revert.php` CLI
- * applies between the GEDCOM revert ({@see WriteBackReverter::revert()}) and the store transition
- * ({@see MatchStore::revert()}). The gate ({@see RevertConsistencyGate::isConsistent()}) returns the
- * row to Pending ONLY when no module-written fact still stands in the tree — either every recorded
- * target was deleted, or (under --force) the recorded facts were already absent (orphan repair). A
- * --force MIXED partial — some targets deleted, an edited target still present — must NOT flip the
- * store to Pending, or the store would assert a false truth while an edited module fact remains.
+ * Flow tests for the shared revert orchestration ({@see RevertService::revert()}) the
+ * `tools/revert.php` CLI and the worklist handler both delegate to. The service runs the GEDCOM revert
+ * ({@see WriteBackReverter::revert()}), applies the store-transition consistency gate
+ * ({@see RevertConsistencyGate::isConsistent()}) and — only when no module-written fact still stands in
+ * the tree — returns the row to Pending ({@see MatchStore::revert()}), classifying the result into a
+ * {@see RevertOutcome}. Either every recorded target was deleted, or (under --force) the recorded facts
+ * were already absent (orphan repair). A --force MIXED partial — some targets deleted, an edited target
+ * still present — must NOT flip the store to Pending, or the store would assert a false truth while an
+ * edited module fact remains.
  *
- * The CLI itself is a thin composition root over option parsing + {@see WriteBackReverter},
- * {@see RevertConsistencyGate} and {@see MatchStore::revert()}; this test exercises that exact
- * decision graph against a live tree and a real file store, which is the load-bearing path. The raw
- * `tools/revert.php` cannot be driven in-process (it boots its own runtime and exits), so the flow is
- * pinned here through the same collaborators the script composes.
+ * The CLI is a thin composition root over option parsing + {@see RevertService}; this test exercises
+ * that exact orchestration against a live tree and a real file store, which is the load-bearing path.
+ * The raw `tools/revert.php` cannot be driven in-process (it boots its own runtime and exits), so the
+ * flow is pinned here through the same service the script composes. The `consistencyMatrix` provider
+ * pins the pure {@see RevertConsistencyGate} decision the service relies on.
  *
  * @author  Rico Sonntag <mail@ricosonntag.de>
  * @license https://opensource.org/licenses/GPL-3.0 GNU General Public License v3.0
  * @link    https://github.com/magicsunday/webtrees-obituary-matcher/
  */
 #[CoversClass(RevertConsistencyGate::class)]
+#[UsesClass(RevertService::class)]
+#[UsesClass(RevertOutcome::class)]
+#[UsesClass(RevertReason::class)]
 #[UsesClass(WriteBackReverter::class)]
 #[UsesClass(FileMatchStore::class)]
 final class RevertFlowTest extends IntegrationTestCase
@@ -150,27 +158,23 @@ final class RevertFlowTest extends IntegrationTestCase
     }
 
     /**
-     * Run the revert flow the CLI composes: the GEDCOM revert, the consistency gate, and — only when
-     * consistent — the store transition. Returns whether the flow signalled success (the CLI's exit 0).
+     * Run the revert flow the CLI composes, delegating to the shared {@see RevertService} exactly as the
+     * CLI does: it reads the seeded Confirmed row back from the store (`seedConfirmed()` ran first) and
+     * reverts it. Returns whether the service signalled a full revert (the CLI's exit 0).
      *
      * @param Individual $individual The tree person.
-     * @param WriteBack  $writeBack  The recorded write-back.
      * @param bool       $force      Whether to run in --force mode.
      *
      * @return bool True when the store was reverted (CLI exit 0); false when the gate blocked it.
      */
-    private function runFlow(Individual $individual, WriteBack $writeBack, bool $force): bool
+    private function runFlow(Individual $individual, bool $force): bool
     {
-        $result      = (new WriteBackReverter())->revert($individual, $writeBack, $force);
-        $targetCount = 1 + (int) ($writeBack->buriFactId !== null);
+        $row = $this->store()->findOne('I1', StoredMatchKey::fromUrl(self::URL));
+        self::assertInstanceOf(StoredMatch::class, $row);
 
-        if (!RevertConsistencyGate::isConsistent($targetCount, count($result->deletedFactIds), $force)) {
-            return false;
-        }
+        $outcome = (new RevertService())->revert($individual, $row, $this->store(), $force);
 
-        $this->store()->revert('I1', self::URL);
-
-        return true;
+        return $outcome->isSuccess();
     }
 
     /**
@@ -187,7 +191,7 @@ final class RevertFlowTest extends IntegrationTestCase
         self::assertNotNull($writeBack->buriFactId);
         $this->seedConfirmed($writeBack);
 
-        $reverted = $this->runFlow($this->person('I1', $tree), $writeBack, false);
+        $reverted = $this->runFlow($this->person('I1', $tree), false);
 
         self::assertTrue($reverted);
         self::assertCount(0, iterator_to_array($this->person('I1', $tree)->facts(['DEAT'], false, null, true)));
@@ -214,7 +218,7 @@ final class RevertFlowTest extends IntegrationTestCase
         // Edit the DEAT out-of-band — this changes its gedcom, hence its md5 id, so it no longer resolves.
         $this->person('I1', $tree)->updateFact($writeBack->deatFactId, "1 DEAT\n2 DATE 5 SEP 2023\n2 NOTE edited", true);
 
-        $reverted = $this->runFlow($this->person('I1', $tree), $writeBack, true);
+        $reverted = $this->runFlow($this->person('I1', $tree), true);
 
         // The flow signalled failure (CLI exit 1): the gate blocked the store transition.
         self::assertFalse($reverted);
@@ -244,7 +248,7 @@ final class RevertFlowTest extends IntegrationTestCase
         $this->person('I1', $tree)->deleteFact($writeBack->deatFactId, true);
         $this->person('I1', $tree)->deleteFact($writeBack->buriFactId, true);
 
-        $reverted = $this->runFlow($this->person('I1', $tree), $writeBack, true);
+        $reverted = $this->runFlow($this->person('I1', $tree), true);
 
         self::assertTrue($reverted);
         self::assertSame(MatchStatus::Pending, $this->rowStatus());
