@@ -421,6 +421,29 @@ final class ObituaryWorklistHandlerTest extends IntegrationTestCase
     }
 
     /**
+     * The Confirmed row's revert form carries an accessible per-person aria-label (the action column header
+     * is visually hidden, so a screen reader would otherwise hear a column of identical "Revert" buttons)
+     * and is a plain POST with NO JS confirmation dialog: the approved spec excludes the confirm step
+     * (symmetry with the review screen's plain forms; the revert is reversible by re-confirming). This test
+     * reds if either the aria-label is dropped or an `onsubmit`/`confirm(` JS dialog is re-introduced.
+     *
+     * @return void
+     */
+    #[Test]
+    public function revertFormHasNoJsConfirmAndCarriesAnAriaLabel(): void
+    {
+        $this->seedConfirmed('I1');
+
+        $html = (string) $this->handler()->handle($this->worklistRequest(Auth::user()))->getBody();
+
+        // The button names the person for assistive technology.
+        self::assertStringContainsString('Revert match for', $html);
+        // No JS confirmation dialog: the form is a plain POST (approved YAGNI exclusion).
+        self::assertStringNotContainsString('onsubmit', $html);
+        self::assertStringNotContainsString('confirm(', $html);
+    }
+
+    /**
      * A revert POST on a Confirmed row whose on-disk write-back is non-null but malformed maps to the
      * merged InvalidWriteBack danger arm: the row stays Confirmed and a danger flash is shown. This is
      * what proves the `Partial, InvalidWriteBack => danger` arm is exercised (InvalidWriteBack IS
