@@ -20,6 +20,7 @@ use MagicSunday\ObituaryMatcher\Matching\WriteBack;
 use Throwable;
 
 use function count;
+use function sprintf;
 
 /**
  * The shared revert orchestration for a single confirmed row, used by both the headless CLI
@@ -91,7 +92,7 @@ final readonly class RevertService
         try {
             $store->revert($row->personId, $row->obituaryUrl);
         } catch (Throwable $throwable) {
-            Log::addErrorLog('Obituary matcher: revert deleted the facts but the store transition failed: ' . $throwable->getMessage());
+            Log::addErrorLog(sprintf('Obituary matcher: revert deleted the facts but the store transition failed for person %s (%s).', $row->personId, $throwable::class));
 
             return RevertOutcome::storeTransitionFailed($deletedCount, $targetCount);
         }

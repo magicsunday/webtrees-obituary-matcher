@@ -186,17 +186,13 @@ class ObituaryWorklistHandler implements RequestHandlerInterface
                 || ($row->status !== MatchStatus::Confirmed)
                 || ($row->writeBack === null)
             ) {
-                FlashMessages::addMessage(I18N::translate('This match cannot be reverted.'), 'warning');
-
-                return redirect($worklistUrl);
+                return $this->warnNotRevertable($worklistUrl);
             }
 
             $individual = Registry::individualFactory()->make($personId, $tree);
 
             if (!$individual instanceof Individual) {
-                FlashMessages::addMessage(I18N::translate('This match cannot be reverted.'), 'warning');
-
-                return redirect($worklistUrl);
+                return $this->warnNotRevertable($worklistUrl);
             }
 
             $this->flashOutcome((new RevertService())->revert($individual, $row, $store, false));
@@ -205,6 +201,21 @@ class ObituaryWorklistHandler implements RequestHandlerInterface
             // fault still redirects with a generic danger flash rather than escaping as a 500.
             FlashMessages::addMessage(I18N::translate('The match could not be reverted.'), 'danger');
         }
+
+        return redirect($worklistUrl);
+    }
+
+    /**
+     * Flashes the generic "not revertable" warning and redirects to the worklist (the shared PRG tail
+     * for every benign non-revertable-row guard).
+     *
+     * @param string $worklistUrl The worklist URL to redirect to.
+     *
+     * @return ResponseInterface The PRG redirect carrying the warning flash.
+     */
+    private function warnNotRevertable(string $worklistUrl): ResponseInterface
+    {
+        FlashMessages::addMessage(I18N::translate('This match cannot be reverted.'), 'warning');
 
         return redirect($worklistUrl);
     }

@@ -286,6 +286,8 @@ final class RevertFlowTest extends IntegrationTestCase
             'nothing deleted without force is inconsistent' => [2, 0, false, false],
             'single-target clean revert'                    => [1, 1, false, true],
             'single-target orphan repair under force'       => [1, 0, true, true],
+            'single-target nothing deleted without force'   => [1, 0, false, false],
+            'mixed partial without force is inconsistent'   => [2, 1, false, false],
         ];
     }
 }

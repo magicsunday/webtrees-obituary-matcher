@@ -430,10 +430,10 @@ final class ObituaryWorklistHandlerTest extends IntegrationTestCase
     }
 
     /**
-     * A revert POST on a Confirmed row whose on-disk write-back is non-null but malformed maps to the
-     * merged InvalidWriteBack danger arm: the row stays Confirmed and a danger flash is shown. This is
-     * what proves the `Partial, InvalidWriteBack => danger` arm is exercised (InvalidWriteBack IS
-     * UI-reachable — a non-null malformed write-back passes the `writeBack === null` guard).
+     * A revert POST on a Confirmed row whose on-disk write-back is non-null but malformed redirects with
+     * a danger flash and leaves the row Confirmed (it does not 500). The `InvalidWriteBack` reason itself
+     * is pinned directly at the service layer by
+     * {@see RevertServiceTest::aCorruptWriteBackReportsInvalidWriteBack}.
      *
      * @return void
      */
@@ -551,13 +551,13 @@ final class ObituaryWorklistHandlerTest extends IntegrationTestCase
      * Hand-rewrites a single field of person I1's on-disk stored row, used to inject a corrupt value the
      * normal store API cannot produce.
      *
-     * @param string $url   The obituary URL identifying the row file.
-     * @param string $field The top-level JSON field to overwrite.
-     * @param mixed  $value The value to assign to the field.
+     * @param string                      $url   The obituary URL identifying the row file.
+     * @param string                      $field The top-level JSON field to overwrite.
+     * @param array<string, mixed>|string $value The value to assign to the field.
      *
      * @return void
      */
-    private function rewriteStoredRowField(string $url, string $field, mixed $value): void
+    private function rewriteStoredRowField(string $url, string $field, array|string $value): void
     {
         $path = $this->dir . '/' . hash('sha256', 'I1') . '/' . StoredMatchKey::fromUrl($url) . '.json';
 
