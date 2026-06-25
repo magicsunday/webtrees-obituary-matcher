@@ -61,6 +61,7 @@ use Psr\Http\Message\ServerRequestInterface;
 use function file_get_contents;
 use function file_put_contents;
 use function hash;
+use function iterator_to_array;
 use function json_decode;
 use function json_encode;
 
@@ -307,6 +308,11 @@ final class ObituaryWorklistHandlerTest extends IntegrationTestCase
         self::assertSame(MatchStatus::Pending, $row->status);
 
         self::assertTrue($this->flashContains('success'));
+
+        // The recorded DEAT fact is actually gone from the tree, not just the store status flipped.
+        $individual = Registry::individualFactory()->make('I1', $this->tree);
+        self::assertInstanceOf(Individual::class, $individual);
+        self::assertCount(0, iterator_to_array($individual->facts(['DEAT'], false, null, true)));
     }
 
     /**
@@ -496,6 +502,10 @@ final class ObituaryWorklistHandlerTest extends IntegrationTestCase
 
         self::assertSame(302, $response->getStatusCode());
         self::assertTrue($this->flashContains('warning'));
+
+        // No mutation: the on-disk row stays Confirmed (the guard refused before any write-back undo).
+        $row = $this->reloadI1Row($match->obituaryUrl);
+        self::assertSame(MatchStatus::Confirmed, $row->status);
     }
 
     /**
