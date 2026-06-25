@@ -20,6 +20,7 @@ use Fisharebest\Webtrees\Http\RequestHandlers\IndividualPage;
 use Fisharebest\Webtrees\Http\ViewResponseTrait;
 use Fisharebest\Webtrees\I18N;
 use Fisharebest\Webtrees\Individual;
+use Fisharebest\Webtrees\Log;
 use Fisharebest\Webtrees\Registry;
 use Fisharebest\Webtrees\Tree;
 use Fisharebest\Webtrees\Validator;
@@ -37,6 +38,7 @@ use function in_array;
 use function max;
 use function redirect;
 use function route;
+use function sprintf;
 use function strip_tags;
 
 /**
@@ -196,9 +198,12 @@ class ObituaryWorklistHandler implements RequestHandlerInterface
             }
 
             $this->flashOutcome((new RevertService())->revert($individual, $row, $store, false));
-        } catch (Throwable) {
+        } catch (Throwable $throwable) {
             // Always-PRG-no-500: a corrupt row (findOne is fail-loud) or any never-anticipated producer
-            // fault still redirects with a generic danger flash rather than escaping as a 500.
+            // fault still redirects with a generic danger flash rather than escaping as a 500. The fault
+            // is logged for diagnostics — but only the person XREF and the exception CLASS, never the raw
+            // message (which can embed the absolute store path) nor the obituary URL (S46).
+            Log::addErrorLog(sprintf('Obituary matcher: a revert request failed for person %s (%s).', $personId, $throwable::class));
             FlashMessages::addMessage(I18N::translate('The match could not be reverted.'), 'danger');
         }
 
