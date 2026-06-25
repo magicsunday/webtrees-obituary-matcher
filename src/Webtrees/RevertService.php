@@ -34,7 +34,7 @@ use function count;
  * @license https://opensource.org/licenses/GPL-3.0 GNU General Public License v3.0
  * @link    https://github.com/magicsunday/webtrees-obituary-matcher/
  */
-final class RevertService
+final readonly class RevertService
 {
     /**
      * Constructor.
@@ -43,7 +43,7 @@ final class RevertService
      *                                    substitute a double (default is the real reverter).
      */
     public function __construct(
-        private readonly WriteBackReverter $reverter = new WriteBackReverter(),
+        private WriteBackReverter $reverter = new WriteBackReverter(),
     ) {
     }
 
