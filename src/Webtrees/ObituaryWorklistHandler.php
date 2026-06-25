@@ -11,12 +11,16 @@ declare(strict_types=1);
 
 namespace MagicSunday\ObituaryMatcher\Webtrees;
 
+use Fig\Http\Message\RequestMethodInterface;
 use Fisharebest\Webtrees\Auth;
+use Fisharebest\Webtrees\FlashMessages;
 use Fisharebest\Webtrees\Http\Exceptions\HttpAccessDeniedException;
+use Fisharebest\Webtrees\Http\Exceptions\HttpBadRequestException;
 use Fisharebest\Webtrees\Http\RequestHandlers\IndividualPage;
 use Fisharebest\Webtrees\Http\ViewResponseTrait;
 use Fisharebest\Webtrees\I18N;
 use Fisharebest\Webtrees\Individual;
+use Fisharebest\Webtrees\Log;
 use Fisharebest\Webtrees\Registry;
 use Fisharebest\Webtrees\Tree;
 use Fisharebest\Webtrees\Validator;
@@ -28,10 +32,13 @@ use MagicSunday\ObituaryMatcher\Ui\WorklistPresenter;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use Psr\Http\Server\RequestHandlerInterface;
+use Throwable;
 
 use function in_array;
 use function max;
+use function redirect;
 use function route;
+use function sprintf;
 use function strip_tags;
 
 /**
@@ -72,13 +79,15 @@ class ObituaryWorklistHandler implements RequestHandlerInterface
     }
 
     /**
-     * Handles the worklist request. A manager GET renders the tree-wide overview of every stored match.
+     * Handles the worklist request. It gates manager access once, then dispatches on the HTTP method: a
+     * GET renders the tree-wide overview of every stored match, a POST applies a per-row revert.
      *
      * @param ServerRequestInterface $request The incoming request.
      *
-     * @return ResponseInterface The rendered worklist screen.
+     * @return ResponseInterface The rendered worklist screen or the PRG redirect after a revert.
      *
      * @throws HttpAccessDeniedException When the user is not a manager of the tree.
+     * @throws HttpBadRequestException   When a POST carries an unknown action.
      */
     public function handle(ServerRequestInterface $request): ResponseInterface
     {
@@ -89,6 +98,24 @@ class ObituaryWorklistHandler implements RequestHandlerInterface
             throw new HttpAccessDeniedException();
         }
 
+        if ($request->getMethod() === RequestMethodInterface::METHOD_POST) {
+            return $this->applyRevert($request, $tree);
+        }
+
+        return $this->renderWorklist($request, $tree);
+    }
+
+    /**
+     * Renders the manager GET overview of every stored match (filtered, sorted, paginated by the
+     * webtrees-free presenter).
+     *
+     * @param ServerRequestInterface $request The incoming request.
+     * @param Tree                   $tree    The tree whose worklist is rendered.
+     *
+     * @return ResponseInterface The rendered worklist screen.
+     */
+    private function renderWorklist(ServerRequestInterface $request, Tree $tree): ResponseInterface
+    {
         $entries = [];
 
         foreach ($this->storeForTree($tree)->all() as $row) {
@@ -121,6 +148,121 @@ class ObituaryWorklistHandler implements RequestHandlerInterface
             'tree'  => $tree,
             'view'  => $view,
         ]);
+    }
+
+    /**
+     * Applies a per-row revert POST: it resolves the Confirmed row and individual, runs the shared
+     * {@see RevertService} in normal mode (the --force override is CLI-only), maps the outcome to a flash
+     * and always redirects back to the worklist (PRG; no 500 escapes). A missing, cross-row-mismatched,
+     * non-Confirmed or write-back-less row, or a vanished individual, is a benign warning. The store
+     * lookup and individual resolution sit INSIDE the try/catch because `findOne` is fail-loud on a
+     * corrupt row (unlike the GET scan) — a corrupt row must redirect with a danger flash, not 500. No
+     * flash echoes the raw URL. A valid `action=revert` POST always PRG-redirects; only an unknown action
+     * is answered with 400 (a client error, thrown BEFORE the try).
+     *
+     * @param ServerRequestInterface $request The incoming POST request.
+     * @param Tree                   $tree    The tree whose row is reverted.
+     *
+     * @return ResponseInterface The PRG redirect to the worklist.
+     *
+     * @throws HttpBadRequestException When the POST action is not "revert".
+     */
+    private function applyRevert(ServerRequestInterface $request, Tree $tree): ResponseInterface
+    {
+        $worklistUrl = route(self::ROUTE_NAME, ['tree' => $tree->name()]);
+
+        if (Validator::parsedBody($request)->string('action', '') !== 'revert') {
+            throw new HttpBadRequestException();
+        }
+
+        $personId = Validator::parsedBody($request)->string('person', '');
+        $url      = Validator::parsedBody($request)->string('url', '');
+
+        try {
+            $store = $this->storeForTree($tree);
+            $row   = $store->findOne($personId, StoredMatchKey::fromUrl($url));
+
+            if (
+                (!$row instanceof StoredMatch)
+                || ($row->personId !== $personId)
+                || ($row->status !== MatchStatus::Confirmed)
+                || ($row->writeBack === null)
+            ) {
+                return $this->warnNotRevertable($worklistUrl);
+            }
+
+            $individual = Registry::individualFactory()->make($personId, $tree);
+
+            if (!$individual instanceof Individual) {
+                return $this->warnNotRevertable($worklistUrl);
+            }
+
+            $this->flashOutcome((new RevertService())->revert($individual, $row, $store, false));
+        } catch (Throwable $throwable) {
+            // Always-PRG-no-500: a corrupt row (findOne is fail-loud) or any never-anticipated producer
+            // fault still redirects with a generic danger flash rather than escaping as a 500. The fault
+            // is logged for diagnostics — but only the person XREF and the exception CLASS, never the raw
+            // message (which can embed the absolute store path) nor the obituary URL (S46).
+            Log::addErrorLog(sprintf('Obituary matcher: a revert request failed for person %s (%s).', $personId, $throwable::class));
+            FlashMessages::addMessage(I18N::translate('The match could not be reverted.'), 'danger');
+        }
+
+        return redirect($worklistUrl);
+    }
+
+    /**
+     * Flashes the generic "not revertable" warning and redirects to the worklist (the shared PRG tail
+     * for every benign non-revertable-row guard).
+     *
+     * @param string $worklistUrl The worklist URL to redirect to.
+     *
+     * @return ResponseInterface The PRG redirect carrying the warning flash.
+     */
+    private function warnNotRevertable(string $worklistUrl): ResponseInterface
+    {
+        FlashMessages::addMessage(I18N::translate('This match cannot be reverted.'), 'warning');
+
+        return redirect($worklistUrl);
+    }
+
+    /**
+     * Maps a {@see RevertOutcome} to its flash message and bootstrap status. `Partial` is unreachable from
+     * the force=false UI path (kept defensive); `InvalidWriteBack` IS reachable (a non-null but malformed
+     * write-back), so the merged danger arm needs the corrupt-write-back handler test. Exhaustive over the
+     * enum so no outcome falls through.
+     *
+     * @param RevertOutcome $outcome The revert outcome to present.
+     *
+     * @return void
+     */
+    private function flashOutcome(RevertOutcome $outcome): void
+    {
+        [$message, $status] = match ($outcome->reason) {
+            RevertReason::Reverted => [
+                I18N::plural(
+                    'Confirmation reverted; %s fact removed.',
+                    'Confirmation reverted; %s facts removed.',
+                    $outcome->deletedCount,
+                    I18N::number($outcome->deletedCount),
+                ),
+                'success',
+            ],
+            RevertReason::RefusedEdited => [
+                I18N::translate('Revert refused: a written fact was edited or removed. Use the command-line revert tool with --force to override.'),
+                'danger',
+            ],
+            RevertReason::StoreTransitionFailed => [
+                // The recovery genuinely needs --force (else a plain UI/CLI re-run stays RefusedEdited forever).
+                I18N::translate('The facts were reverted but the match status could not be updated; please re-run the command-line revert with --force.'),
+                'danger',
+            ],
+            RevertReason::Partial, RevertReason::InvalidWriteBack => [
+                I18N::translate('The match could not be reverted.'),
+                'danger',
+            ],
+        };
+
+        FlashMessages::addMessage($message, $status);
     }
 
     /**

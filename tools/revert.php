@@ -41,19 +41,16 @@ declare(strict_types=1);
  */
 
 use Fisharebest\Webtrees\Individual;
-use Fisharebest\Webtrees\Log;
 use Fisharebest\Webtrees\Registry;
 use Fisharebest\Webtrees\Services\GedcomImportService;
 use Fisharebest\Webtrees\Services\TreeService;
 use MagicSunday\ObituaryMatcher\Matching\MatchStatus;
 use MagicSunday\ObituaryMatcher\Matching\StoredMatch;
 use MagicSunday\ObituaryMatcher\Matching\StoredMatchKey;
-use MagicSunday\ObituaryMatcher\Matching\WriteBack;
 use MagicSunday\ObituaryMatcher\Webtrees\HeadlessBootstrap;
 use MagicSunday\ObituaryMatcher\Webtrees\MatchStoreFactory;
-use MagicSunday\ObituaryMatcher\Webtrees\RevertConsistencyGate;
-use MagicSunday\ObituaryMatcher\Webtrees\RevertPreconditionException;
-use MagicSunday\ObituaryMatcher\Webtrees\WriteBackReverter;
+use MagicSunday\ObituaryMatcher\Webtrees\RevertReason;
+use MagicSunday\ObituaryMatcher\Webtrees\RevertService;
 
 // This file lives in the global namespace, so `use function`/`use const` for built-ins is a no-op
 // that emits a warning under newer PHP; the built-ins are referenced unqualified directly, matching
@@ -162,51 +159,24 @@ if (!$individual instanceof Individual) {
     exit(1);
 }
 
-// A corrupt/hand-edited writeBack row must fail cleanly, not with a trace.
-try {
-    $writeBack = WriteBack::fromArray($row->writeBack);
-} catch (InvalidArgumentException) {
-    fwrite(STDERR, sprintf('The confirmed match for person %s has an invalid write-back record.', $personId) . PHP_EOL);
+$outcome = (new RevertService())->revert($individual, $row, $store, $force);
 
-    exit(1);
+if ($outcome->reason === RevertReason::Reverted) {
+    fwrite(STDOUT, sprintf('reverted=%d person=%s tree=%d', $outcome->deletedCount, $personId, $treeId) . PHP_EOL);
+
+    exit(0);
 }
 
-// The target ids this revert is responsible for (DEAT always, BURI when one was written).
-$targetCount = 1 + (int) ($writeBack->buriFactId !== null);
+// Map every non-reverted outcome to its existing S46-safe message (never echoing the raw URL). The
+// Reverted reason is handled by the early return above, so it is narrowed out here and the match over
+// the remaining four reasons is exhaustive without an explicit Reverted arm.
+$message = match ($outcome->reason) {
+    RevertReason::RefusedEdited         => 'Revert refused: a written fact was edited or already removed (use --force to override).',
+    RevertReason::Partial               => sprintf('Revert partially completed for person %s (%d of %d facts); the store was left unchanged.', $personId, $outcome->deletedCount, $outcome->targetCount),
+    RevertReason::StoreTransitionFailed => sprintf('The facts were reverted but the store could not be updated for person %s; re-run with --force.', $personId),
+    RevertReason::InvalidWriteBack      => sprintf('The confirmed match for person %s has an invalid write-back record.', $personId),
+};
 
-// Block A — the GEDCOM revert. NORMAL mode refuses (deletes nothing) if any target was edited/removed.
-try {
-    $result = (new WriteBackReverter())->revert($individual, $writeBack, $force);
-} catch (RevertPreconditionException) {
-    fwrite(STDERR, 'Revert refused: a written fact was edited or already removed (use --force to override).' . PHP_EOL);
+fwrite(STDERR, $message . PHP_EOL);
 
-    exit(1);
-}
-
-$deletedCount = count($result->deletedFactIds);
-
-// Store-transition consistency gate: only return the row to Pending when NO module-written fact still
-// stands in the tree. A clean revert deletes every target; deletedCount === 0 under --force is
-// orphan-repair (the recorded facts are not present). A mixed partial (--force deleted SOME but an
-// edited target remains) must NOT flip the store to Pending — that would be a false truth.
-if (!RevertConsistencyGate::isConsistent($targetCount, $deletedCount, $force)) {
-    fwrite(STDERR, sprintf('Revert partially completed for person %s (%d of %d facts); the store was left unchanged.', $personId, $deletedCount, $targetCount) . PHP_EOL);
-
-    exit(1);
-}
-
-// Block B — the store transition AFTER a consistent GEDCOM revert (orphan-risk path, symmetric to
-// confirm: the facts are already gone, so a transition failure leaves the store out of sync). Log the
-// orphan for an administrator and surface it; never report it as success.
-try {
-    $store->revert($personId, $url);
-} catch (Throwable $throwable) {
-    Log::addErrorLog('Obituary matcher: revert deleted the facts but the store transition failed: ' . $throwable->getMessage());
-    fwrite(STDERR, sprintf('The facts were reverted but the store could not be updated for person %s; re-run with --force.', $personId) . PHP_EOL);
-
-    exit(1);
-}
-
-fwrite(STDOUT, sprintf('reverted=%d person=%s tree=%d', $deletedCount, $personId, $treeId) . PHP_EOL);
-
-exit(0);
+exit(1);

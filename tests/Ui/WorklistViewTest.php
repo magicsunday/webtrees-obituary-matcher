@@ -20,7 +20,7 @@ use PHPUnit\Framework\TestCase;
 
 /**
  * Shape test pinning the load-bearing positional constructor order of the worklist value objects:
- * Task 3 builds a {@see WorklistRowView} positionally, so a reorder of the 10 promoted fields would
+ * Task 3 builds a {@see WorklistRowView} positionally, so a reorder of the 11 promoted fields would
  * silently mis-map every row. This guards that contract together with the counts/filter projection.
  *
  * @author  Rico Sonntag <mail@ricosonntag.de>
@@ -51,6 +51,7 @@ final class WorklistViewTest extends TestCase
             'obituary.example',
             'pending',
             '/tree/demo/obituary-review/I1/abc',
+            null,
         );
 
         $view = new WorklistView(

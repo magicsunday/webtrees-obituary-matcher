@@ -323,6 +323,34 @@ final class WorklistPresenterTest extends TestCase
     }
 
     /**
+     * The revert URL is carried only for a Confirmed row (the only status whose facts can be undone) and
+     * is null for every non-Confirmed row.
+     *
+     * @return void
+     */
+    #[Test]
+    public function revertUrlIsSetOnlyForConfirmedRows(): void
+    {
+        $confirmed = $this->entry('I1', 90, MatchStatus::Confirmed);
+        $pending   = $this->entry('I2', 80, MatchStatus::Pending);
+        $rejected  = $this->entry('I3', 70, MatchStatus::Rejected);
+
+        $view = (new WorklistPresenter())->build([$confirmed, $pending, $rejected], 'all', 1);
+
+        $byId = [];
+
+        foreach ($view->rows as $row) {
+            $byId[$row->personId] = $row;
+        }
+
+        self::assertSame($confirmed['match']->obituaryUrl, $byId['I1']->revertObituaryUrl);
+        // Explicitly assert BOTH a non-terminal (Pending) AND the other terminal status (Rejected) are null —
+        // Rejected must not get a revert affordance any more than Pending does.
+        self::assertNull($byId['I2']->revertObituaryUrl);
+        self::assertNull($byId['I3']->revertObituaryUrl);
+    }
+
+    /**
      * An empty input yields an empty view with a single (clamped) page.
      *
      * @return void

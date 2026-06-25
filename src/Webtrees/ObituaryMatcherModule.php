@@ -142,7 +142,8 @@ class ObituaryMatcherModule extends AbstractModule implements ModuleConfigInterf
             ->allows(RequestMethodInterface::METHOD_POST);
 
         $routeMap
-            ->get(ObituaryWorklistHandler::ROUTE_NAME, ObituaryWorklistHandler::ROUTE_URL, new ObituaryWorklistHandler($this->name()));
+            ->get(ObituaryWorklistHandler::ROUTE_NAME, ObituaryWorklistHandler::ROUTE_URL, new ObituaryWorklistHandler($this->name()))
+            ->allows(RequestMethodInterface::METHOD_POST);
 
         $routeMap
             ->get(ObituaryControlPanelHandler::ROUTE_NAME, ObituaryControlPanelHandler::ROUTE_URL, new ObituaryControlPanelHandler($this))

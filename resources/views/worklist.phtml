@@ -108,6 +108,15 @@ $statusFilters = [
                             <td class="om-review">
                                 <?php if ($row->reviewUrl !== null) : ?>
                                     <a class="btn btn-primary btn-sm" href="<?= e($row->reviewUrl) ?>"><?= e(I18N::translate('Review')) ?></a>
+                                <?php elseif ($row->revertObituaryUrl !== null) : ?>
+                                    <form method="post" action="<?= e(route(ObituaryWorklistHandler::ROUTE_NAME, ['tree' => $tree->name()])) ?>">
+                                        <?= csrf_field() ?>
+                                        <input type="hidden" name="action" value="revert">
+                                        <input type="hidden" name="person" value="<?= e($row->personId) ?>">
+                                        <input type="hidden" name="url" value="<?= e($row->revertObituaryUrl) ?>">
+                                        <button type="submit" class="btn btn-outline-danger btn-sm"
+                                                aria-label="<?= e(I18N::translate('Revert match for %s', $row->personName)) ?>"><?= e(I18N::translate('Revert')) ?></button>
+                                    </form>
                                 <?php endif ?>
                             </td>
                         </tr>
