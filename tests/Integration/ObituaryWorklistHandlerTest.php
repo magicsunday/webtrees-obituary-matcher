@@ -54,6 +54,7 @@ use MagicSunday\ObituaryMatcher\Webtrees\WriteBackReverter;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\Attributes\UsesClass;
+use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestFactoryInterface;
 use Psr\Http\Message\ServerRequestInterface;
 
@@ -297,17 +298,12 @@ final class ObituaryWorklistHandlerTest extends IntegrationTestCase
         $match = MatchSeeder::seed($this->store(), 'I1', MatchStatus::Pending, 'strong', '2023-09-04');
         $this->store()->markConfirmed('I1', $match->obituaryUrl, new WriteBack($this->deatFactIdOfI1(), '@S1@', true));
 
-        $response = $this->handler()->handle($this->revertRequest(Auth::user(), [
-            'action' => 'revert',
-            'person' => 'I1',
-            'url'    => $match->obituaryUrl,
-        ]));
+        $response = $this->postRevertForI1($match->obituaryUrl);
 
         // PRG redirect back to the worklist.
         self::assertSame(302, $response->getStatusCode());
 
-        $row = $this->store()->findOne('I1', StoredMatchKey::fromUrl($match->obituaryUrl));
-        self::assertInstanceOf(StoredMatch::class, $row);
+        $row = $this->reloadI1Row($match->obituaryUrl);
         self::assertSame(MatchStatus::Pending, $row->status);
 
         self::assertTrue($this->flashContains('success'));
@@ -326,16 +322,11 @@ final class ObituaryWorklistHandlerTest extends IntegrationTestCase
         $this->seedConfirmed('I1');
         $url = $this->store()->findByPerson('I1')[0]->obituaryUrl;
 
-        $response = $this->handler()->handle($this->revertRequest(Auth::user(), [
-            'action' => 'revert',
-            'person' => 'I1',
-            'url'    => $url,
-        ]));
+        $response = $this->postRevertForI1($url);
 
         self::assertSame(302, $response->getStatusCode());
 
-        $row = $this->store()->findOne('I1', StoredMatchKey::fromUrl($url));
-        self::assertInstanceOf(StoredMatch::class, $row);
+        $row = $this->reloadI1Row($url);
         self::assertSame(MatchStatus::Confirmed, $row->status);
 
         self::assertTrue($this->flashContains('danger'));
@@ -352,16 +343,11 @@ final class ObituaryWorklistHandlerTest extends IntegrationTestCase
     {
         $match = MatchSeeder::seed($this->store(), 'I1', MatchStatus::Pending, 'strong', '2023-09-04');
 
-        $response = $this->handler()->handle($this->revertRequest(Auth::user(), [
-            'action' => 'revert',
-            'person' => 'I1',
-            'url'    => $match->obituaryUrl,
-        ]));
+        $response = $this->postRevertForI1($match->obituaryUrl);
 
         self::assertSame(302, $response->getStatusCode());
 
-        $row = $this->store()->findOne('I1', StoredMatchKey::fromUrl($match->obituaryUrl));
-        self::assertInstanceOf(StoredMatch::class, $row);
+        $row = $this->reloadI1Row($match->obituaryUrl);
         self::assertSame(MatchStatus::Pending, $row->status);
 
         self::assertTrue($this->flashContains('warning'));
@@ -459,23 +445,13 @@ final class ObituaryWorklistHandlerTest extends IntegrationTestCase
 
         // Rewrite the on-disk write-back to a non-null but malformed array (missing deatFactId): it passes
         // the handler's writeBack!==null guard but WriteBack::fromArray rejects it in the service.
-        $path = $this->dir . '/' . hash('sha256', 'I1') . '/' . StoredMatchKey::fromUrl($match->obituaryUrl) . '.json';
+        $this->rewriteStoredRowField($match->obituaryUrl, 'writeBack', ['buriFactId' => null]);
 
-        /** @var array<string, mixed> $data */
-        $data              = json_decode((string) file_get_contents($path), true);
-        $data['writeBack'] = ['buriFactId' => null];
-        file_put_contents($path, json_encode($data));
-
-        $response = $this->handler()->handle($this->revertRequest(Auth::user(), [
-            'action' => 'revert',
-            'person' => 'I1',
-            'url'    => $match->obituaryUrl,
-        ]));
+        $response = $this->postRevertForI1($match->obituaryUrl);
 
         self::assertSame(302, $response->getStatusCode());
 
-        $row = $this->store()->findOne('I1', StoredMatchKey::fromUrl($match->obituaryUrl));
-        self::assertInstanceOf(StoredMatch::class, $row);
+        $row = $this->reloadI1Row($match->obituaryUrl);
         self::assertSame(MatchStatus::Confirmed, $row->status);
         self::assertTrue($this->flashContains('danger'));
     }
@@ -495,11 +471,7 @@ final class ObituaryWorklistHandlerTest extends IntegrationTestCase
         $path = $this->dir . '/' . hash('sha256', 'I1') . '/' . StoredMatchKey::fromUrl($match->obituaryUrl) . '.json';
         file_put_contents($path, 'not valid json{');
 
-        $response = $this->handler()->handle($this->revertRequest(Auth::user(), [
-            'action' => 'revert',
-            'person' => 'I1',
-            'url'    => $match->obituaryUrl,
-        ]));
+        $response = $this->postRevertForI1($match->obituaryUrl);
 
         self::assertSame(302, $response->getStatusCode());
         self::assertTrue($this->flashContains('danger'));
@@ -518,18 +490,9 @@ final class ObituaryWorklistHandlerTest extends IntegrationTestCase
         $this->store()->markConfirmed('I1', $match->obituaryUrl, new WriteBack('@F1@', '@S1@', true));
 
         // Hand-corrupt the row's internal personId so it no longer matches the directory it sits in.
-        $path = $this->dir . '/' . hash('sha256', 'I1') . '/' . StoredMatchKey::fromUrl($match->obituaryUrl) . '.json';
+        $this->rewriteStoredRowField($match->obituaryUrl, 'personId', 'I2');
 
-        /** @var array<string, mixed> $data */
-        $data             = json_decode((string) file_get_contents($path), true);
-        $data['personId'] = 'I2';
-        file_put_contents($path, json_encode($data));
-
-        $response = $this->handler()->handle($this->revertRequest(Auth::user(), [
-            'action' => 'revert',
-            'person' => 'I1',
-            'url'    => $match->obituaryUrl,
-        ]));
+        $response = $this->postRevertForI1($match->obituaryUrl);
 
         self::assertSame(302, $response->getStatusCode());
         self::assertTrue($this->flashContains('warning'));
@@ -551,6 +514,57 @@ final class ObituaryWorklistHandlerTest extends IntegrationTestCase
         }
 
         return false;
+    }
+
+    /**
+     * Posts a revert action for person I1 against the given obituary URL and returns the handler's response.
+     *
+     * @param string $url The obituary URL of the row to revert.
+     *
+     * @return ResponseInterface The handler's response (a PRG redirect on the revert branch).
+     */
+    private function postRevertForI1(string $url): ResponseInterface
+    {
+        return $this->handler()->handle($this->revertRequest(Auth::user(), [
+            'action' => 'revert',
+            'person' => 'I1',
+            'url'    => $url,
+        ]));
+    }
+
+    /**
+     * Reloads person I1's stored row for the given obituary URL, asserting it still resolves.
+     *
+     * @param string $url The obituary URL identifying the row to reload.
+     *
+     * @return StoredMatch The reloaded stored row.
+     */
+    private function reloadI1Row(string $url): StoredMatch
+    {
+        $row = $this->store()->findOne('I1', StoredMatchKey::fromUrl($url));
+        self::assertInstanceOf(StoredMatch::class, $row);
+
+        return $row;
+    }
+
+    /**
+     * Hand-rewrites a single field of person I1's on-disk stored row, used to inject a corrupt value the
+     * normal store API cannot produce.
+     *
+     * @param string $url   The obituary URL identifying the row file.
+     * @param string $field The top-level JSON field to overwrite.
+     * @param mixed  $value The value to assign to the field.
+     *
+     * @return void
+     */
+    private function rewriteStoredRowField(string $url, string $field, mixed $value): void
+    {
+        $path = $this->dir . '/' . hash('sha256', 'I1') . '/' . StoredMatchKey::fromUrl($url) . '.json';
+
+        /** @var array<string, mixed> $data */
+        $data         = json_decode((string) file_get_contents($path), true);
+        $data[$field] = $value;
+        file_put_contents($path, json_encode($data));
     }
 
     /**
