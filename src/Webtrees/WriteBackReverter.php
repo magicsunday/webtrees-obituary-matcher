@@ -20,11 +20,14 @@ use MagicSunday\ObituaryMatcher\Matching\WriteBack;
  * A captured fact id is the md5 of the fact gedcom, so it resolves on the individual only while the
  * fact is byte-identical to what was written — id-resolution is the tamper-check.
  *
+ * The class is intentionally non-final so {@see RevertService}'s orchestration test can substitute a
+ * reverter double; its behaviour is otherwise unchanged.
+ *
  * @author  Rico Sonntag <mail@ricosonntag.de>
  * @license https://opensource.org/licenses/GPL-3.0 GNU General Public License v3.0
  * @link    https://github.com/magicsunday/webtrees-obituary-matcher/
  */
-final class WriteBackReverter
+class WriteBackReverter
 {
     /**
      * Reverses a confirmed write-back: deletes the written DEAT and (when present) BURI fact, keeping
