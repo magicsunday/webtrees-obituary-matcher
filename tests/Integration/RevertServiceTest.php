@@ -12,6 +12,7 @@ declare(strict_types=1);
 namespace MagicSunday\ObituaryMatcher\Test\Integration;
 
 use Fisharebest\Webtrees\Individual;
+use MagicSunday\ObituaryMatcher\Domain\ClassifiedMatch;
 use MagicSunday\ObituaryMatcher\Matching\MatchStatus;
 use MagicSunday\ObituaryMatcher\Matching\MatchStore;
 use MagicSunday\ObituaryMatcher\Matching\StoredMatch;
@@ -46,6 +47,7 @@ use RuntimeException;
 #[UsesClass(RevertResult::class)]
 #[UsesClass(WriteBackReverter::class)]
 #[UsesClass(StoredMatch::class)]
+#[UsesClass(ClassifiedMatch::class)]
 #[UsesClass(WriteBack::class)]
 #[UsesClass(MatchStatus::class)]
 final class RevertServiceTest extends IntegrationTestCase
@@ -63,7 +65,7 @@ final class RevertServiceTest extends IntegrationTestCase
     #[Test]
     public function aCleanRevertTransitionsTheStore(): void
     {
-        $reverter = $this->createStub(WriteBackReverter::class);
+        $reverter = self::createStub(WriteBackReverter::class);
         $reverter->method('revert')->willReturn(new RevertResult(['deat-1']));
 
         $store = $this->createMock(MatchStore::class);
@@ -71,7 +73,7 @@ final class RevertServiceTest extends IntegrationTestCase
 
         $row = $this->confirmedRow(new WriteBack('deat-1', '@S1@', true));
 
-        $outcome = (new RevertService($reverter))->revert($this->createStub(Individual::class), $row, $store, false);
+        $outcome = (new RevertService($reverter))->revert(self::createStub(Individual::class), $row, $store, false);
 
         self::assertSame(RevertReason::Reverted, $outcome->reason);
         self::assertSame(1, $outcome->deletedCount);
@@ -85,7 +87,7 @@ final class RevertServiceTest extends IntegrationTestCase
     #[Test]
     public function aReverterRefusalMapsToRefusedEdited(): void
     {
-        $reverter = $this->createStub(WriteBackReverter::class);
+        $reverter = self::createStub(WriteBackReverter::class);
         $reverter->method('revert')->willThrowException(new RevertPreconditionException('edited'));
 
         $store = $this->createMock(MatchStore::class);
@@ -93,7 +95,7 @@ final class RevertServiceTest extends IntegrationTestCase
 
         $row = $this->confirmedRow(new WriteBack('deat-1', '@S1@', true));
 
-        $outcome = (new RevertService($reverter))->revert($this->createStub(Individual::class), $row, $store, false);
+        $outcome = (new RevertService($reverter))->revert(self::createStub(Individual::class), $row, $store, false);
 
         self::assertSame(RevertReason::RefusedEdited, $outcome->reason);
     }
@@ -106,7 +108,7 @@ final class RevertServiceTest extends IntegrationTestCase
     #[Test]
     public function aForcedMixedPartialDoesNotTransitionTheStore(): void
     {
-        $reverter = $this->createStub(WriteBackReverter::class);
+        $reverter = self::createStub(WriteBackReverter::class);
         $reverter->method('revert')->willReturn(new RevertResult(['deat-1'])); // only 1 of 2 deleted
 
         $store = $this->createMock(MatchStore::class);
@@ -114,7 +116,7 @@ final class RevertServiceTest extends IntegrationTestCase
 
         $row = $this->confirmedRow(new WriteBack('deat-1', '@S1@', true, 'buri-1')); // targetCount = 2
 
-        $outcome = (new RevertService($reverter))->revert($this->createStub(Individual::class), $row, $store, true);
+        $outcome = (new RevertService($reverter))->revert(self::createStub(Individual::class), $row, $store, true);
 
         self::assertSame(RevertReason::Partial, $outcome->reason);
         self::assertSame(1, $outcome->deletedCount);
@@ -130,7 +132,7 @@ final class RevertServiceTest extends IntegrationTestCase
     #[Test]
     public function aFailedStoreTransitionReportsStoreTransitionFailedWithCounts(): void
     {
-        $reverter = $this->createStub(WriteBackReverter::class);
+        $reverter = self::createStub(WriteBackReverter::class);
         $reverter->method('revert')->willReturn(new RevertResult(['deat-1']));
 
         $store = $this->createMock(MatchStore::class);
@@ -138,7 +140,7 @@ final class RevertServiceTest extends IntegrationTestCase
 
         $row = $this->confirmedRow(new WriteBack('deat-1', '@S1@', true));
 
-        $outcome = (new RevertService($reverter))->revert($this->createStub(Individual::class), $row, $store, false);
+        $outcome = (new RevertService($reverter))->revert(self::createStub(Individual::class), $row, $store, false);
 
         self::assertSame(RevertReason::StoreTransitionFailed, $outcome->reason);
         self::assertSame(1, $outcome->deletedCount);
@@ -161,9 +163,16 @@ final class RevertServiceTest extends IntegrationTestCase
 
         // A write-back array missing the required deatFactId: StoredMatch::fromArray accepts any array,
         // but WriteBack::fromArray rejects it inside the service.
-        $row = new StoredMatch('I1', self::URL, MatchStatus::Confirmed, [], null, ['buriFactId' => null]);
+        $row = StoredMatch::fromArray([
+            'personId'    => 'I1',
+            'obituaryUrl' => self::URL,
+            'status'      => MatchStatus::Confirmed->value,
+            'match'       => ClassifiedMatch::emptyArray('I1', self::URL),
+            'reason'      => null,
+            'writeBack'   => ['buriFactId' => null],
+        ]);
 
-        $outcome = (new RevertService($reverter))->revert($this->createStub(Individual::class), $row, $store, false);
+        $outcome = (new RevertService($reverter))->revert(self::createStub(Individual::class), $row, $store, false);
 
         self::assertSame(RevertReason::InvalidWriteBack, $outcome->reason);
     }
@@ -177,6 +186,6 @@ final class RevertServiceTest extends IntegrationTestCase
      */
     private function confirmedRow(WriteBack $writeBack): StoredMatch
     {
-        return new StoredMatch('I1', self::URL, MatchStatus::Confirmed, [], null, $writeBack->toArray());
+        return new StoredMatch('I1', self::URL, MatchStatus::Confirmed, ClassifiedMatch::emptyArray('I1', self::URL), null, $writeBack->toArray());
     }
 }
