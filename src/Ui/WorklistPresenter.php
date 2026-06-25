@@ -209,6 +209,7 @@ final readonly class WorklistPresenter
             $source->host,
             $match->status->value,
             $entry['reviewUrl'],
+            $match->status === MatchStatus::Confirmed ? $match->obituaryUrl : null,
         );
     }
 }

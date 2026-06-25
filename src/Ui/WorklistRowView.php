@@ -28,16 +28,17 @@ final readonly class WorklistRowView
      * `I18N::translate()` calls in the worklist template (keyed by these), so xgettext can extract
      * them and the presenter stays webtrees-free — mirroring the individual tab's template maps.
      *
-     * @param string      $personName The tree individual's display name, reduced to plain text.
-     * @param string      $personId   The individual XREF.
-     * @param string      $personUrl  The internal individual-page URL (built by the handler).
-     * @param string      $bandKey    The normalised classification band (allow-list; the template maps it to a label).
-     * @param int         $score      The match score (0 when the payload had none).
-     * @param string|null $deathDate  The extracted death date as DD.MM.YYYY, or null.
-     * @param string|null $sourceUrl  The http(s)-only source link, or null when not linkable.
-     * @param string|null $sourceHost The source host text, or null when unavailable.
-     * @param string      $statusKey  The lifecycle status backing value (the template maps it to a label).
-     * @param string|null $reviewUrl  The per-item review URL, or null for a terminal row.
+     * @param string      $personName        The tree individual's display name, reduced to plain text.
+     * @param string      $personId          The individual XREF.
+     * @param string      $personUrl         The internal individual-page URL (built by the handler).
+     * @param string      $bandKey           The normalised classification band (allow-list; the template maps it to a label).
+     * @param int         $score             The match score (0 when the payload had none).
+     * @param string|null $deathDate         The extracted death date as DD.MM.YYYY, or null.
+     * @param string|null $sourceUrl         The http(s)-only source link, or null when not linkable.
+     * @param string|null $sourceHost        The source host text, or null when unavailable.
+     * @param string      $statusKey         The lifecycle status backing value (the template maps it to a label).
+     * @param string|null $reviewUrl         The per-item review URL, or null for a terminal row.
+     * @param string|null $revertObituaryUrl The raw obituary URL for the revert form, set only on a Confirmed row.
      */
     public function __construct(
         public string $personName,
@@ -50,6 +51,7 @@ final readonly class WorklistRowView
         public ?string $sourceHost,
         public string $statusKey,
         public ?string $reviewUrl,
+        public ?string $revertObituaryUrl,
     ) {
     }
 }
