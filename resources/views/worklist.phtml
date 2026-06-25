@@ -109,6 +109,17 @@ $statusFilters = [
                                 <?php if ($row->reviewUrl !== null) : ?>
                                     <a class="btn btn-primary btn-sm" href="<?= e($row->reviewUrl) ?>"><?= e(I18N::translate('Review')) ?></a>
                                 <?php endif ?>
+                                <?php if ($row->revertObituaryUrl !== null) : ?>
+                                    <form method="post" action="<?= e(route(ObituaryWorklistHandler::ROUTE_NAME, ['tree' => $tree->name()])) ?>"
+                                          class="om-worklist-revert"
+                                          onsubmit="return confirm('<?= e(I18N::translate('Revert this confirmed match? The written facts will be removed.')) ?>')">
+                                        <?= csrf_field() ?>
+                                        <input type="hidden" name="action" value="revert">
+                                        <input type="hidden" name="person" value="<?= e($row->personId) ?>">
+                                        <input type="hidden" name="url" value="<?= e($row->revertObituaryUrl) ?>">
+                                        <button type="submit" class="btn btn-outline-danger btn-sm"><?= e(I18N::translate('Revert')) ?></button>
+                                    </form>
+                                <?php endif ?>
                             </td>
                         </tr>
                     <?php endforeach ?>

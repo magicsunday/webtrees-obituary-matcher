@@ -16,9 +16,13 @@ use Aura\Router\RouterContainer;
 use Fig\Http\Message\RequestMethodInterface;
 use Fisharebest\Webtrees\Auth;
 use Fisharebest\Webtrees\Contracts\UserInterface;
+use Fisharebest\Webtrees\Fact;
+use Fisharebest\Webtrees\FlashMessages;
 use Fisharebest\Webtrees\GuestUser;
 use Fisharebest\Webtrees\Http\Exceptions\HttpAccessDeniedException;
+use Fisharebest\Webtrees\Http\Exceptions\HttpBadRequestException;
 use Fisharebest\Webtrees\Http\Routes\WebRoutes;
+use Fisharebest\Webtrees\Individual;
 use Fisharebest\Webtrees\Module\ModuleThemeInterface;
 use Fisharebest\Webtrees\Module\WebtreesTheme;
 use Fisharebest\Webtrees\Registry;
@@ -41,12 +45,23 @@ use MagicSunday\ObituaryMatcher\Ui\WorklistRowView;
 use MagicSunday\ObituaryMatcher\Ui\WorklistView;
 use MagicSunday\ObituaryMatcher\Webtrees\MatchSeeder;
 use MagicSunday\ObituaryMatcher\Webtrees\ObituaryWorklistHandler;
+use MagicSunday\ObituaryMatcher\Webtrees\RevertConsistencyGate;
+use MagicSunday\ObituaryMatcher\Webtrees\RevertOutcome;
+use MagicSunday\ObituaryMatcher\Webtrees\RevertReason;
+use MagicSunday\ObituaryMatcher\Webtrees\RevertService;
 use MagicSunday\ObituaryMatcher\Webtrees\ReviewScreenHandler;
+use MagicSunday\ObituaryMatcher\Webtrees\WriteBackReverter;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\Attributes\UsesClass;
 use Psr\Http\Message\ServerRequestFactoryInterface;
 use Psr\Http\Message\ServerRequestInterface;
+
+use function file_get_contents;
+use function file_put_contents;
+use function hash;
+use function json_decode;
+use function json_encode;
 
 /**
  * Integration tests for the tree-wide worklist route: a manager GET renders every stored row across
@@ -74,6 +89,11 @@ use Psr\Http\Message\ServerRequestInterface;
 #[UsesClass(BandKey::class)]
 #[UsesClass(ObituaryDateFormatter::class)]
 #[UsesClass(SourceLink::class)]
+#[UsesClass(RevertService::class)]
+#[UsesClass(RevertOutcome::class)]
+#[UsesClass(RevertReason::class)]
+#[UsesClass(RevertConsistencyGate::class)]
+#[UsesClass(WriteBackReverter::class)]
 final class ObituaryWorklistHandlerTest extends IntegrationTestCase
 {
     use RemovesFlatTempStoreTrait;
@@ -261,6 +281,302 @@ final class ObituaryWorklistHandlerTest extends IntegrationTestCase
 
         // A filter link never pins a page, so switching filter always resets to page one.
         self::assertStringNotContainsString('status=open&amp;page=', $html);
+    }
+
+    /**
+     * A revert POST on a Confirmed row whose write-back resolves deletes the fact and returns the row to
+     * Pending, with a success flash. The DEAT id comes from the fixture purely to exercise the HTTP
+     * orchestration end-to-end; the realistic module-WRITTEN confirm→revert fact lifecycle is covered by
+     * {@see WriteBackReverterTest} and {@see RevertFlowTest}.
+     *
+     * @return void
+     */
+    #[Test]
+    public function revertReturnsAResolvableConfirmedRowToPending(): void
+    {
+        $match = MatchSeeder::seed($this->store(), 'I1', MatchStatus::Pending, 'strong', '2023-09-04');
+        $this->store()->markConfirmed('I1', $match->obituaryUrl, new WriteBack($this->deatFactIdOfI1(), '@S1@', true));
+
+        $response = $this->handler()->handle($this->revertRequest(Auth::user(), [
+            'action' => 'revert',
+            'person' => 'I1',
+            'url'    => $match->obituaryUrl,
+        ]));
+
+        // PRG redirect back to the worklist.
+        self::assertSame(302, $response->getStatusCode());
+
+        $row = $this->store()->findOne('I1', StoredMatchKey::fromUrl($match->obituaryUrl));
+        self::assertInstanceOf(StoredMatch::class, $row);
+        self::assertSame(MatchStatus::Pending, $row->status);
+
+        self::assertTrue($this->flashContains('success'));
+    }
+
+    /**
+     * A revert POST on a Confirmed row whose recorded fact no longer resolves (edited/removed) refuses:
+     * the row stays Confirmed and a danger flash is shown.
+     *
+     * @return void
+     */
+    #[Test]
+    public function revertRefusesWhenTheRecordedFactNoLongerResolves(): void
+    {
+        // seedConfirmed records a synthetic '@F1@' write-back that does not resolve on the real individual.
+        $this->seedConfirmed('I1');
+        $url = $this->store()->findByPerson('I1')[0]->obituaryUrl;
+
+        $response = $this->handler()->handle($this->revertRequest(Auth::user(), [
+            'action' => 'revert',
+            'person' => 'I1',
+            'url'    => $url,
+        ]));
+
+        self::assertSame(302, $response->getStatusCode());
+
+        $row = $this->store()->findOne('I1', StoredMatchKey::fromUrl($url));
+        self::assertInstanceOf(StoredMatch::class, $row);
+        self::assertSame(MatchStatus::Confirmed, $row->status);
+
+        self::assertTrue($this->flashContains('danger'));
+    }
+
+    /**
+     * A revert POST on a non-Confirmed row is a benign no-op: a warning flash, the row unchanged, the
+     * RevertService never reached (a Pending row carries no write-back to undo).
+     *
+     * @return void
+     */
+    #[Test]
+    public function revertOnANonConfirmedRowIsANoOpWarning(): void
+    {
+        $match = MatchSeeder::seed($this->store(), 'I1', MatchStatus::Pending, 'strong', '2023-09-04');
+
+        $response = $this->handler()->handle($this->revertRequest(Auth::user(), [
+            'action' => 'revert',
+            'person' => 'I1',
+            'url'    => $match->obituaryUrl,
+        ]));
+
+        self::assertSame(302, $response->getStatusCode());
+
+        $row = $this->store()->findOne('I1', StoredMatchKey::fromUrl($match->obituaryUrl));
+        self::assertInstanceOf(StoredMatch::class, $row);
+        self::assertSame(MatchStatus::Pending, $row->status);
+
+        self::assertTrue($this->flashContains('warning'));
+    }
+
+    /**
+     * A non-manager POST is denied by the same gate as the GET path.
+     *
+     * @return void
+     */
+    #[Test]
+    public function nonManagerRevertIsDenied(): void
+    {
+        $this->expectException(HttpAccessDeniedException::class);
+
+        $this->handler()->handle($this->revertRequest(new GuestUser(), [
+            'action' => 'revert',
+            'person' => 'I1',
+            'url'    => 'https://example.test/notice',
+        ]));
+    }
+
+    /**
+     * An unknown POST action is rejected as a bad request.
+     *
+     * @return void
+     */
+    #[Test]
+    public function unknownPostActionIsRejected(): void
+    {
+        $this->expectException(HttpBadRequestException::class);
+
+        $this->handler()->handle($this->revertRequest(Auth::user(), [
+            'action' => 'frobnicate',
+            'person' => 'I1',
+            'url'    => 'https://example.test/notice',
+        ]));
+    }
+
+    /**
+     * A Confirmed row renders a revert POST form carrying the CSRF token and the revert action/person/url
+     * hidden fields, so the button is wired to the handler's POST branch.
+     *
+     * @return void
+     */
+    #[Test]
+    public function confirmedRowRendersACsrfProtectedRevertForm(): void
+    {
+        $this->seedConfirmed('I1');
+
+        $html = (string) $this->handler()->handle($this->worklistRequest(Auth::user()))->getBody();
+
+        self::assertStringContainsString('name="_csrf"', $html);
+        self::assertStringContainsString('value="revert"', $html);
+        self::assertStringContainsString('name="person"', $html);
+        self::assertStringContainsString('name="url"', $html);
+    }
+
+    /**
+     * A revert POST on a Confirmed row whose on-disk write-back is non-null but malformed maps to the
+     * merged InvalidWriteBack danger arm: the row stays Confirmed and a danger flash is shown. This is
+     * what proves the `Partial, InvalidWriteBack => danger` arm is exercised (InvalidWriteBack IS
+     * UI-reachable — a non-null malformed write-back passes the `writeBack === null` guard).
+     *
+     * @return void
+     */
+    #[Test]
+    public function revertOnACorruptWriteBackFlashesDanger(): void
+    {
+        $match = MatchSeeder::seed($this->store(), 'I1', MatchStatus::Pending, 'strong', '2023-09-04');
+        $this->store()->markConfirmed('I1', $match->obituaryUrl, new WriteBack('@F1@', '@S1@', true));
+
+        // Rewrite the on-disk write-back to a non-null but malformed array (missing deatFactId): it passes
+        // the handler's writeBack!==null guard but WriteBack::fromArray rejects it in the service.
+        $path = $this->dir . '/' . hash('sha256', 'I1') . '/' . StoredMatchKey::fromUrl($match->obituaryUrl) . '.json';
+
+        /** @var array<string, mixed> $data */
+        $data              = json_decode((string) file_get_contents($path), true);
+        $data['writeBack'] = ['buriFactId' => null];
+        file_put_contents($path, json_encode($data));
+
+        $response = $this->handler()->handle($this->revertRequest(Auth::user(), [
+            'action' => 'revert',
+            'person' => 'I1',
+            'url'    => $match->obituaryUrl,
+        ]));
+
+        self::assertSame(302, $response->getStatusCode());
+
+        $row = $this->store()->findOne('I1', StoredMatchKey::fromUrl($match->obituaryUrl));
+        self::assertInstanceOf(StoredMatch::class, $row);
+        self::assertSame(MatchStatus::Confirmed, $row->status);
+        self::assertTrue($this->flashContains('danger'));
+    }
+
+    /**
+     * A revert POST against a CORRUPT existing row (unparseable JSON) redirects with a danger flash, NOT a
+     * 500: `findOne` is fail-loud (unlike the GET scan), so the wider try/catch must absorb it.
+     *
+     * @return void
+     */
+    #[Test]
+    public function revertOnACorruptStoredRowFlashesDangerNot500(): void
+    {
+        $match = MatchSeeder::seed($this->store(), 'I1', MatchStatus::Pending, 'strong', '2023-09-04');
+        $this->store()->markConfirmed('I1', $match->obituaryUrl, new WriteBack('@F1@', '@S1@', true));
+
+        $path = $this->dir . '/' . hash('sha256', 'I1') . '/' . StoredMatchKey::fromUrl($match->obituaryUrl) . '.json';
+        file_put_contents($path, 'not valid json{');
+
+        $response = $this->handler()->handle($this->revertRequest(Auth::user(), [
+            'action' => 'revert',
+            'person' => 'I1',
+            'url'    => $match->obituaryUrl,
+        ]));
+
+        self::assertSame(302, $response->getStatusCode());
+        self::assertTrue($this->flashContains('danger'));
+    }
+
+    /**
+     * A revert POST whose found row carries a DIFFERENT internal personId than the posted person is a
+     * benign no-op warning (defence-in-depth, mirroring ReviewScreenHandler's cross-row guard).
+     *
+     * @return void
+     */
+    #[Test]
+    public function revertOnAPersonIdMismatchIsANoOpWarning(): void
+    {
+        $match = MatchSeeder::seed($this->store(), 'I1', MatchStatus::Pending, 'strong', '2023-09-04');
+        $this->store()->markConfirmed('I1', $match->obituaryUrl, new WriteBack('@F1@', '@S1@', true));
+
+        // Hand-corrupt the row's internal personId so it no longer matches the directory it sits in.
+        $path = $this->dir . '/' . hash('sha256', 'I1') . '/' . StoredMatchKey::fromUrl($match->obituaryUrl) . '.json';
+
+        /** @var array<string, mixed> $data */
+        $data             = json_decode((string) file_get_contents($path), true);
+        $data['personId'] = 'I2';
+        file_put_contents($path, json_encode($data));
+
+        $response = $this->handler()->handle($this->revertRequest(Auth::user(), [
+            'action' => 'revert',
+            'person' => 'I1',
+            'url'    => $match->obituaryUrl,
+        ]));
+
+        self::assertSame(302, $response->getStatusCode());
+        self::assertTrue($this->flashContains('warning'));
+    }
+
+    /**
+     * Whether a flash message of the given status was queued by the handler.
+     *
+     * @param string $status The bootstrap flash status (success/warning/danger).
+     *
+     * @return bool True when a message of that status is queued.
+     */
+    private function flashContains(string $status): bool
+    {
+        foreach (FlashMessages::getMessages() as $message) {
+            if ($message->status === $status) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Builds a POST request for the worklist route authenticated as the given user, carrying the parsed
+     * body exactly as webtrees' middleware would after CSRF validation.
+     *
+     * @param UserInterface         $user The user attached as the request's `user` attribute.
+     * @param array<string, string> $body The parsed POST body.
+     *
+     * @return ServerRequestInterface The request the handler consumes.
+     */
+    private function revertRequest(UserInterface $user, array $body): ServerRequestInterface
+    {
+        $factory = Registry::container()->get(ServerRequestFactoryInterface::class);
+        self::assertInstanceOf(ServerRequestFactoryInterface::class, $factory);
+
+        $route = new Route();
+        $route->name(ObituaryWorklistHandler::ROUTE_NAME);
+
+        $request = $factory
+            ->createServerRequest(RequestMethodInterface::METHOD_POST, 'https://webtrees.test/index.php')
+            ->withParsedBody($body)
+            ->withAttribute('base_url', 'https://webtrees.test')
+            ->withAttribute('client-ip', '127.0.0.1')
+            ->withAttribute('route', $route)
+            ->withAttribute('tree', $this->tree)
+            ->withAttribute('user', $user);
+
+        Registry::container()->set(Tree::class, $this->tree);
+        Registry::container()->set(ServerRequestInterface::class, $request);
+
+        return $request;
+    }
+
+    /**
+     * The captured fact id of I1's fixture DEAT fact (id = md5 of the fact gedcom), so a confirmed row's
+     * write-back resolves against the live individual.
+     *
+     * @return string The DEAT fact id.
+     */
+    private function deatFactIdOfI1(): string
+    {
+        $individual = Registry::individualFactory()->make('I1', $this->tree);
+        self::assertInstanceOf(Individual::class, $individual);
+
+        $fact = $individual->facts(['DEAT'], false, null, true)->first();
+        self::assertInstanceOf(Fact::class, $fact);
+
+        return $fact->id();
     }
 
     /**
