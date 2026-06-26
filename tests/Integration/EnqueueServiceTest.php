@@ -21,6 +21,7 @@ use MagicSunday\ObituaryMatcher\Queue\AtomicFile;
 use MagicSunday\ObituaryMatcher\Queue\FeederRequestReader;
 use MagicSunday\ObituaryMatcher\Queue\JobState;
 use MagicSunday\ObituaryMatcher\Queue\QueueClient;
+use MagicSunday\ObituaryMatcher\Queue\QueueLimits;
 use MagicSunday\ObituaryMatcher\Queue\QueuePaths;
 use MagicSunday\ObituaryMatcher\Support\FeederCandidateRequest;
 use MagicSunday\ObituaryMatcher\Support\FeederRequest;
@@ -115,7 +116,7 @@ final class EnqueueServiceTest extends AbstractEnqueueTestCase
         self::assertSame([], $candidates[0]['excludedHosts']);
 
         // The validating reader agrees on the requested set.
-        $request = (new FeederRequestReader($this->paths(), 5_242_880))->read($summary->jobId, JobState::Queued);
+        $request = (new FeederRequestReader($this->paths(), QueueLimits::FEEDER_FILE_MAX_BYTES))->read($summary->jobId, JobState::Queued);
         self::assertSame(['I1'], $request['requestedPersonIds']);
     }
 
@@ -489,7 +490,7 @@ final class EnqueueServiceTest extends AbstractEnqueueTestCase
     private function queuedCandidates(string $jobId): array
     {
         $path = $this->paths()->stateRoot(JobState::Queued->value) . '/' . $jobId . '/request.json';
-        $data = AtomicFile::readJsonCapped($path, 5_242_880);
+        $data = AtomicFile::readJsonCapped($path, QueueLimits::FEEDER_FILE_MAX_BYTES);
 
         /** @var list<array<string, mixed>> $candidates */
         $candidates = $data['candidates'];

@@ -15,6 +15,7 @@ use InvalidArgumentException;
 use MagicSunday\ObituaryMatcher\Queue\AtomicFile;
 use MagicSunday\ObituaryMatcher\Queue\FeederRequestReader;
 use MagicSunday\ObituaryMatcher\Queue\JobState;
+use MagicSunday\ObituaryMatcher\Queue\QueueLimits;
 use MagicSunday\ObituaryMatcher\Queue\QueuePaths;
 use MagicSunday\ObituaryMatcher\Queue\ResponseValidationException;
 use PHPUnit\Framework\Attributes\CoversClass;
@@ -60,7 +61,7 @@ final class FeederRequestReaderTest extends QueueTempDirTestCase
             'treeId' => 11,
         ]);
 
-        $result = (new FeederRequestReader(new QueuePaths($this->tmp), 5_242_880))->read('job-1');
+        $result = (new FeederRequestReader(new QueuePaths($this->tmp), QueueLimits::FEEDER_FILE_MAX_BYTES))->read('job-1');
 
         self::assertSame(11, $result['treeId']);
         self::assertSame(['X1', 'X2'], $result['requestedPersonIds']);
@@ -85,7 +86,7 @@ final class FeederRequestReaderTest extends QueueTempDirTestCase
         $this->expectExceptionMessageMatches(
             '/' . preg_quote('Unknown or missing request schema version.', '/') . '/'
         );
-        (new FeederRequestReader(new QueuePaths($this->tmp), 5_242_880))->read('job-1');
+        (new FeederRequestReader(new QueuePaths($this->tmp), QueueLimits::FEEDER_FILE_MAX_BYTES))->read('job-1');
     }
 
     /**
@@ -107,7 +108,7 @@ final class FeederRequestReaderTest extends QueueTempDirTestCase
         $this->expectExceptionMessageMatches(
             '/' . preg_quote('Request jobId does not match the claimed job.', '/') . '/'
         );
-        (new FeederRequestReader(new QueuePaths($this->tmp), 5_242_880))->read('job-1');
+        (new FeederRequestReader(new QueuePaths($this->tmp), QueueLimits::FEEDER_FILE_MAX_BYTES))->read('job-1');
     }
 
     /**
@@ -129,7 +130,7 @@ final class FeederRequestReaderTest extends QueueTempDirTestCase
         $this->expectExceptionMessageMatches(
             '/' . preg_quote('Request treeId is missing or not an integer.', '/') . '/'
         );
-        (new FeederRequestReader(new QueuePaths($this->tmp), 5_242_880))->read('job-1');
+        (new FeederRequestReader(new QueuePaths($this->tmp), QueueLimits::FEEDER_FILE_MAX_BYTES))->read('job-1');
     }
 
     /**
@@ -151,7 +152,7 @@ final class FeederRequestReaderTest extends QueueTempDirTestCase
         $this->expectExceptionMessageMatches(
             '/' . preg_quote('Request candidates is missing or not a list.', '/') . '/'
         );
-        (new FeederRequestReader(new QueuePaths($this->tmp), 5_242_880))->read('job-1');
+        (new FeederRequestReader(new QueuePaths($this->tmp), QueueLimits::FEEDER_FILE_MAX_BYTES))->read('job-1');
     }
 
     /**
@@ -173,7 +174,7 @@ final class FeederRequestReaderTest extends QueueTempDirTestCase
         $this->expectExceptionMessageMatches(
             '/' . preg_quote('Request candidate is not an object.', '/') . '/'
         );
-        (new FeederRequestReader(new QueuePaths($this->tmp), 5_242_880))->read('job-1');
+        (new FeederRequestReader(new QueuePaths($this->tmp), QueueLimits::FEEDER_FILE_MAX_BYTES))->read('job-1');
     }
 
     /**
@@ -199,7 +200,7 @@ final class FeederRequestReaderTest extends QueueTempDirTestCase
         $this->expectExceptionMessageMatches(
             '/' . preg_quote('Request candidate personId is missing, not a string or empty.', '/') . '/'
         );
-        (new FeederRequestReader(new QueuePaths($this->tmp), 5_242_880))->read('job-1');
+        (new FeederRequestReader(new QueuePaths($this->tmp), QueueLimits::FEEDER_FILE_MAX_BYTES))->read('job-1');
     }
 
     /**
@@ -227,7 +228,7 @@ final class FeederRequestReaderTest extends QueueTempDirTestCase
         $this->expectExceptionMessageMatches(
             '/' . preg_quote('Invalid job identifier:', '/') . '/'
         );
-        (new FeederRequestReader(new QueuePaths($this->tmp), 5_242_880))->read('../../etc');
+        (new FeederRequestReader(new QueuePaths($this->tmp), QueueLimits::FEEDER_FILE_MAX_BYTES))->read('../../etc');
     }
 
     /**

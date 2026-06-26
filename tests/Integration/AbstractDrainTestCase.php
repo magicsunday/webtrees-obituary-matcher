@@ -21,6 +21,7 @@ use MagicSunday\ObituaryMatcher\Queue\AtomicFile;
 use MagicSunday\ObituaryMatcher\Queue\FeederRequestReader;
 use MagicSunday\ObituaryMatcher\Queue\JobState;
 use MagicSunday\ObituaryMatcher\Queue\QueueClient;
+use MagicSunday\ObituaryMatcher\Queue\QueueLimits;
 use MagicSunday\ObituaryMatcher\Queue\QueuePaths;
 use MagicSunday\ObituaryMatcher\Queue\ResponseReader;
 use MagicSunday\ObituaryMatcher\Scoring\Classifier;
@@ -73,7 +74,7 @@ abstract class AbstractDrainTestCase extends AbstractQueueStoreTestCase
         $paths    = $this->paths();
         $storeDir = $this->storeRoot;
 
-        return new class($paths, new QueueClient($paths), new FeederRequestReader($paths, 5_242_880), new CandidateRepository(), new IngestService(new ResponseReader($paths), new EnrichedMatchEngine(), new Classifier()), new TreeService(new GedcomImportService()), $storeDir) extends DrainService {
+        return new class($paths, new QueueClient($paths), new FeederRequestReader($paths, QueueLimits::FEEDER_FILE_MAX_BYTES), new CandidateRepository(), new IngestService(new ResponseReader($paths), new EnrichedMatchEngine(), new Classifier()), new TreeService(new GedcomImportService()), $storeDir) extends DrainService {
             /**
              * @param QueuePaths          $paths       The queue path builder.
              * @param QueueClient         $client      The queue state-machine driver.

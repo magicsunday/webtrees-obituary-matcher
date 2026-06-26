@@ -25,6 +25,7 @@ use MagicSunday\ObituaryMatcher\Queue\AtomicFile;
 use MagicSunday\ObituaryMatcher\Queue\FeederRequestReader;
 use MagicSunday\ObituaryMatcher\Queue\JobState;
 use MagicSunday\ObituaryMatcher\Queue\QueueClient;
+use MagicSunday\ObituaryMatcher\Queue\QueueLimits;
 use MagicSunday\ObituaryMatcher\Queue\QueuePaths;
 use MagicSunday\ObituaryMatcher\Support\FeederRequestFactory;
 use MagicSunday\ObituaryMatcher\Support\QueryGenerator;
@@ -74,7 +75,7 @@ abstract class AbstractEnqueueTestCase extends AbstractQueueStoreTestCase
         $paths    = $this->paths();
         $storeDir = $this->storeRoot;
 
-        return new class($paths, new QueueClient($paths), new FeederRequestReader($paths, 5_242_880), new CandidateRepository(), new FeederRequestFactory(new QueryGenerator()), new UrlHostNormalizer(), new TreeService(new GedcomImportService()), $storeDir) extends EnqueueService {
+        return new class($paths, new QueueClient($paths), new FeederRequestReader($paths, QueueLimits::FEEDER_FILE_MAX_BYTES), new CandidateRepository(), new FeederRequestFactory(new QueryGenerator()), new UrlHostNormalizer(), new TreeService(new GedcomImportService()), $storeDir) extends EnqueueService {
             /**
              * @param QueuePaths           $paths          The queue path builder.
              * @param QueueClient          $client         The queue state-machine driver.
