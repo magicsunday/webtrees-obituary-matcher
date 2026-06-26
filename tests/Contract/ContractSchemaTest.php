@@ -324,6 +324,15 @@ final class ContractSchemaTest extends TestCase
                 'response-empty-results.json',
                 self::ID_PREFIX . 'job-response.schema.json',
             ],
+            // The ELSE branch of the `done` → required:results conditional: a non-terminal job
+            // (queued/running/failed) may legitimately OMIT `results`. This row locks that branch —
+            // a regression that hoists `results` into the ROOT `required` (making it unconditional)
+            // would still pass every `done` example but reds this one, catching the silently broken
+            // polling wire-shape (the matcher receives running/queued responses while polling).
+            'running response without results → job-response' => [
+                'response-running.json',
+                self::ID_PREFIX . 'job-response.schema.json',
+            ],
         ];
     }
 }
