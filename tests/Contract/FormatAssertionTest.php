@@ -11,7 +11,6 @@ declare(strict_types=1);
 
 namespace MagicSunday\ObituaryMatcher\Test\Contract;
 
-use Opis\JsonSchema\Helper;
 use Opis\JsonSchema\Validator;
 use PHPUnit\Framework\Attributes\CoversNothing;
 use PHPUnit\Framework\Attributes\Test;
@@ -43,7 +42,7 @@ final class FormatAssertionTest extends TestCase
     #[Test]
     public function aValidDatePasses(): void
     {
-        $result = (new Validator())->validate(Helper::toJSON('2023-02-28'), self::DATE_SCHEMA);
+        $result = (new Validator())->validate('2023-02-28', self::DATE_SCHEMA);
 
         self::assertTrue($result->isValid());
     }
@@ -56,7 +55,7 @@ final class FormatAssertionTest extends TestCase
     #[Test]
     public function aCalendarInvalidDateIsRejected(): void
     {
-        $result = (new Validator())->validate(Helper::toJSON('2023-02-30'), self::DATE_SCHEMA);
+        $result = (new Validator())->validate('2023-02-30', self::DATE_SCHEMA);
 
         self::assertFalse($result->isValid());
     }

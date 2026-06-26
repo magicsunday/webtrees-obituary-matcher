@@ -1,0 +1,17 @@
+{
+    "schemaVersion": 1,
+    "jobId": "job-2024-0001-abcdef",
+    "state": "done",
+    "startedAt": "2024-05-21T08:29:55Z",
+    "finishedAt": "2024-05-21T08:30:05Z",
+    "warnings": [
+        "Portal returned no results for one query."
+    ],
+    "counts": {
+        "candidates": 1,
+        "queries": 2,
+        "notices": 1,
+        "portalErrors": 0,
+        "skippedNotices": 0
+    }
+}

@@ -149,10 +149,7 @@ final class ContractSchemaTest extends TestCase
     #[DataProvider('schemaFiles')]
     public function schemaDeclares202012Dialect(string $file): void
     {
-        // Decode object-faithfully (no `true` flag), consistent with loadAndValidate(): a JSON object
-        // becomes a stdClass rather than collapsing to an array, robust if a schema carries an empty
-        // object. The decoded value is transient (never stored as a typed stdClass), so the
-        // no-stdClass house rule holds.
+        // Decode object-faithfully (no `true` flag), consistent with loadAndValidate().
         $decoded = json_decode((string) file_get_contents(self::SCHEMA_DIR . '/' . $file));
 
         self::assertInstanceOf(stdClass::class, $decoded, $file . ' is not a JSON object');
@@ -285,6 +282,11 @@ final class ContractSchemaTest extends TestCase
                 'duplicate-noticefields.capabilities.json',
                 self::ID_PREFIX . 'capabilities.schema.json',
                 'uniqueItems',
+            ],
+            'done job without results → required' => [
+                'done-without-results.response.json',
+                self::ID_PREFIX . 'job-response.schema.json',
+                'required',
             ],
         ];
     }
