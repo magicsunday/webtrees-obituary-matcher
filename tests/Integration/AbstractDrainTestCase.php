@@ -261,7 +261,7 @@ abstract class AbstractDrainTestCase extends AbstractQueueStoreTestCase
     }
 
     /**
-     * Build one untrusted-shape notice the {@see ResponseReader} decodes into a death notice: a name,
+     * Build one untrusted-shape notice the {@see \MagicSunday\ObituaryMatcher\Queue\ResponseReader} decodes into a death notice: a name,
      * an exact birth + death date, a cemetery and an exact funeral date so the harvest carries both
      * burial facts.
      *

@@ -120,8 +120,7 @@ if (is_string($queueOption) && !is_dir($queueOption)) {
     exit(1);
 }
 
-// Assemble the drain object graph. The store is NOT wired here: DrainService builds the tree-scoped
-// store per job through its MatchStoreFactory seam, so the ingest stays store-agnostic.
+// Assemble the drain graph via its composition root (the per-job store is wired inside DrainService).
 $paths = new QueuePaths($queueRoot);
 
 $drainService = DrainServiceFactory::create($paths);
