@@ -316,10 +316,11 @@ final class ContractSchemaTest extends TestCase
             'request example → job-request'       => ['request.json', self::ID_PREFIX . 'job-request.schema.json'],
             'response example → job-response'     => ['response.json', self::ID_PREFIX . 'job-response.schema.json'],
             'capabilities example → capabilities' => ['capabilities.json', self::ID_PREFIX . 'capabilities.schema.json'],
-            // A `done` job that found nobody still carries `results` — as an EMPTY object (README:
-            // "A done job always carries results, possibly an empty object"). This row pins that the
-            // empty `{}` validates as an object; under the old assoc decode it collapsed to `[]` and
-            // false-failed `type: object`, so it also guards the object-faithful load form.
+            // A `done` job that SEARCHED a person but found nothing represents that person as a
+            // PRESENT key whose PersonResult carries empty `notices` plus a `coverage` entry with
+            // status "ok"/noticeCount 0 — the "real miss" shape the contract exists to capture
+            // (distinct from a missing key = "not searched"). This row pins that semantic AND the
+            // coverage `minItems: 1` bound: a PersonResult must report at least one searched portal.
             'empty-results response → job-response' => [
                 'response-empty-results.json',
                 self::ID_PREFIX . 'job-response.schema.json',

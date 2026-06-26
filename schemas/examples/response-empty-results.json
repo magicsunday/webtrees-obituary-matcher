@@ -4,7 +4,19 @@
     "state": "done",
     "startedAt": "2024-05-21T09:00:00Z",
     "finishedAt": "2024-05-21T09:00:03Z",
-    "results": {},
+    "results": {
+        "I456-Beispiel": {
+            "notices": [],
+            "coverage": [
+                {
+                    "portal": "obituary-example-de",
+                    "status": "ok",
+                    "noticeCount": 0,
+                    "message": "Searched successfully, no notice found."
+                }
+            ]
+        }
+    },
     "warnings": [],
     "counts": {
         "candidates": 1,

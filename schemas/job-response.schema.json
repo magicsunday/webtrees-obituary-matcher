@@ -107,8 +107,9 @@
                     }
                 },
                 "coverage": {
-                    "description": "Which portals were actually consulted for this person, so the matcher can tell \"nothing found\" (ok, 0) apart from \"could not search\" (failed). REQUIRED to drive a correct negative-result memory. Producer obligation: every notice's `source` MUST appear here with status \"ok\", and a portal's `noticeCount` MUST equal the number of that portal's notices in `notices[]`.",
+                    "description": "Which portals were actually consulted for this person, so the matcher can tell \"nothing found\" (ok, 0) apart from \"could not search\" (failed). REQUIRED (and non-empty) to drive a correct negative-result memory: a PersonResult exists only because the person was processed, so at least one requested portal was searched/skipped/failed and MUST be reported here — an empty coverage array makes \"searched, nothing found\" indistinguishable from \"not searched\". Producer obligation: every notice's `source` MUST appear here with status \"ok\", and a portal's `noticeCount` MUST equal the number of that portal's notices in `notices[]`.",
                     "type": "array",
+                    "minItems": 1,
                     "maxItems": 200,
                     "items": {
                         "$ref": "#/$defs/PortalCoverage"

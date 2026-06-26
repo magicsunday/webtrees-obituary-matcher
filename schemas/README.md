@@ -137,6 +137,13 @@ keep the path verbatim. Anything else double-counts or wrongly collapses notices
 
 ### Producer obligations (Finder MUST) — the finder dev reads the schemas, so they are listed here too
 
+- For every requested portal it **actually searched** for a person (not skipped,
+  not failed), it MUST emit a `coverage[]` entry with `status: ok` and the
+  `noticeCount` (which is `0` when nothing was found). A successfully-searched-but-
+  empty portal is the case `coverage` exists to capture; omitting it makes
+  "searched, nothing found" indistinguishable from "not searched". A processed
+  person therefore always has a non-empty `coverage[]` (the schema enforces
+  `minItems: 1`).
 - For every requested portal it **cannot** search (not offered, or down), emit a
   `coverage[]` entry with `status: skipped` (not offered) / `failed` (down) and a
   `message` — never silently omit it, or the matcher's per-portal memory is wrong.
@@ -145,10 +152,14 @@ keep the path verbatim. Anything else double-counts or wrongly collapses notices
   `status: ok`; `noticeCount` MUST equal that portal's notice count. A
   self-detected inconsistency SHOULD be reported in `warnings[]`, never shipped
   silently (the matcher drops unreconciled notices).
-- Dates are **proleptic Gregorian**, `YYYY-MM-DD`. A notice that yields only a
-  month/year (no day) sets `death: null` — the confirm-gate needs a day-precise
-  date, so a fabricated day is forbidden. Timestamps (`fetchedAt`/`startedAt`/
-  `finishedAt`) SHOULD be UTC (`Z`).
+- **Calendar convention (whole contract):** EVERY `date` and `date-time` field on
+  the request AND the response — `Notice.death`/`birth`/`funeralDate`, the request's
+  `BirthSpec.exactDate`, and all `fetchedAt`/`startedAt`/`finishedAt` timestamps —
+  is **proleptic Gregorian**, `YYYY-MM-DD` (or RFC 3339 date-time). There is no
+  Julian-cutover ambiguity, so a pre-1582 date is unambiguous. A notice that yields
+  only a month/year (no day) sets `death: null` — the confirm-gate needs a
+  day-precise date, so a fabricated day is forbidden. Timestamps SHOULD be UTC
+  (`Z`).
 - A place `kind` (e.g. `death-hint`, `burial`) is **advisory**: a finder MAY use
   it for routing/weighting but MUST NOT require it.
 

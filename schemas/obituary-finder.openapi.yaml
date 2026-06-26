@@ -2,7 +2,7 @@ openapi: 3.1.0
 jsonSchemaDialect: "https://json-schema.org/draft/2020-12/schema"
 info:
     title: Obituary Finder API
-    version: "1.0.0-draft"
+    version: "1.0.0"
     summary: Asynchronous job API a finder exposes so a matcher can submit search jobs and poll results.
     description: >
         REST surface of the finder↔matcher contract (the sole, decided transport). The matcher is the
