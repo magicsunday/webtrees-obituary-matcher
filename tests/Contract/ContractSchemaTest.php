@@ -228,10 +228,13 @@ final class ContractSchemaTest extends TestCase
         $error = $result->error();
         self::assertNotNull($error, $fixture . ' produced no validation error to inspect');
 
-        self::assertContains(
-            $expectedKeyword,
+        // Assert the EXACT causal-keyword set, not mere membership: this mechanically cements the
+        // "each fixture violates exactly ONE bound" invariant — a future drift to a second violation
+        // (or a leaked structural keyword) reds the test instead of passing on the membership check.
+        self::assertSame(
+            [$expectedKeyword],
             $this->violatedKeywords($error),
-            $fixture . ' was rejected, but not by the expected "' . $expectedKeyword . '" keyword'
+            $fixture . ' must be rejected by exactly the "' . $expectedKeyword . '" keyword'
         );
     }
 
