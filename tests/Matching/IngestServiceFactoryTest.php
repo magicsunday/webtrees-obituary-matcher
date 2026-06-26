@@ -17,6 +17,8 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
 
+use function sys_get_temp_dir;
+
 /**
  * Verifies the ingest composition root assembles the full ingest object graph without error — a wiring
  * typo (wrong arg order/arity) throws at construction, so this pins the factory.
@@ -38,7 +40,7 @@ final class IngestServiceFactoryTest extends TestCase
     #[Test]
     public function createWiresTheIngestGraph(): void
     {
-        $paths = new QueuePaths('/tmp/obituary-queue-test');
+        $paths = new QueuePaths(sys_get_temp_dir() . '/obituary-queue-test');
 
         $first  = IngestServiceFactory::create($paths);
         $second = IngestServiceFactory::create($paths);
