@@ -32,18 +32,9 @@ declare(strict_types=1);
  * @link    https://github.com/magicsunday/webtrees-obituary-matcher/
  */
 
-use Fisharebest\Webtrees\Services\GedcomImportService;
-use Fisharebest\Webtrees\Services\TreeService;
-use MagicSunday\ObituaryMatcher\Matching\IngestService;
-use MagicSunday\ObituaryMatcher\Queue\FeederRequestReader;
-use MagicSunday\ObituaryMatcher\Queue\QueueClient;
 use MagicSunday\ObituaryMatcher\Queue\QueuePaths;
-use MagicSunday\ObituaryMatcher\Queue\ResponseReader;
-use MagicSunday\ObituaryMatcher\Scoring\Classifier;
-use MagicSunday\ObituaryMatcher\Scoring\EnrichedMatchEngine;
 use MagicSunday\ObituaryMatcher\Support\WebtreesInstallLocator;
-use MagicSunday\ObituaryMatcher\Webtrees\CandidateRepository;
-use MagicSunday\ObituaryMatcher\Webtrees\DrainService;
+use MagicSunday\ObituaryMatcher\Webtrees\DrainServiceFactory;
 use MagicSunday\ObituaryMatcher\Webtrees\HeadlessBootstrap;
 
 // This file lives in the global namespace, so `use function`/`use const` for built-ins is a no-op
@@ -133,18 +124,7 @@ if (is_string($queueOption) && !is_dir($queueOption)) {
 // store per job through its MatchStoreFactory seam, so the ingest stays store-agnostic.
 $paths = new QueuePaths($queueRoot);
 
-$drainService = new DrainService(
-    $paths,
-    new QueueClient($paths),
-    new FeederRequestReader($paths, 5_242_880),
-    new CandidateRepository(),
-    new IngestService(
-        new ResponseReader($paths),
-        new EnrichedMatchEngine(),
-        new Classifier(),
-    ),
-    new TreeService(new GedcomImportService()),
-);
+$drainService = DrainServiceFactory::create($paths);
 
 $summary = $drainService->drain($onlyTreeId, $limit);
 
