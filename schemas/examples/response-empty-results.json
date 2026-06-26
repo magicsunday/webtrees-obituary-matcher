@@ -1,0 +1,16 @@
+{
+    "schemaVersion": 1,
+    "jobId": "job-2024-0002-nomatch",
+    "state": "done",
+    "startedAt": "2024-05-21T09:00:00Z",
+    "finishedAt": "2024-05-21T09:00:03Z",
+    "results": {},
+    "warnings": [],
+    "counts": {
+        "candidates": 1,
+        "queries": 1,
+        "notices": 0,
+        "portalErrors": 0,
+        "skippedNotices": 0
+    }
+}

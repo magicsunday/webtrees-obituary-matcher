@@ -12,16 +12,15 @@ declare(strict_types=1);
 namespace MagicSunday\ObituaryMatcher\Test\Contract;
 
 use Opis\JsonSchema\Errors\ValidationError;
-use Opis\JsonSchema\Helper;
 use Opis\JsonSchema\ValidationResult;
 use Opis\JsonSchema\Validator;
 use PHPUnit\Framework\Attributes\CoversNothing;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
+use stdClass;
 
 use function file_get_contents;
-use function is_array;
 use function json_decode;
 use function preg_match_all;
 
@@ -73,8 +72,13 @@ final class ContractSchemaTest extends TestCase
     /**
      * Loads a JSON document and validates it against the registered schema.
      *
-     * Helper::toJSON(json_decode(..., true)) hands opis its own JSON data shape and avoids a raw
-     * stdClass (house rule); the schema is addressed by the $id registered in validator().
+     * Decoded object-faithfully (no `true` flag): opis's native data shape is a stdClass per JSON
+     * object and an array per JSON array, so this is the idiomatic opis load form. It preserves the
+     * object/array distinction — an empty object `{}` stays an object (the contract allows empty
+     * all-optional objects) instead of collapsing to `[]` and falsely failing `type: object`. The
+     * decoded value is transient (piped straight into validate(), never stored as a typed stdClass),
+     * so the no-stdClass house rule is satisfied. The schema is addressed by the $id registered in
+     * validator().
      *
      * @param string $path     The absolute path of the JSON document to validate.
      * @param string $schemaId The $id of the schema to validate against.
@@ -83,9 +87,10 @@ final class ContractSchemaTest extends TestCase
      */
     private function loadAndValidate(string $path, string $schemaId): ValidationResult
     {
-        $data = Helper::toJSON(json_decode((string) file_get_contents($path), true));
-
-        return $this->validator()->validate($data, $schemaId);
+        return $this->validator()->validate(
+            json_decode((string) file_get_contents($path)),
+            $schemaId
+        );
     }
 
     /**
@@ -144,13 +149,16 @@ final class ContractSchemaTest extends TestCase
     #[DataProvider('schemaFiles')]
     public function schemaDeclares202012Dialect(string $file): void
     {
-        // Decode with the `true` flag (never a raw stdClass; house rule) so we can read the dialect key.
-        $decoded = json_decode((string) file_get_contents(self::SCHEMA_DIR . '/' . $file), true);
+        // Decode object-faithfully (no `true` flag), consistent with loadAndValidate(): a JSON object
+        // becomes a stdClass rather than collapsing to an array, robust if a schema carries an empty
+        // object. The decoded value is transient (never stored as a typed stdClass), so the
+        // no-stdClass house rule holds.
+        $decoded = json_decode((string) file_get_contents(self::SCHEMA_DIR . '/' . $file));
 
-        self::assertTrue(is_array($decoded), $file . ' is not a JSON object');
+        self::assertInstanceOf(stdClass::class, $decoded, $file . ' is not a JSON object');
         self::assertSame(
             'https://json-schema.org/draft/2020-12/schema',
-            $decoded['$schema'] ?? null,
+            $decoded->{'$schema'} ?? null,
             $file . ' does not declare the 2020-12 dialect'
         );
     }
@@ -228,9 +236,11 @@ final class ContractSchemaTest extends TestCase
         $error = $result->error();
         self::assertNotNull($error, $fixture . ' produced no validation error to inspect');
 
-        // Assert the EXACT causal-keyword set, not mere membership: this mechanically cements the
-        // "each fixture violates exactly ONE bound" invariant — a future drift to a second violation
-        // (or a leaked structural keyword) reds the test instead of passing on the membership check.
+        // Pin the exact singleton causal-keyword set opis reports for this fixture (not mere
+        // membership): a structural keyword leaking into the leaf set, or opis reporting a different
+        // causal keyword, reds the test. NB opis short-circuits to one causal branch, so this does
+        // not by itself prove the fixture has no second violation; single-violation is maintained by
+        // fixture construction (each is a one-mutation copy of a valid example).
         self::assertSame(
             [$expectedKeyword],
             $this->violatedKeywords($error),
@@ -304,6 +314,14 @@ final class ContractSchemaTest extends TestCase
             'request example → job-request'       => ['request.json', self::ID_PREFIX . 'job-request.schema.json'],
             'response example → job-response'     => ['response.json', self::ID_PREFIX . 'job-response.schema.json'],
             'capabilities example → capabilities' => ['capabilities.json', self::ID_PREFIX . 'capabilities.schema.json'],
+            // A `done` job that found nobody still carries `results` — as an EMPTY object (README:
+            // "A done job always carries results, possibly an empty object"). This row pins that the
+            // empty `{}` validates as an object; under the old assoc decode it collapsed to `[]` and
+            // false-failed `type: object`, so it also guards the object-faithful load form.
+            'empty-results response → job-response' => [
+                'response-empty-results.json',
+                self::ID_PREFIX . 'job-response.schema.json',
+            ],
         ];
     }
 }
