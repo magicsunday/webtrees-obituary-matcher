@@ -51,6 +51,8 @@
         "noticeFields": {
             "description": "Which best-effort notice fields this finder can populate. Only name/url/source/fetchedAt are guaranteed on every notice; everything else (including `death`, the answer) is best-effort and declared here so the matcher knows which scorers have data and whether death dates are delivered at all.",
             "type": "array",
+            "maxItems": 7,
+            "uniqueItems": true,
             "items": {
                 "type": "string",
                 "enum": [

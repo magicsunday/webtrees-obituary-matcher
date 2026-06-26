@@ -11,7 +11,9 @@ declare(strict_types=1);
 
 namespace MagicSunday\ObituaryMatcher\Test\Contract;
 
+use Opis\JsonSchema\Errors\ValidationError;
 use Opis\JsonSchema\Helper;
+use Opis\JsonSchema\ValidationResult;
 use Opis\JsonSchema\Validator;
 use PHPUnit\Framework\Attributes\CoversNothing;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -69,6 +71,53 @@ final class ContractSchemaTest extends TestCase
     }
 
     /**
+     * Loads a JSON document and validates it against the registered schema.
+     *
+     * Helper::toJSON(json_decode(..., true)) hands opis its own JSON data shape and avoids a raw
+     * stdClass (house rule); the schema is addressed by the $id registered in validator().
+     *
+     * @param string $path     The absolute path of the JSON document to validate.
+     * @param string $schemaId The $id of the schema to validate against.
+     *
+     * @return ValidationResult The validation outcome.
+     */
+    private function loadAndValidate(string $path, string $schemaId): ValidationResult
+    {
+        $data = Helper::toJSON(json_decode((string) file_get_contents($path), true));
+
+        return $this->validator()->validate($data, $schemaId);
+    }
+
+    /**
+     * Collects every violated keyword across an opis error tree (root plus nested sub-errors).
+     *
+     * opis reports the failing leaf keyword (format, pattern, const, required, ...) on a sub-error
+     * nested below the structural wrappers (properties, items, $ref), so the expected keyword is
+     * asserted as a member of the whole tree's keyword set rather than against the root error alone.
+     *
+     * @param ValidationError $error The root validation error.
+     *
+     * @return list<string> Every violated keyword found anywhere in the error tree.
+     */
+    private function violatedKeywords(ValidationError $error): array
+    {
+        $keywords = [$error->keyword()];
+
+        foreach ($error->subErrors() as $subError) {
+            // opis types subErrors() only as array; narrow each entry before recursing.
+            if (!$subError instanceof ValidationError) {
+                continue;
+            }
+
+            foreach ($this->violatedKeywords($subError) as $keyword) {
+                $keywords[] = $keyword;
+            }
+        }
+
+        return $keywords;
+    }
+
+    /**
      * Each contract schema declares the JSON-Schema 2020-12 dialect.
      *
      * opis implements the drafts in code and ships no meta-schema document, so a schema cannot be
@@ -112,10 +161,7 @@ final class ContractSchemaTest extends TestCase
     #[DataProvider('validExamples')]
     public function validExampleValidates(string $example, string $schemaId): void
     {
-        // Helper::toJSON(json_decode(..., true)) hands opis its own JSON data shape and avoids a raw
-        // stdClass; the schema is addressed by the $id registered in validator().
-        $data   = Helper::toJSON(json_decode((string) file_get_contents(self::SCHEMA_DIR . '/examples/' . $example), true));
-        $result = $this->validator()->validate($data, $schemaId);
+        $result = $this->loadAndValidate(self::SCHEMA_DIR . '/examples/' . $example, $schemaId);
 
         self::assertTrue($result->isValid(), $example . ' does not validate against its schema');
     }
@@ -130,11 +176,14 @@ final class ContractSchemaTest extends TestCase
     {
         $yaml = (string) file_get_contents(self::SCHEMA_DIR . '/obituary-finder.openapi.yaml');
 
-        // Collect EVERY external file ref generically (durable against future schema files), not a
-        // hard-coded list: any `$ref: "./<name>.json"` must resolve to a sibling file.
-        preg_match_all('#\$ref:\s*["\']\./([A-Za-z0-9._-]+\.json)["\']#', $yaml, $matches);
+        // Collect EVERY external *.json file ref generically (durable against future schema files),
+        // not a hard-coded list. The capture tolerates an optional `./` prefix and an optional
+        // `#fragment` (e.g. `job-response.schema.json#/$defs/Notice`); group 1 is the bare filename,
+        // so the fragment is stripped before the file-exists check. Internal `#/components/...` refs
+        // (no `.json`) never match. Any such external ref must resolve to a sibling file.
+        preg_match_all('#\$ref:\s*["\'](?:\./)?([A-Za-z0-9._-]+\.json)(?:\#[^"\']*)?["\']#', $yaml, $matches);
 
-        self::assertNotEmpty($matches[1], 'expected at least one external ./*.json ref in the OpenAPI');
+        self::assertNotEmpty($matches[1], 'expected at least one external *.json ref in the OpenAPI');
 
         foreach ($matches[1] as $file) {
             self::assertFileExists(self::SCHEMA_DIR . '/' . $file, 'OpenAPI references a missing file: ' . $file);
@@ -145,53 +194,102 @@ final class ContractSchemaTest extends TestCase
     }
 
     /**
-     * Every malformed fixture is rejected by its schema — the gate has teeth.
+     * Every malformed fixture is rejected by its schema — and for the EXACT keyword it targets.
      *
-     * @param string $fixture  The malformed fixture filename under invalid/.
-     * @param string $schemaId The $id of the schema the fixture must fail.
+     * Asserting only isValid() === false would let a fixture pass for an unrelated reason (a bad-date
+     * fixture stays "invalid" even if format assertion silently regressed). Pinning the violated
+     * keyword keeps each row a real discriminator of the bound it exercises.
+     *
+     * @param string $fixture         The malformed fixture filename under invalid/.
+     * @param string $schemaId        The $id of the schema the fixture must fail.
+     * @param string $expectedKeyword The JSON-Schema keyword whose violation must reject the fixture.
      *
      * @return void
      */
     #[Test]
     #[DataProvider('invalidFixtures')]
-    public function invalidFixtureIsRejected(string $fixture, string $schemaId): void
+    public function invalidFixtureIsRejected(string $fixture, string $schemaId, string $expectedKeyword): void
     {
-        $data   = Helper::toJSON(json_decode((string) file_get_contents(__DIR__ . '/invalid/' . $fixture), true));
-        $result = $this->validator()->validate($data, $schemaId);
+        $result = $this->loadAndValidate(__DIR__ . '/invalid/' . $fixture, $schemaId);
 
         self::assertFalse($result->isValid(), $fixture . ' was accepted but must be rejected');
+
+        $error = $result->error();
+        self::assertNotNull($error, $fixture . ' produced no validation error to inspect');
+
+        self::assertContains(
+            $expectedKeyword,
+            $this->violatedKeywords($error),
+            $fixture . ' was rejected, but not by the expected "' . $expectedKeyword . '" keyword'
+        );
     }
 
     /**
-     * @return list<array{0: string, 1: string}>
+     * Malformed fixtures, each violating exactly ONE bound, paired with the keyword that must reject it.
+     *
+     * @return array<string, array{0: string, 1: string, 2: string}>
      */
     public static function invalidFixtures(): array
     {
         return [
-            ['unknown-property.response.json', self::ID_PREFIX . 'job-response.schema.json'],
-            ['bad-date.response.json', self::ID_PREFIX . 'job-response.schema.json'],
-            ['missing-required.request.json', self::ID_PREFIX . 'job-request.schema.json'],
-            ['wrong-schema-version.request.json', self::ID_PREFIX . 'job-request.schema.json'],
+            'unknown property → additionalProperties' => [
+                'unknown-property.response.json',
+                self::ID_PREFIX . 'job-response.schema.json',
+                'additionalProperties',
+            ],
+            'calendar-invalid date → format' => [
+                'bad-date.response.json',
+                self::ID_PREFIX . 'job-response.schema.json',
+                'format',
+            ],
+            'missing required property → required' => [
+                'missing-required.request.json',
+                self::ID_PREFIX . 'job-request.schema.json',
+                'required',
+            ],
+            'unknown schema version → const' => [
+                'wrong-schema-version.request.json',
+                self::ID_PREFIX . 'job-request.schema.json',
+                'const',
+            ],
+            'over-long date-time fractional seconds → pattern' => [
+                'oversized-datetime.response.json',
+                self::ID_PREFIX . 'job-response.schema.json',
+                'pattern',
+            ],
+            'too many / duplicate noticeFields → maxItems' => [
+                'oversized-noticefields.capabilities.json',
+                self::ID_PREFIX . 'capabilities.schema.json',
+                'maxItems',
+            ],
         ];
     }
 
     /**
-     * @return list<array{0: string}>
+     * The contract schema filenames whose declared dialect is pinned.
+     *
+     * @return array<string, array{0: string}>
      */
     public static function schemaFiles(): array
     {
-        return [['capabilities.schema.json'], ['job-request.schema.json'], ['job-response.schema.json']];
+        return [
+            'capabilities schema' => ['capabilities.schema.json'],
+            'job-request schema'  => ['job-request.schema.json'],
+            'job-response schema' => ['job-response.schema.json'],
+        ];
     }
 
     /**
-     * @return list<array{0: string, 1: string}>
+     * Each shipped example paired with the $id of the schema it must satisfy.
+     *
+     * @return array<string, array{0: string, 1: string}>
      */
     public static function validExamples(): array
     {
         return [
-            ['request.json', self::ID_PREFIX . 'job-request.schema.json'],
-            ['response.json', self::ID_PREFIX . 'job-response.schema.json'],
-            ['capabilities.json', self::ID_PREFIX . 'capabilities.schema.json'],
+            'request example → job-request'       => ['request.json', self::ID_PREFIX . 'job-request.schema.json'],
+            'response example → job-response'     => ['response.json', self::ID_PREFIX . 'job-response.schema.json'],
+            'capabilities example → capabilities' => ['capabilities.json', self::ID_PREFIX . 'capabilities.schema.json'],
         ];
     }
 }
