@@ -33,6 +33,7 @@ use MagicSunday\ObituaryMatcher\Queue\AtomicFile;
 use MagicSunday\ObituaryMatcher\Queue\FeederRequestReader;
 use MagicSunday\ObituaryMatcher\Queue\JobState;
 use MagicSunday\ObituaryMatcher\Queue\QueueClient;
+use MagicSunday\ObituaryMatcher\Queue\QueueLimits;
 use MagicSunday\ObituaryMatcher\Queue\QueuePaths;
 use MagicSunday\ObituaryMatcher\Support\FeederRequestFactory;
 use MagicSunday\ObituaryMatcher\Support\QueryGenerator;
@@ -452,7 +453,7 @@ final class ObituaryControlPanelHandlerTest extends AbstractEnqueueTestCase
                         parent::__construct(
                             $paths,
                             new QueueClient($paths),
-                            new FeederRequestReader($paths, 5_242_880),
+                            new FeederRequestReader($paths, QueueLimits::FEEDER_FILE_MAX_BYTES),
                             new CandidateRepository(),
                             new FeederRequestFactory(new QueryGenerator()),
                             new UrlHostNormalizer(),
@@ -567,7 +568,7 @@ final class ObituaryControlPanelHandlerTest extends AbstractEnqueueTestCase
         self::assertCount(1, $jobIds);
 
         $path = $this->paths()->stateRoot(JobState::Queued->value) . '/' . $jobIds[0] . '/request.json';
-        $data = AtomicFile::readJsonCapped($path, 5_242_880);
+        $data = AtomicFile::readJsonCapped($path, QueueLimits::FEEDER_FILE_MAX_BYTES);
 
         /** @var list<array<string, mixed>> $candidates */
         $candidates = $data['candidates'];

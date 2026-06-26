@@ -13,7 +13,7 @@ declare(strict_types=1);
  * Headless CLI adapter that drains finished feeder jobs into the per-tree match stores. It is a THIN
  * composition root: it boots the request-less webtrees runtime ({@see HeadlessBootstrap}), logs in the
  * system principal so every candidate is visible, wires the queue/ingest object graph and hands the
- * single drain decision to {@see DrainService::drain()}. All domain logic lives in the injected
+ * single drain decision to {@see \MagicSunday\ObituaryMatcher\Webtrees\DrainService::drain()}. All domain logic lives in the injected
  * services; this file only parses options, assembles the graph, prints the one-line tally and maps the
  * outcome to an exit code.
  *
@@ -32,18 +32,9 @@ declare(strict_types=1);
  * @link    https://github.com/magicsunday/webtrees-obituary-matcher/
  */
 
-use Fisharebest\Webtrees\Services\GedcomImportService;
-use Fisharebest\Webtrees\Services\TreeService;
-use MagicSunday\ObituaryMatcher\Matching\IngestService;
-use MagicSunday\ObituaryMatcher\Queue\FeederRequestReader;
-use MagicSunday\ObituaryMatcher\Queue\QueueClient;
 use MagicSunday\ObituaryMatcher\Queue\QueuePaths;
-use MagicSunday\ObituaryMatcher\Queue\ResponseReader;
-use MagicSunday\ObituaryMatcher\Scoring\Classifier;
-use MagicSunday\ObituaryMatcher\Scoring\EnrichedMatchEngine;
 use MagicSunday\ObituaryMatcher\Support\WebtreesInstallLocator;
-use MagicSunday\ObituaryMatcher\Webtrees\CandidateRepository;
-use MagicSunday\ObituaryMatcher\Webtrees\DrainService;
+use MagicSunday\ObituaryMatcher\Webtrees\DrainServiceFactory;
 use MagicSunday\ObituaryMatcher\Webtrees\HeadlessBootstrap;
 
 // This file lives in the global namespace, so `use function`/`use const` for built-ins is a no-op
@@ -129,22 +120,10 @@ if (is_string($queueOption) && !is_dir($queueOption)) {
     exit(1);
 }
 
-// Assemble the drain object graph. The store is NOT wired here: DrainService builds the tree-scoped
-// store per job through its MatchStoreFactory seam, so the ingest stays store-agnostic.
+// Assemble the drain graph via its composition root (the per-job store is wired inside DrainService).
 $paths = new QueuePaths($queueRoot);
 
-$drainService = new DrainService(
-    $paths,
-    new QueueClient($paths),
-    new FeederRequestReader($paths, 5_242_880),
-    new CandidateRepository(),
-    new IngestService(
-        new ResponseReader($paths),
-        new EnrichedMatchEngine(),
-        new Classifier(),
-    ),
-    new TreeService(new GedcomImportService()),
-);
+$drainService = DrainServiceFactory::create($paths);
 
 $summary = $drainService->drain($onlyTreeId, $limit);
 

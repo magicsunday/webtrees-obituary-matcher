@@ -21,6 +21,7 @@ use MagicSunday\ObituaryMatcher\Queue\AtomicFile;
 use MagicSunday\ObituaryMatcher\Queue\FeederRequestReader;
 use MagicSunday\ObituaryMatcher\Queue\JobState;
 use MagicSunday\ObituaryMatcher\Queue\QueueClient;
+use MagicSunday\ObituaryMatcher\Queue\QueueLimits;
 use MagicSunday\ObituaryMatcher\Queue\QueuePaths;
 use MagicSunday\ObituaryMatcher\Queue\ResponseReader;
 use MagicSunday\ObituaryMatcher\Scoring\Classifier;
@@ -330,8 +331,8 @@ final class DrainServiceTest extends AbstractDrainTestCase
                 'jobId'         => 'job-001',
                 'treeId'        => $tree->id(),
                 'candidates'    => [['personId' => 'I1']],
-                // 6 MiB of filler pushes the file past the reader's 5 MiB (5_242_880-byte) cap.
-                'padding' => str_repeat('x', 6 * 1024 * 1024),
+                // One byte past the reader's cap, derived from the constant so the pin tracks it.
+                'padding' => str_repeat('x', QueueLimits::FEEDER_FILE_MAX_BYTES + 1),
             ],
             JSON_THROW_ON_ERROR,
         );

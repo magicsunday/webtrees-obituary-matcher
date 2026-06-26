@@ -16,15 +16,14 @@ use Fisharebest\Webtrees\Services\TreeService;
 use Fisharebest\Webtrees\Tree;
 use MagicSunday\ObituaryMatcher\Matching\FileMatchStore;
 use MagicSunday\ObituaryMatcher\Matching\IngestService;
+use MagicSunday\ObituaryMatcher\Matching\IngestServiceFactory;
 use MagicSunday\ObituaryMatcher\Matching\MatchStore;
 use MagicSunday\ObituaryMatcher\Queue\AtomicFile;
 use MagicSunday\ObituaryMatcher\Queue\FeederRequestReader;
 use MagicSunday\ObituaryMatcher\Queue\JobState;
 use MagicSunday\ObituaryMatcher\Queue\QueueClient;
+use MagicSunday\ObituaryMatcher\Queue\QueueLimits;
 use MagicSunday\ObituaryMatcher\Queue\QueuePaths;
-use MagicSunday\ObituaryMatcher\Queue\ResponseReader;
-use MagicSunday\ObituaryMatcher\Scoring\Classifier;
-use MagicSunday\ObituaryMatcher\Scoring\EnrichedMatchEngine;
 use MagicSunday\ObituaryMatcher\Webtrees\CandidateRepository;
 use MagicSunday\ObituaryMatcher\Webtrees\DrainService;
 use MagicSunday\ObituaryMatcher\Webtrees\DrainSummary;
@@ -73,7 +72,7 @@ abstract class AbstractDrainTestCase extends AbstractQueueStoreTestCase
         $paths    = $this->paths();
         $storeDir = $this->storeRoot;
 
-        return new class($paths, new QueueClient($paths), new FeederRequestReader($paths, 5_242_880), new CandidateRepository(), new IngestService(new ResponseReader($paths), new EnrichedMatchEngine(), new Classifier()), new TreeService(new GedcomImportService()), $storeDir) extends DrainService {
+        return new class($paths, new QueueClient($paths), new FeederRequestReader($paths, QueueLimits::FEEDER_FILE_MAX_BYTES), new CandidateRepository(), IngestServiceFactory::create($paths), new TreeService(new GedcomImportService()), $storeDir) extends DrainService {
             /**
              * @param QueuePaths          $paths       The queue path builder.
              * @param QueueClient         $client      The queue state-machine driver.
@@ -262,7 +261,7 @@ abstract class AbstractDrainTestCase extends AbstractQueueStoreTestCase
     }
 
     /**
-     * Build one untrusted-shape notice the {@see ResponseReader} decodes into a death notice: a name,
+     * Build one untrusted-shape notice the {@see \MagicSunday\ObituaryMatcher\Queue\ResponseReader} decodes into a death notice: a name,
      * an exact birth + death date, a cemetery and an exact funeral date so the harvest carries both
      * burial facts.
      *
