@@ -20,11 +20,7 @@
         "death",
         "death",
         "birth",
-        "place",
-        "cemetery",
-        "age",
-        "funeralDate",
-        "relatives"
+        "place"
     ],
     "features": {
         "pagination": true,

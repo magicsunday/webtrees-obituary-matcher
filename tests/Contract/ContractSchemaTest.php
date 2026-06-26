@@ -89,21 +89,32 @@ final class ContractSchemaTest extends TestCase
     }
 
     /**
-     * Collects every violated keyword across an opis error tree (root plus nested sub-errors).
+     * Collects only the CAUSAL (leaf) keywords of an opis error tree.
      *
-     * opis reports the failing leaf keyword (format, pattern, const, required, ...) on a sub-error
-     * nested below the structural wrappers (properties, items, $ref), so the expected keyword is
-     * asserted as a member of the whole tree's keyword set rather than against the root error alone.
+     * opis nests the failing keyword (format, pattern, const, required, ...) below the structural
+     * applicator wrappers (properties, items, $ref, additionalProperties, allOf, if) that merely
+     * route into the sub-schema; those wrapper nodes carry further sub-errors, the causal keyword
+     * sits on a leaf node whose subErrors() is empty. Collecting only the leaves yields the actual
+     * reason the fixture failed, so a per-fixture keyword pin truly discriminates: an unrelated
+     * nested failure no longer leaks a structural `properties`/`additionalProperties` into the set
+     * and cannot satisfy a wrong pin by accident.
      *
      * @param ValidationError $error The root validation error.
      *
-     * @return list<string> Every violated keyword found anywhere in the error tree.
+     * @return list<string> The causal (leaf-node) keyword(s) of the error tree.
      */
     private function violatedKeywords(ValidationError $error): array
     {
-        $keywords = [$error->keyword()];
+        $subErrors = $error->subErrors();
 
-        foreach ($error->subErrors() as $subError) {
+        // A node with no sub-errors is the causal leaf: its keyword is the real failure reason.
+        if ($subErrors === []) {
+            return [$error->keyword()];
+        }
+
+        $keywords = [];
+
+        foreach ($subErrors as $subError) {
             // opis types subErrors() only as array; narrow each entry before recursing.
             if (!$subError instanceof ValidationError) {
                 continue;
@@ -257,10 +268,10 @@ final class ContractSchemaTest extends TestCase
                 self::ID_PREFIX . 'job-response.schema.json',
                 'pattern',
             ],
-            'too many / duplicate noticeFields → maxItems' => [
-                'oversized-noticefields.capabilities.json',
+            'duplicate noticeFields → uniqueItems' => [
+                'duplicate-noticefields.capabilities.json',
                 self::ID_PREFIX . 'capabilities.schema.json',
-                'maxItems',
+                'uniqueItems',
             ],
         ];
     }
