@@ -20,9 +20,7 @@ use MagicSunday\ObituaryMatcher\Scoring\EnrichedMatchEngine;
  * The composition root for the {@see IngestService} apex. The scoring engine is wired HERE, inside the
  * Matching layer that legitimately composes Scoring and Queue, so the Webtrees adapter never reaches
  * into the pure scoring engine to assemble the ingest by hand — it drives the apex through this factory
- * instead (see the architecture rule webtreesAdapterDoesNotDependOnTheScoringEngine). The same
- * {@see QueuePaths} instance is threaded into the {@see ResponseReader} so the reader resolves the SAME
- * queue root the rest of the drain graph reads and writes.
+ * instead (see the architecture rule webtreesAdapterDoesNotDependOnTheScoringEngine).
  *
  * @author  Rico Sonntag <mail@ricosonntag.de>
  * @license https://opensource.org/licenses/GPL-3.0 GNU General Public License v3.0
