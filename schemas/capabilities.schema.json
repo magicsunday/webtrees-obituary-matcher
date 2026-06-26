@@ -1,0 +1,129 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://raw.githubusercontent.com/magicsunday/webtrees-obituary-matcher/main/schemas/capabilities.schema.json",
+    "title": "Finder capabilities (Finder → Matcher)",
+    "description": "Self-description a finder publishes so the matcher knows which portals/fields/features it offers. Lets the matcher disable scorers that have no data (e.g. the relative scorer when `relatives` is not produced) and set honest user expectations. Served at GET /capabilities. The matcher treats every field as UNTRUSTED (published by a possibly third-party finder) and MUST escape all free-text (`finderVersion`, `portal.name`, `portal.regions[]`) before rendering it in the admin UI.",
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+        "finderId",
+        "schemaVersions",
+        "portals"
+    ],
+    "properties": {
+        "finderId": {
+            "description": "Stable identifier for this finder deployment (used to key the matcher's per-finder negative-result memory).",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+        },
+        "finderVersion": {
+            "description": "Human-readable version of the finder software. Capabilities are stable per finderVersion — the matcher may cache them and refetch on a change.",
+            "type": "string",
+            "maxLength": 100
+        },
+        "retentionSeconds": {
+            "description": "Minimum seconds a terminal (done/failed) job is retained before GET /jobs/{id} starts returning 404 (job_expired). The matcher MUST fetch results within this window.",
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 31536000
+        },
+        "schemaVersions": {
+            "description": "Contract major versions this finder supports.",
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 50,
+            "items": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 1000
+            }
+        },
+        "portals": {
+            "description": "Portals this finder can search.",
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 200,
+            "items": {
+                "$ref": "#/$defs/Portal"
+            }
+        },
+        "noticeFields": {
+            "description": "Which best-effort notice fields this finder can populate. Only name/url/source/fetchedAt are guaranteed on every notice; everything else (including `death`, the answer) is best-effort and declared here so the matcher knows which scorers have data and whether death dates are delivered at all.",
+            "type": "array",
+            "items": {
+                "type": "string",
+                "enum": [
+                    "death",
+                    "birth",
+                    "place",
+                    "cemetery",
+                    "age",
+                    "funeralDate",
+                    "relatives"
+                ]
+            }
+        },
+        "features": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "pagination": {
+                    "description": "Searches beyond the first results page.",
+                    "type": "boolean",
+                    "default": false
+                },
+                "regionRouting": {
+                    "description": "Uses a candidate's region hint to pick portals.",
+                    "type": "boolean",
+                    "default": false
+                },
+                "queryHints": {
+                    "description": "Honours the matcher's pre-built queryHints.",
+                    "type": "boolean",
+                    "default": false
+                },
+                "reverseMatch": {
+                    "description": "Supports the future reverse mode (recent notices by region). Reserved; not required for v1.",
+                    "type": "boolean",
+                    "default": false
+                }
+            }
+        }
+    },
+    "$defs": {
+        "Portal": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+                "id"
+            ],
+            "properties": {
+                "id": {
+                    "description": "Stable portal id, referenced by Notice.source and JobOptions.portals.",
+                    "type": "string",
+                    "pattern": "^[a-z0-9][a-z0-9_.-]{0,63}$"
+                },
+                "name": {
+                    "description": "Human-readable portal name.",
+                    "type": "string",
+                    "maxLength": 200
+                },
+                "country": {
+                    "description": "ISO 3166-1 alpha-2 country code the portal primarily serves. SHOULD be populated — the matcher's region routing has nothing to work with otherwise.",
+                    "type": "string",
+                    "pattern": "^[A-Z]{2}$"
+                },
+                "regions": {
+                    "description": "Regions/areas the portal covers, free-text.",
+                    "type": "array",
+                    "maxItems": 500,
+                    "items": {
+                        "type": "string",
+                        "maxLength": 200
+                    }
+                }
+            }
+        }
+    }
+}

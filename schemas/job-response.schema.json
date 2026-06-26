@@ -1,0 +1,325 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://raw.githubusercontent.com/magicsunday/webtrees-obituary-matcher/main/schemas/job-response.schema.json",
+    "title": "Obituary search job response (Finder → Matcher)",
+    "description": "The GET /jobs/{jobId} response body. The matcher treats every field as UNTRUSTED (scraped from external sites) and re-validates before use. All free-text and collection fields are bounded so this schema is a safe validation gate against a hostile/buggy finder. Producer obligation: results MUST only contain keys that were in the request's candidates; the matcher MUST drop any unrequested key.",
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+        "schemaVersion",
+        "jobId",
+        "state"
+    ],
+    "allOf": [
+        {
+            "description": "A done job MUST carry results (possibly an empty object); queued/running/failed need not.",
+            "if": {
+                "properties": {
+                    "state": {
+                        "const": "done"
+                    }
+                },
+                "required": [
+                    "state"
+                ]
+            },
+            "then": {
+                "required": [
+                    "results"
+                ]
+            }
+        }
+    ],
+    "properties": {
+        "schemaVersion": {
+            "description": "Major contract version (major-only versioning; there is no minor channel). The matcher MUST reject an unknown major.",
+            "type": "integer",
+            "const": 1
+        },
+        "jobId": {
+            "description": "Echoes the request jobId.",
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{1,128}$"
+        },
+        "state": {
+            "description": "Job lifecycle state. `results` is only meaningful once `done`.",
+            "type": "string",
+            "enum": [
+                "queued",
+                "running",
+                "done",
+                "failed"
+            ]
+        },
+        "startedAt": {
+            "description": "When the finder began processing the job.",
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?(Z|[+-]\\d{2}:\\d{2})$"
+        },
+        "finishedAt": {
+            "description": "When the job reached a terminal state (done/failed).",
+            "type": "string",
+            "format": "date-time",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?(Z|[+-]\\d{2}:\\d{2})$"
+        },
+        "results": {
+            "description": "Per-person results, keyed by the request's personId. Present when state is `done`. A personId with no notices but a coverage report means \"searched, nothing found\" — distinct from a missing key. The matcher MUST ignore any key not present in the submitted candidates.",
+            "type": "object",
+            "maxProperties": 500,
+            "propertyNames": {
+                "pattern": "^[A-Za-z0-9_-]{1,256}$"
+            },
+            "additionalProperties": {
+                "$ref": "#/$defs/PersonResult"
+            }
+        },
+        "warnings": {
+            "description": "Non-fatal, human-readable diagnostics (e.g. a portal that failed). Never a substitute for per-person coverage. MUST be a sanitised summary — never a stack trace, internal path, or raw upstream response body.",
+            "type": "array",
+            "maxItems": 200,
+            "items": {
+                "type": "string",
+                "maxLength": 1000
+            }
+        },
+        "counts": {
+            "$ref": "#/$defs/Counts"
+        }
+    },
+    "$defs": {
+        "PersonResult": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+                "notices",
+                "coverage"
+            ],
+            "properties": {
+                "notices": {
+                    "description": "Death notices found for this person across ALL portals (not stopped at the first hit), deduplicated by normalised URL. A real person rarely has many notices; the cap is a defensive ceiling, not an expected volume.",
+                    "type": "array",
+                    "maxItems": 200,
+                    "items": {
+                        "$ref": "#/$defs/Notice"
+                    }
+                },
+                "coverage": {
+                    "description": "Which portals were actually consulted for this person, so the matcher can tell \"nothing found\" (ok, 0) apart from \"could not search\" (failed). REQUIRED to drive a correct negative-result memory. Producer obligation: every notice's `source` MUST appear here with status \"ok\", and a portal's `noticeCount` MUST equal the number of that portal's notices in `notices[]`.",
+                    "type": "array",
+                    "maxItems": 200,
+                    "items": {
+                        "$ref": "#/$defs/PortalCoverage"
+                    }
+                }
+            }
+        },
+        "Notice": {
+            "description": "One scraped death notice. Only name/url/source/fetchedAt are guaranteed; every other field is best-effort and may be null/absent depending on finder capabilities.",
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+                "name",
+                "url",
+                "source",
+                "fetchedAt"
+            ],
+            "properties": {
+                "noticeType": {
+                    "description": "Kind of notice. `unknown` when the finder cannot classify it.",
+                    "type": "string",
+                    "enum": [
+                        "obituary",
+                        "memorial",
+                        "acknowledgement",
+                        "unknown"
+                    ],
+                    "default": "unknown"
+                },
+                "name": {
+                    "description": "Name as printed in the notice, plain text.",
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200
+                },
+                "birth": {
+                    "description": "Birth date from the notice (the \"*\" field), ISO 8601 date, or null if absent.",
+                    "type": [
+                        "string",
+                        "null"
+                    ],
+                    "format": "date",
+                    "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+                },
+                "death": {
+                    "description": "Death date from the notice (the \"†\" field), proleptic-Gregorian YYYY-MM-DD, or null. This is the ANSWER the suggestion delivers; the matcher never scores points for its mere presence. Best-effort: a notice yielding only a month/year (no day) MUST set this null — the confirm-gate needs a day-precise date, so a fabricated day is forbidden.",
+                    "type": [
+                        "string",
+                        "null"
+                    ],
+                    "format": "date",
+                    "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+                },
+                "place": {
+                    "description": "Place/region stated in the notice, or null.",
+                    "type": [
+                        "string",
+                        "null"
+                    ],
+                    "maxLength": 300
+                },
+                "cemetery": {
+                    "description": "Burial cemetery free-text (e.g. \"Waldfriedhof Musterstadt\"), or null.",
+                    "type": [
+                        "string",
+                        "null"
+                    ],
+                    "maxLength": 200
+                },
+                "age": {
+                    "description": "Stated age at death (\"im Alter von N\"), or null. The finder MUST drop an implausible scraped value rather than emit it, so one misprint never fails the whole response.",
+                    "type": [
+                        "integer",
+                        "null"
+                    ],
+                    "minimum": 0,
+                    "maximum": 130
+                },
+                "funeralDate": {
+                    "description": "Funeral/burial date if stated, ISO 8601 date, or null.",
+                    "type": [
+                        "string",
+                        "null"
+                    ],
+                    "format": "date",
+                    "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+                },
+                "relatives": {
+                    "description": "Relatives named in the notice (used by the matcher's relative scorer).",
+                    "type": "array",
+                    "maxItems": 50,
+                    "items": {
+                        "$ref": "#/$defs/Relative"
+                    }
+                },
+                "url": {
+                    "description": "Canonical URL of the notice. MUST be http or https, carry a host, and contain no userinfo. The matcher MUST still reject non-public/internal hosts before any server-side fetch (SSRF) and render the link with rel=\"noopener noreferrer\", never auto-fetching it.",
+                    "type": "string",
+                    "format": "uri",
+                    "pattern": "^https?://(?![^/?#]*@)[^\\s/?#]\\S*$",
+                    "maxLength": 2048
+                },
+                "source": {
+                    "description": "Portal id that produced this notice. MUST match one of this finder's capabilities portal ids and MUST appear in this person's coverage[] with status \"ok\".",
+                    "type": "string",
+                    "pattern": "^[a-z0-9][a-z0-9_.-]{0,63}$"
+                },
+                "fetchedAt": {
+                    "description": "When the finder fetched the notice.",
+                    "type": "string",
+                    "format": "date-time",
+                    "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?(Z|[+-]\\d{2}:\\d{2})$"
+                }
+            }
+        },
+        "Relative": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+                "name"
+            ],
+            "properties": {
+                "name": {
+                    "description": "Relative's name as printed, plain text.",
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200
+                },
+                "relation": {
+                    "description": "Relationship to the deceased if the finder could infer it; null/absent otherwise.",
+                    "type": [
+                        "string",
+                        "null"
+                    ],
+                    "enum": [
+                        "spouse",
+                        "child",
+                        "parent",
+                        "sibling",
+                        "grandchild",
+                        "other",
+                        null
+                    ]
+                }
+            }
+        },
+        "PortalCoverage": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+                "portal",
+                "status"
+            ],
+            "properties": {
+                "portal": {
+                    "description": "Portal id (matches a capabilities portal id).",
+                    "type": "string",
+                    "pattern": "^[a-z0-9][a-z0-9_.-]{0,63}$"
+                },
+                "status": {
+                    "description": "ok = searched successfully (see noticeCount); failed = could not search (error/timeout, or a requested portal that is down) — the matcher MUST NOT record a negative result; skipped = deliberately not searched (the finder's own perf/negative cache, a requested portal the finder does not offer, or a portal not in the requested set) — the matcher MUST NOT treat this as a confirmed miss either. A requested portal the finder cannot serve MUST appear here (skipped/failed), never be silently omitted.",
+                    "type": "string",
+                    "enum": [
+                        "ok",
+                        "failed",
+                        "skipped"
+                    ]
+                },
+                "noticeCount": {
+                    "description": "Number of notices this portal contributed for this person (after dedup). 0 with status ok = genuine \"nothing found\". Bounded by the per-person notices ceiling; NON-AUTHORITATIVE — the matcher MUST NOT size allocations from it, only cross-check against the actual notices.",
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 200,
+                    "default": 0
+                },
+                "message": {
+                    "description": "Human-readable detail, especially for status failed/skipped. Sanitised summary only — never a stack trace, internal path, or raw upstream body.",
+                    "type": "string",
+                    "maxLength": 1000
+                }
+            }
+        },
+        "Counts": {
+            "description": "Optional job-level tallies for status display only — NON-AUTHORITATIVE. Per-person truth lives in each PersonResult's coverage[]; the matcher MUST NOT drive logic from these counts.",
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "candidates": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 1000000
+                },
+                "queries": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 1000000
+                },
+                "notices": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 1000000
+                },
+                "portalErrors": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 1000000
+                },
+                "skippedNotices": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 1000000
+                }
+            }
+        }
+    }
+}
