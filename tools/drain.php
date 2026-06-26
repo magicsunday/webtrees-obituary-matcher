@@ -13,7 +13,7 @@ declare(strict_types=1);
  * Headless CLI adapter that drains finished feeder jobs into the per-tree match stores. It is a THIN
  * composition root: it boots the request-less webtrees runtime ({@see HeadlessBootstrap}), logs in the
  * system principal so every candidate is visible, wires the queue/ingest object graph and hands the
- * single drain decision to {@see DrainService::drain()}. All domain logic lives in the injected
+ * single drain decision to {@see \MagicSunday\ObituaryMatcher\Webtrees\DrainService::drain()}. All domain logic lives in the injected
  * services; this file only parses options, assembles the graph, prints the one-line tally and maps the
  * outcome to an exit code.
  *

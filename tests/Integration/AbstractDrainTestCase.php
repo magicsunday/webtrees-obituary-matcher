@@ -16,6 +16,7 @@ use Fisharebest\Webtrees\Services\TreeService;
 use Fisharebest\Webtrees\Tree;
 use MagicSunday\ObituaryMatcher\Matching\FileMatchStore;
 use MagicSunday\ObituaryMatcher\Matching\IngestService;
+use MagicSunday\ObituaryMatcher\Matching\IngestServiceFactory;
 use MagicSunday\ObituaryMatcher\Matching\MatchStore;
 use MagicSunday\ObituaryMatcher\Queue\AtomicFile;
 use MagicSunday\ObituaryMatcher\Queue\FeederRequestReader;
@@ -23,9 +24,6 @@ use MagicSunday\ObituaryMatcher\Queue\JobState;
 use MagicSunday\ObituaryMatcher\Queue\QueueClient;
 use MagicSunday\ObituaryMatcher\Queue\QueueLimits;
 use MagicSunday\ObituaryMatcher\Queue\QueuePaths;
-use MagicSunday\ObituaryMatcher\Queue\ResponseReader;
-use MagicSunday\ObituaryMatcher\Scoring\Classifier;
-use MagicSunday\ObituaryMatcher\Scoring\EnrichedMatchEngine;
 use MagicSunday\ObituaryMatcher\Webtrees\CandidateRepository;
 use MagicSunday\ObituaryMatcher\Webtrees\DrainService;
 use MagicSunday\ObituaryMatcher\Webtrees\DrainSummary;
@@ -74,7 +72,7 @@ abstract class AbstractDrainTestCase extends AbstractQueueStoreTestCase
         $paths    = $this->paths();
         $storeDir = $this->storeRoot;
 
-        return new class($paths, new QueueClient($paths), new FeederRequestReader($paths, QueueLimits::FEEDER_FILE_MAX_BYTES), new CandidateRepository(), new IngestService(new ResponseReader($paths), new EnrichedMatchEngine(), new Classifier()), new TreeService(new GedcomImportService()), $storeDir) extends DrainService {
+        return new class($paths, new QueueClient($paths), new FeederRequestReader($paths, QueueLimits::FEEDER_FILE_MAX_BYTES), new CandidateRepository(), IngestServiceFactory::create($paths), new TreeService(new GedcomImportService()), $storeDir) extends DrainService {
             /**
              * @param QueuePaths          $paths       The queue path builder.
              * @param QueueClient         $client      The queue state-machine driver.

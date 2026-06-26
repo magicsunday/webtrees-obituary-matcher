@@ -25,7 +25,7 @@ use MagicSunday\ObituaryMatcher\Support\UrlHostNormalizer;
  * The single composition root for the producer object graph. Both the headless `tools/enqueue.php` CLI
  * adapter and the admin {@see ObituaryControlPanelHandler} trigger path assemble the very same 7-argument
  * {@see EnqueueService} graph over a queue root; this factory holds that wiring once so the two consumers
- * stay byte-identical and the response-size cap lives in a single named constant.
+ * stay byte-identical and the response-size cap lives in a single named constant ({@see QueueLimits}).
  *
  * @author  Rico Sonntag <mail@ricosonntag.de>
  * @license https://opensource.org/licenses/GPL-3.0 GNU General Public License v3.0

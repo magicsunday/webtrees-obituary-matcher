@@ -39,7 +39,9 @@ final class IngestServiceFactory
 
     /**
      * Wires the ingest apex over the given queue paths, composing the enriched scoring engine and the
-     * band classifier behind the Matching boundary.
+     * band classifier behind the Matching boundary. The same {@see QueuePaths} instance is threaded
+     * into the {@see ResponseReader} so it reads and writes the SAME queue root as the rest of the
+     * drain graph.
      *
      * @param QueuePaths $paths The queue path builder rooted at the resolved queue root.
      *

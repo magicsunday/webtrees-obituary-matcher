@@ -13,8 +13,9 @@ namespace MagicSunday\ObituaryMatcher\Queue;
 
 /**
  * Shared numeric limits for the queue layer. Holds the single source of truth for the feeder-file
- * size cap that both queue readers ({@see FeederRequestReader}, {@see ResponseReader}) and both
- * composition-root factories enforce, so the 5 MiB ceiling lives in exactly one place.
+ * size cap that the queue readers apply ({@see ResponseReader} as its default, {@see FeederRequestReader}
+ * as an explicit argument) and both composition-root factories pass, so the 5 MiB ceiling lives in
+ * exactly one place.
  *
  * @author  Rico Sonntag <mail@ricosonntag.de>
  * @license https://opensource.org/licenses/GPL-3.0 GNU General Public License v3.0
