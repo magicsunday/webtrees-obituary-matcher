@@ -44,3 +44,6 @@ jobs:
         uses: magicsunday/.github/.github/workflows/yamllint.yml@main
         permissions:
             contents: read
+        with:
+            # Lint the workflow YAML AND the published OpenAPI contract under schemas/.
+            paths: '.github/workflows/ schemas/'

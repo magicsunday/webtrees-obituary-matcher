@@ -145,6 +145,37 @@ final class ContractSchemaTest extends TestCase
     }
 
     /**
+     * Every malformed fixture is rejected by its schema — the gate has teeth.
+     *
+     * @param string $fixture  The malformed fixture filename under invalid/.
+     * @param string $schemaId The $id of the schema the fixture must fail.
+     *
+     * @return void
+     */
+    #[Test]
+    #[DataProvider('invalidFixtures')]
+    public function invalidFixtureIsRejected(string $fixture, string $schemaId): void
+    {
+        $data   = Helper::toJSON(json_decode((string) file_get_contents(__DIR__ . '/invalid/' . $fixture), true));
+        $result = $this->validator()->validate($data, $schemaId);
+
+        self::assertFalse($result->isValid(), $fixture . ' was accepted but must be rejected');
+    }
+
+    /**
+     * @return list<array{0: string, 1: string}>
+     */
+    public static function invalidFixtures(): array
+    {
+        return [
+            ['unknown-property.response.json', self::ID_PREFIX . 'job-response.schema.json'],
+            ['bad-date.response.json', self::ID_PREFIX . 'job-response.schema.json'],
+            ['missing-required.request.json', self::ID_PREFIX . 'job-request.schema.json'],
+            ['wrong-schema-version.request.json', self::ID_PREFIX . 'job-request.schema.json'],
+        ];
+    }
+
+    /**
      * @return list<array{0: string}>
      */
     public static function schemaFiles(): array

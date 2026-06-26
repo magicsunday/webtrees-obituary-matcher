@@ -1,0 +1,53 @@
+{
+    "schemaVersion": 2,
+    "jobId": "job-2024-0001-abcdef",
+    "locale": "de-DE",
+    "options": {
+        "portals": [
+            "obituary-example-de"
+        ],
+        "maxPages": 3
+    },
+    "candidates": [
+        {
+            "personId": "I123-Mustermann",
+            "names": [
+                {
+                    "kind": "primary",
+                    "full": "Max Mustermann",
+                    "given": "Max",
+                    "surname": "Mustermann"
+                },
+                {
+                    "kind": "birth",
+                    "surname": "Musterfrau"
+                }
+            ],
+            "birth": {
+                "exactDate": "1940-03-15",
+                "yearRange": {
+                    "min": 1940,
+                    "max": 1940
+                }
+            },
+            "places": [
+                {
+                    "kind": "birth",
+                    "value": "Musterhausen, Musterstadt, Musterland"
+                },
+                {
+                    "kind": "residence",
+                    "value": "Beispieldorf, Musterstadt, Musterland"
+                }
+            ],
+            "region": "Musterland",
+            "queryHints": [
+                {
+                    "query": "Max Mustermann Musterstadt",
+                    "priority": 1,
+                    "dedupKey": "max-mustermann-musterstadt"
+                }
+            ]
+        }
+    ]
+}

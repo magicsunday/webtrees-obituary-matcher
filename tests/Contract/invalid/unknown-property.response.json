@@ -50,5 +50,6 @@
         "notices": 1,
         "portalErrors": 0,
         "skippedNotices": 0
-    }
+    },
+    "bogus": 1
 }
