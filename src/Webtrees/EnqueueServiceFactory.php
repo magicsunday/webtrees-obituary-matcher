@@ -15,6 +15,7 @@ use Fisharebest\Webtrees\Services\GedcomImportService;
 use Fisharebest\Webtrees\Services\TreeService;
 use MagicSunday\ObituaryMatcher\Queue\FeederRequestReader;
 use MagicSunday\ObituaryMatcher\Queue\QueueClient;
+use MagicSunday\ObituaryMatcher\Queue\QueueLimits;
 use MagicSunday\ObituaryMatcher\Queue\QueuePaths;
 use MagicSunday\ObituaryMatcher\Support\FeederRequestFactory;
 use MagicSunday\ObituaryMatcher\Support\QueryGenerator;
@@ -32,12 +33,6 @@ use MagicSunday\ObituaryMatcher\Support\UrlHostNormalizer;
  */
 final class EnqueueServiceFactory
 {
-    /**
-     * The maximum number of bytes a single feeder response file is read into memory, guarding the
-     * producer against an oversized on-disk response (5 MiB).
-     */
-    private const int RESPONSE_MAX_BYTES = 5_242_880;
-
     /**
      * Static-only utility: no instances.
      */
@@ -59,7 +54,7 @@ final class EnqueueServiceFactory
         return new EnqueueService(
             $paths,
             new QueueClient($paths),
-            new FeederRequestReader($paths, self::RESPONSE_MAX_BYTES),
+            new FeederRequestReader($paths, QueueLimits::FEEDER_FILE_MAX_BYTES),
             new CandidateRepository(),
             new FeederRequestFactory(new QueryGenerator()),
             new UrlHostNormalizer(),

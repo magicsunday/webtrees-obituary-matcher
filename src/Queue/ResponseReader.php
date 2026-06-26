@@ -94,7 +94,7 @@ final readonly class ResponseReader
      */
     public function __construct(
         private QueuePaths $paths,
-        private int $maxBytes = 5_242_880,
+        private int $maxBytes = QueueLimits::FEEDER_FILE_MAX_BYTES,
     ) {
     }
 
