@@ -1,0 +1,39 @@
+<?php
+
+/**
+ * This file is part of the package magicsunday/webtrees-obituary-matcher.
+ *
+ * For the full copyright and license information, please read the
+ * LICENSE file that was distributed with this source code.
+ */
+
+declare(strict_types=1);
+
+namespace MagicSunday\ObituaryMatcher\Queue;
+
+/**
+ * Transport-neutral outcome of a finder job that did not complete: the requested persons plus a
+ * snake_case reason category (e.g. `finder_failed`, `request_failed`) that classifies why the job
+ * failed. Both the file-drop queue and the future REST transport produce this same value object so
+ * the drain can react uniformly regardless of the transport.
+ *
+ * @author  Rico Sonntag <mail@ricosonntag.de>
+ * @license https://opensource.org/licenses/GPL-3.0 GNU General Public License v3.0
+ * @link    https://github.com/magicsunday/webtrees-obituary-matcher/
+ */
+final readonly class FailedJob
+{
+    /**
+     * @param string       $jobId              The finder job identifier.
+     * @param int          $treeId             The webtrees tree the job belongs to.
+     * @param list<string> $requestedPersonIds The person ids the job requested.
+     * @param string       $reasonCategory     The snake_case category classifying the failure.
+     */
+    public function __construct(
+        public string $jobId,
+        public int $treeId,
+        public array $requestedPersonIds,
+        public string $reasonCategory,
+    ) {
+    }
+}
