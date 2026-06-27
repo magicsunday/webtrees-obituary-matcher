@@ -17,6 +17,9 @@ use Fisharebest\Webtrees\Registry;
 use Fisharebest\Webtrees\Tree;
 use MagicSunday\ObituaryMatcher\Matching\FileMatchStore;
 use MagicSunday\ObituaryMatcher\Matching\IngestService;
+use MagicSunday\ObituaryMatcher\Matching\MatchStore;
+use MagicSunday\ObituaryMatcher\Matching\StoredMatch;
+use MagicSunday\ObituaryMatcher\Matching\WriteBack;
 use MagicSunday\ObituaryMatcher\Queue\AtomicFile;
 use MagicSunday\ObituaryMatcher\Queue\FeederRequestReader;
 use MagicSunday\ObituaryMatcher\Queue\JobState;
@@ -32,6 +35,7 @@ use MagicSunday\ObituaryMatcher\Webtrees\MatchStoreFactory;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\Attributes\UsesClass;
+use RuntimeException;
 
 use function file_put_contents;
 use function json_encode;
@@ -62,7 +66,7 @@ use const JSON_THROW_ON_ERROR;
 #[UsesClass(IngestService::class)]
 #[UsesClass(FileMatchStore::class)]
 #[UsesClass(\MagicSunday\ObituaryMatcher\Matching\IngestResult::class)]
-#[UsesClass(\MagicSunday\ObituaryMatcher\Matching\StoredMatch::class)]
+#[UsesClass(StoredMatch::class)]
 #[UsesClass(QueueClient::class)]
 #[UsesClass(QueuePaths::class)]
 #[UsesClass(FeederRequestReader::class)]
@@ -322,6 +326,154 @@ final class DrainServiceTest extends AbstractDrainTestCase
         // ingest try block), NOT request_failed — a response-read failure must never be mislabelled as
         // a request fault.
         self::assertSame('ingest_failed', (new QueueClient($this->paths()))->status('job-001')->error);
+    }
+
+    /**
+     * A throw from the ingest STEP itself (as opposed to a transport read fault) terminally parks the
+     * job as ingest_failed rather than releasing it: a job whose {@see IngestService::ingest()} throws
+     * mid-flight — here because the per-tree store's persist step fails — must not be re-claimed every
+     * drain (head-of-line starvation), so {@see DrainService} catches the {@see Throwable} and routes
+     * the job to failed-ingest. This pins {@see DrainService::ingestCompleted()}'s catch arm directly:
+     * a valid request + valid response reaches ingest, the store throws on upsert, and the job lands in
+     * failed-ingest counted failed with nothing stored. Distinct from the torn/oversize/schema-invalid
+     * scenarios, where the fault surfaces from the transport READ before the ingest runs.
+     */
+    #[Test]
+    public function anIngestThrowParksTheJobAsIngestFailed(): void
+    {
+        $tree = $this->ottoTree('fixture-a');
+        $job  = $this->seedDoneJob('job-001', $tree->id(), 'I1', 'Otto Searchable');
+
+        // A store whose persist step deterministically throws: ingest() scores the held I1's notice and
+        // calls upsertPending(), whose RuntimeException propagates out of ingest() into ingestCompleted's
+        // catch(Throwable) arm. The other methods are unused by this scenario.
+        $throwingStore = new class implements MatchStore {
+            /**
+             * Throws to simulate the persistence layer failing mid-ingest.
+             *
+             * @param StoredMatch $match The suggestion the ingest tried to persist.
+             *
+             * @return bool Never returns; always throws in this fault double.
+             */
+            public function upsertPending(StoredMatch $match): bool
+            {
+                throw new RuntimeException('persist failed');
+            }
+
+            /**
+             * Unused by this scenario; returns no rows.
+             *
+             * @param string $personId The candidate identifier.
+             *
+             * @return list<StoredMatch> The empty result.
+             */
+            public function findByPerson(string $personId): array
+            {
+                return [];
+            }
+
+            /**
+             * Unused by this scenario; returns no pending rows.
+             *
+             * @return list<StoredMatch> The empty result.
+             */
+            public function allPending(): array
+            {
+                return [];
+            }
+
+            /**
+             * Unused by this scenario; returns no rows.
+             *
+             * @return list<StoredMatch> The empty result.
+             */
+            public function all(): array
+            {
+                return [];
+            }
+
+            /**
+             * Unused by this scenario; resolves no row.
+             *
+             * @param string $personId The candidate identifier.
+             * @param string $rowKey   The canonical row key.
+             *
+             * @return StoredMatch|null Always null.
+             */
+            public function findOne(string $personId, string $rowKey): ?StoredMatch
+            {
+                return null;
+            }
+
+            /**
+             * Unused by this scenario; accepts the call as a no-op.
+             *
+             * @param string      $personId    The candidate identifier.
+             * @param string      $obituaryUrl The source URL.
+             * @param string|null $reason      The rejection reason.
+             *
+             * @return void
+             */
+            public function markRejected(string $personId, string $obituaryUrl, ?string $reason): void
+            {
+            }
+
+            /**
+             * Unused by this scenario; accepts the call as a no-op.
+             *
+             * @param string      $personId    The candidate identifier.
+             * @param string      $obituaryUrl The source URL.
+             * @param string|null $reason      The reviewer note.
+             *
+             * @return void
+             */
+            public function markUncertain(string $personId, string $obituaryUrl, ?string $reason): void
+            {
+            }
+
+            /**
+             * Unused by this scenario; reports no transition.
+             *
+             * @param string    $personId    The candidate identifier.
+             * @param string    $obituaryUrl The source URL.
+             * @param WriteBack $writeBack   The write-back IDs.
+             *
+             * @return bool Always false.
+             */
+            public function markConfirmed(string $personId, string $obituaryUrl, WriteBack $writeBack): bool
+            {
+                return false;
+            }
+
+            /**
+             * Unused by this scenario; accepts the call as a no-op.
+             *
+             * @param string $personId    The candidate identifier.
+             * @param string $obituaryUrl The source URL.
+             *
+             * @return void
+             */
+            public function revert(string $personId, string $obituaryUrl): void
+            {
+            }
+        };
+
+        $summary = $this->drainService($throwingStore)->drain(null, 20);
+
+        // The job failed at the ingest step, persisted nothing, and was counted failed (not released).
+        self::assertSame(0, $summary->ingested);
+        self::assertSame(0, $summary->stored);
+        self::assertSame(1, $summary->failed);
+
+        // Queue end-state: the job is terminally parked in failed-ingest (NOT stranded in ingesting/,
+        // NOT released back to done where it would be re-claimed forever).
+        self::assertSame(JobState::FailedIngest, $this->paths()->stateOf($job));
+
+        // The recorded reason CATEGORY is ingest_failed — the ingest-step throw, not a read fault.
+        self::assertSame('ingest_failed', (new QueueClient($this->paths()))->status($job)->error);
+
+        // Store delta: the real per-tree store (separate from the throwing double) holds no row.
+        self::assertSame([], $this->storeFor($tree)->allPending());
     }
 
     /**

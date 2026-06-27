@@ -67,9 +67,16 @@ abstract class AbstractDrainTestCase extends AbstractQueueStoreTestCase
      * isolated per-tree store under this test's throwaway root so the assertions read that store
      * rather than the live webtrees data dir.
      *
+     * When $storeOverride is non-null the per-tree store seam yields exactly that store instead of the
+     * isolated file store, so a scenario can drive a store whose persist step throws — exercising the
+     * ingest-throw branch the file store never triggers.
+     *
+     * @param MatchStore|null $storeOverride The store every {@see DrainService::storeForTree()} call
+     *                                       returns, or null to use the isolated per-tree file store.
+     *
      * @return DrainService
      */
-    protected function drainService(): DrainService
+    protected function drainService(?MatchStore $storeOverride = null): DrainService
     {
         $paths    = $this->paths();
         $storeDir = $this->storeRoot;
@@ -83,13 +90,15 @@ abstract class AbstractDrainTestCase extends AbstractQueueStoreTestCase
             $paths,
         );
 
-        return new class(new CandidateRepository(), IngestServiceFactory::create(), new TreeService(new GedcomImportService()), $transport, $storeDir) extends DrainService {
+        return new class(new CandidateRepository(), IngestServiceFactory::create(), new TreeService(new GedcomImportService()), $transport, $storeDir, $storeOverride) extends DrainService {
             /**
-             * @param CandidateRepository $repository  The candidate repository.
-             * @param IngestService       $ingest      The enriched ingest pipeline.
-             * @param TreeService         $treeService The tree lookup.
-             * @param JobTransport        $transport   The file-drop job transport.
-             * @param string              $storeRoot   The isolated per-tree store base directory.
+             * @param CandidateRepository $repository    The candidate repository.
+             * @param IngestService       $ingest        The enriched ingest pipeline.
+             * @param TreeService         $treeService   The tree lookup.
+             * @param JobTransport        $transport     The file-drop job transport.
+             * @param string              $storeRoot     The isolated per-tree store base directory.
+             * @param MatchStore|null     $storeOverride The store every storeForTree() call returns, or
+             *                                           null to build the isolated per-tree file store.
              */
             public function __construct(
                 CandidateRepository $repository,
@@ -97,20 +106,22 @@ abstract class AbstractDrainTestCase extends AbstractQueueStoreTestCase
                 TreeService $treeService,
                 JobTransport $transport,
                 private readonly string $storeRoot,
+                private readonly ?MatchStore $storeOverride,
             ) {
                 parent::__construct($repository, $ingest, $treeService, $transport);
             }
 
             /**
-             * Redirect the per-tree store to an isolated directory under the test root.
+             * Redirect the per-tree store to an isolated directory under the test root, or to the
+             * injected override store when one was supplied.
              *
              * @param Tree $tree The tree whose store is requested.
              *
-             * @return MatchStore The isolated, tree-scoped store.
+             * @return MatchStore The isolated, tree-scoped store (or the injected override).
              */
             protected function storeForTree(Tree $tree): MatchStore
             {
-                return new FileMatchStore(
+                return $this->storeOverride ?? new FileMatchStore(
                     MatchStoreFactory::pathForTree($this->storeRoot, $tree)
                 );
             }
