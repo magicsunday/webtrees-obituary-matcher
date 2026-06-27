@@ -62,7 +62,7 @@ final readonly class DrainOutcome
     }
 
     /**
-     * A job parked failed or released after a mid-ingest throw.
+     * A job terminally parked as failed — an unknown tree, or a mid-ingest throw.
      *
      * @return self
      */
