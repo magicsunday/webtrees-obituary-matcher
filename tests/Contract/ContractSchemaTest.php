@@ -288,6 +288,16 @@ final class ContractSchemaTest extends TestCase
                 self::ID_PREFIX . 'job-response.schema.json',
                 'required',
             ],
+            'empty coverage array → minItems' => [
+                'empty-coverage.response.json',
+                self::ID_PREFIX . 'job-response.schema.json',
+                'minItems',
+            ],
+            'capabilities without retentionSeconds → required' => [
+                'missing-retention.capabilities.json',
+                self::ID_PREFIX . 'capabilities.schema.json',
+                'required',
+            ],
         ];
     }
 
@@ -317,10 +327,12 @@ final class ContractSchemaTest extends TestCase
             'response example → job-response'     => ['response.json', self::ID_PREFIX . 'job-response.schema.json'],
             'capabilities example → capabilities' => ['capabilities.json', self::ID_PREFIX . 'capabilities.schema.json'],
             // A `done` job that SEARCHED a person but found nothing represents that person as a
-            // PRESENT key whose PersonResult carries empty `notices` plus a `coverage` entry with
-            // status "ok"/noticeCount 0 — the "real miss" shape the contract exists to capture
-            // (distinct from a missing key = "not searched"). This row pins that semantic AND the
-            // coverage `minItems: 1` bound: a PersonResult must report at least one searched portal.
+            // PRESENT key whose PersonResult carries empty `notices` plus a NON-empty `coverage` of
+            // one entry with status "ok"/noticeCount 0 — the "real miss" shape the contract exists to
+            // capture (distinct from a missing key = "not searched"). This row pins that SEMANTIC: a
+            // valid example with a 1-item coverage cannot pin the lower `minItems: 1` bound (dropping
+            // it leaves this green); that bound is pinned in the reject direction by the
+            // empty-coverage.response.json invalid fixture.
             'empty-results response → job-response' => [
                 'response-empty-results.json',
                 self::ID_PREFIX . 'job-response.schema.json',
