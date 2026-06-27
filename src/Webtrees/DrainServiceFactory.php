@@ -15,6 +15,7 @@ use Fisharebest\Webtrees\Services\GedcomImportService;
 use Fisharebest\Webtrees\Services\TreeService;
 use MagicSunday\ObituaryMatcher\Matching\IngestServiceFactory;
 use MagicSunday\ObituaryMatcher\Queue\FeederRequestReader;
+use MagicSunday\ObituaryMatcher\Queue\FileJobTransport;
 use MagicSunday\ObituaryMatcher\Queue\QueueClient;
 use MagicSunday\ObituaryMatcher\Queue\QueueLimits;
 use MagicSunday\ObituaryMatcher\Queue\QueuePaths;
@@ -52,13 +53,15 @@ final class DrainServiceFactory
     public static function create(QueuePaths $paths): DrainService
     {
         return new DrainService(
-            $paths,
-            new QueueClient($paths),
-            new FeederRequestReader($paths, QueueLimits::FEEDER_FILE_MAX_BYTES),
             new CandidateRepository(),
-            new ResponseReader($paths, QueueLimits::FEEDER_FILE_MAX_BYTES),
             IngestServiceFactory::create(),
             new TreeService(new GedcomImportService()),
+            new FileJobTransport(
+                new QueueClient($paths),
+                new ResponseReader($paths, QueueLimits::FEEDER_FILE_MAX_BYTES),
+                new FeederRequestReader($paths, QueueLimits::FEEDER_FILE_MAX_BYTES),
+                $paths,
+            ),
         );
     }
 }

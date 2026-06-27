@@ -31,10 +31,12 @@ use Fisharebest\Webtrees\View;
 use LogicException;
 use MagicSunday\ObituaryMatcher\Queue\AtomicFile;
 use MagicSunday\ObituaryMatcher\Queue\FeederRequestReader;
+use MagicSunday\ObituaryMatcher\Queue\FileJobTransport;
 use MagicSunday\ObituaryMatcher\Queue\JobState;
 use MagicSunday\ObituaryMatcher\Queue\QueueClient;
 use MagicSunday\ObituaryMatcher\Queue\QueueLimits;
 use MagicSunday\ObituaryMatcher\Queue\QueuePaths;
+use MagicSunday\ObituaryMatcher\Queue\ResponseReader;
 use MagicSunday\ObituaryMatcher\Support\FeederRequestFactory;
 use MagicSunday\ObituaryMatcher\Support\QueryGenerator;
 use MagicSunday\ObituaryMatcher\Support\UrlHostNormalizer;
@@ -451,13 +453,16 @@ final class ObituaryControlPanelHandlerTest extends AbstractEnqueueTestCase
                     public function __construct(QueuePaths $paths, private readonly Throwable $exception)
                     {
                         parent::__construct(
-                            $paths,
-                            new QueueClient($paths),
-                            new FeederRequestReader($paths, QueueLimits::FEEDER_FILE_MAX_BYTES),
                             new CandidateRepository(),
                             new FeederRequestFactory(new QueryGenerator()),
                             new UrlHostNormalizer(),
                             new TreeService(new GedcomImportService()),
+                            new FileJobTransport(
+                                new QueueClient($paths),
+                                new ResponseReader($paths, QueueLimits::FEEDER_FILE_MAX_BYTES),
+                                new FeederRequestReader($paths, QueueLimits::FEEDER_FILE_MAX_BYTES),
+                                $paths,
+                            ),
                         );
                     }
 

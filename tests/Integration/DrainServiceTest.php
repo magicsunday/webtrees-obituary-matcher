@@ -53,6 +53,8 @@ use const JSON_THROW_ON_ERROR;
  */
 #[CoversClass(DrainService::class)]
 #[UsesClass(\MagicSunday\ObituaryMatcher\Webtrees\DrainSummary::class)]
+#[UsesClass(\MagicSunday\ObituaryMatcher\Webtrees\DrainOutcome::class)]
+#[UsesClass(\MagicSunday\ObituaryMatcher\Queue\FileJobTransport::class)]
 #[UsesClass(CandidateRepository::class)]
 #[UsesClass(MatchStoreFactory::class)]
 #[UsesClass(\MagicSunday\ObituaryMatcher\Webtrees\PersonCandidateAdapter::class)]

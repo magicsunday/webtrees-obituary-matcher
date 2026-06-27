@@ -19,6 +19,7 @@ use RuntimeException;
 
 use function dirname;
 use function file_get_contents;
+use function file_put_contents;
 use function json_decode;
 use function sprintf;
 
@@ -61,5 +62,58 @@ abstract class QueueTempDirTestCase extends TempDirTestCase
         $data = json_decode($contents, true, flags: JSON_THROW_ON_ERROR);
 
         AtomicFile::writeJson($path, $data);
+    }
+
+    /**
+     * Writes the decoded fixture bytes into <state>/<jobId>/request.json, simulating the module-written
+     * feeder request. The embedded jobId is pinned to {@see $jobId} so the {@see FeederRequestReader}'s
+     * consistency gate (request jobId === claimed/scanned directory jobId) passes for any directory name.
+     *
+     * @param string   $jobId   The job identifier whose state directory receives the request.
+     * @param string   $fixture The fixture file name under tests/fixtures.
+     * @param JobState $state   The state directory to seed the request into (defaults to done).
+     *
+     * @return void
+     */
+    protected function placeRequest(string $jobId, string $fixture, JobState $state = JobState::Done): void
+    {
+        $path = (new QueuePaths($this->tmp))->stateDir($state, $jobId) . '/request.json';
+
+        AtomicFile::ensureDirectory(dirname($path));
+
+        $contents = file_get_contents(__DIR__ . '/../fixtures/' . $fixture);
+
+        if ($contents === false) {
+            throw new RuntimeException(sprintf('Fixture not readable: %s', $fixture));
+        }
+
+        /** @var array<string, mixed> $data */
+        $data = json_decode($contents, true, flags: JSON_THROW_ON_ERROR);
+
+        // Pin the embedded jobId to the seeded directory so a fixed fixture can be reused under any
+        // directory name (the reader rejects a request whose jobId does not match its directory).
+        $data['jobId'] = $jobId;
+
+        AtomicFile::writeJson($path, $data);
+    }
+
+    /**
+     * Writes raw bytes verbatim into <state>/<jobId>/<file>, used to seed a deliberately malformed
+     * (poison) payload that {@see AtomicFile::writeJson} would never produce.
+     *
+     * @param string   $jobId    The job identifier whose state directory receives the file.
+     * @param string   $file     The file name to write inside the job directory (e.g. `request.json`).
+     * @param string   $contents The raw bytes to write verbatim.
+     * @param JobState $state    The state directory to seed the file into (defaults to done).
+     *
+     * @return void
+     */
+    protected function placeRaw(string $jobId, string $file, string $contents, JobState $state = JobState::Done): void
+    {
+        $path = (new QueuePaths($this->tmp))->stateDir($state, $jobId) . '/' . $file;
+
+        AtomicFile::ensureDirectory(dirname($path));
+
+        file_put_contents($path, $contents);
     }
 }

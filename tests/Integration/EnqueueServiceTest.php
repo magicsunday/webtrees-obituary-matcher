@@ -19,6 +19,7 @@ use MagicSunday\ObituaryMatcher\Matching\StoredMatch;
 use MagicSunday\ObituaryMatcher\Matching\StoredMatchKey;
 use MagicSunday\ObituaryMatcher\Queue\AtomicFile;
 use MagicSunday\ObituaryMatcher\Queue\FeederRequestReader;
+use MagicSunday\ObituaryMatcher\Queue\FileJobTransport;
 use MagicSunday\ObituaryMatcher\Queue\JobState;
 use MagicSunday\ObituaryMatcher\Queue\QueueClient;
 use MagicSunday\ObituaryMatcher\Queue\QueueLimits;
@@ -66,6 +67,7 @@ use function mkdir;
 #[UsesClass(MatchStatus::class)]
 #[UsesClass(AtomicFile::class)]
 #[UsesClass(FeederRequestReader::class)]
+#[UsesClass(FileJobTransport::class)]
 #[UsesClass(QueueClient::class)]
 #[UsesClass(QueuePaths::class)]
 #[UsesClass(JobState::class)]

@@ -20,10 +20,11 @@ use MagicSunday\ObituaryMatcher\Matching\IngestServiceFactory;
 use MagicSunday\ObituaryMatcher\Matching\MatchStore;
 use MagicSunday\ObituaryMatcher\Queue\AtomicFile;
 use MagicSunday\ObituaryMatcher\Queue\FeederRequestReader;
+use MagicSunday\ObituaryMatcher\Queue\FileJobTransport;
 use MagicSunday\ObituaryMatcher\Queue\JobState;
+use MagicSunday\ObituaryMatcher\Queue\JobTransport;
 use MagicSunday\ObituaryMatcher\Queue\QueueClient;
 use MagicSunday\ObituaryMatcher\Queue\QueueLimits;
-use MagicSunday\ObituaryMatcher\Queue\QueuePaths;
 use MagicSunday\ObituaryMatcher\Queue\ResponseReader;
 use MagicSunday\ObituaryMatcher\Webtrees\CandidateRepository;
 use MagicSunday\ObituaryMatcher\Webtrees\DrainService;
@@ -73,28 +74,31 @@ abstract class AbstractDrainTestCase extends AbstractQueueStoreTestCase
         $paths    = $this->paths();
         $storeDir = $this->storeRoot;
 
-        return new class($paths, new QueueClient($paths), new FeederRequestReader($paths, QueueLimits::FEEDER_FILE_MAX_BYTES), new CandidateRepository(), new ResponseReader($paths, QueueLimits::FEEDER_FILE_MAX_BYTES), IngestServiceFactory::create(), new TreeService(new GedcomImportService()), $storeDir) extends DrainService {
+        // Build the file transport over this test's throwaway queue exactly as DrainServiceFactory does,
+        // so the test drives the real composition root; only the per-tree store seam is redirected below.
+        $transport = new FileJobTransport(
+            new QueueClient($paths),
+            new ResponseReader($paths, QueueLimits::FEEDER_FILE_MAX_BYTES),
+            new FeederRequestReader($paths, QueueLimits::FEEDER_FILE_MAX_BYTES),
+            $paths,
+        );
+
+        return new class(new CandidateRepository(), IngestServiceFactory::create(), new TreeService(new GedcomImportService()), $transport, $storeDir) extends DrainService {
             /**
-             * @param QueuePaths          $paths          The queue path builder.
-             * @param QueueClient         $client         The queue state-machine driver.
-             * @param FeederRequestReader $reader         The validating request reader.
-             * @param CandidateRepository $repository     The candidate repository.
-             * @param ResponseReader      $responseReader The validating response reader.
-             * @param IngestService       $ingest         The enriched ingest pipeline.
-             * @param TreeService         $treeService    The tree lookup.
-             * @param string              $storeRoot      The isolated per-tree store base directory.
+             * @param CandidateRepository $repository  The candidate repository.
+             * @param IngestService       $ingest      The enriched ingest pipeline.
+             * @param TreeService         $treeService The tree lookup.
+             * @param JobTransport        $transport   The file-drop job transport.
+             * @param string              $storeRoot   The isolated per-tree store base directory.
              */
             public function __construct(
-                QueuePaths $paths,
-                QueueClient $client,
-                FeederRequestReader $reader,
                 CandidateRepository $repository,
-                ResponseReader $responseReader,
                 IngestService $ingest,
                 TreeService $treeService,
+                JobTransport $transport,
                 private readonly string $storeRoot,
             ) {
-                parent::__construct($paths, $client, $reader, $repository, $responseReader, $ingest, $treeService);
+                parent::__construct($repository, $ingest, $treeService, $transport);
             }
 
             /**

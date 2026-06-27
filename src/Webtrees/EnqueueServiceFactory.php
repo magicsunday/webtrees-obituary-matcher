@@ -14,9 +14,11 @@ namespace MagicSunday\ObituaryMatcher\Webtrees;
 use Fisharebest\Webtrees\Services\GedcomImportService;
 use Fisharebest\Webtrees\Services\TreeService;
 use MagicSunday\ObituaryMatcher\Queue\FeederRequestReader;
+use MagicSunday\ObituaryMatcher\Queue\FileJobTransport;
 use MagicSunday\ObituaryMatcher\Queue\QueueClient;
 use MagicSunday\ObituaryMatcher\Queue\QueueLimits;
 use MagicSunday\ObituaryMatcher\Queue\QueuePaths;
+use MagicSunday\ObituaryMatcher\Queue\ResponseReader;
 use MagicSunday\ObituaryMatcher\Support\FeederRequestFactory;
 use MagicSunday\ObituaryMatcher\Support\QueryGenerator;
 use MagicSunday\ObituaryMatcher\Support\UrlHostNormalizer;
@@ -52,13 +54,16 @@ final class EnqueueServiceFactory
     public static function create(QueuePaths $paths): EnqueueService
     {
         return new EnqueueService(
-            $paths,
-            new QueueClient($paths),
-            new FeederRequestReader($paths, QueueLimits::FEEDER_FILE_MAX_BYTES),
             new CandidateRepository(),
             new FeederRequestFactory(new QueryGenerator()),
             new UrlHostNormalizer(),
             new TreeService(new GedcomImportService()),
+            new FileJobTransport(
+                new QueueClient($paths),
+                new ResponseReader($paths, QueueLimits::FEEDER_FILE_MAX_BYTES),
+                new FeederRequestReader($paths, QueueLimits::FEEDER_FILE_MAX_BYTES),
+                $paths,
+            ),
         );
     }
 }

@@ -23,10 +23,12 @@ use MagicSunday\ObituaryMatcher\Matching\StoredMatch;
 use MagicSunday\ObituaryMatcher\Matching\StoredMatchKey;
 use MagicSunday\ObituaryMatcher\Queue\AtomicFile;
 use MagicSunday\ObituaryMatcher\Queue\FeederRequestReader;
+use MagicSunday\ObituaryMatcher\Queue\FileJobTransport;
 use MagicSunday\ObituaryMatcher\Queue\JobState;
+use MagicSunday\ObituaryMatcher\Queue\JobTransport;
 use MagicSunday\ObituaryMatcher\Queue\QueueClient;
 use MagicSunday\ObituaryMatcher\Queue\QueueLimits;
-use MagicSunday\ObituaryMatcher\Queue\QueuePaths;
+use MagicSunday\ObituaryMatcher\Queue\ResponseReader;
 use MagicSunday\ObituaryMatcher\Support\FeederRequestFactory;
 use MagicSunday\ObituaryMatcher\Support\QueryGenerator;
 use MagicSunday\ObituaryMatcher\Support\UrlHostNormalizer;
@@ -75,28 +77,33 @@ abstract class AbstractEnqueueTestCase extends AbstractQueueStoreTestCase
         $paths    = $this->paths();
         $storeDir = $this->storeRoot;
 
-        return new class($paths, new QueueClient($paths), new FeederRequestReader($paths, QueueLimits::FEEDER_FILE_MAX_BYTES), new CandidateRepository(), new FeederRequestFactory(new QueryGenerator()), new UrlHostNormalizer(), new TreeService(new GedcomImportService()), $storeDir) extends EnqueueService {
+        // Build the file transport over this test's throwaway queue exactly as EnqueueServiceFactory
+        // does, so the test drives the real composition root; only the store + clock seams are pinned.
+        $transport = new FileJobTransport(
+            new QueueClient($paths),
+            new ResponseReader($paths, QueueLimits::FEEDER_FILE_MAX_BYTES),
+            new FeederRequestReader($paths, QueueLimits::FEEDER_FILE_MAX_BYTES),
+            $paths,
+        );
+
+        return new class(new CandidateRepository(), new FeederRequestFactory(new QueryGenerator()), new UrlHostNormalizer(), new TreeService(new GedcomImportService()), $transport, $storeDir) extends EnqueueService {
             /**
-             * @param QueuePaths           $paths          The queue path builder.
-             * @param QueueClient          $client         The queue state-machine driver.
-             * @param FeederRequestReader  $reader         The validating request reader.
              * @param CandidateRepository  $repository     The candidate repository.
              * @param FeederRequestFactory $requestFactory The request assembler.
              * @param UrlHostNormalizer    $hostNormalizer The canonical-host helper.
              * @param TreeService          $treeService    The tree lookup.
+             * @param JobTransport         $transport      The file-drop job transport.
              * @param string               $storeRoot      The isolated per-tree store base directory.
              */
             public function __construct(
-                QueuePaths $paths,
-                QueueClient $client,
-                FeederRequestReader $reader,
                 CandidateRepository $repository,
                 FeederRequestFactory $requestFactory,
                 UrlHostNormalizer $hostNormalizer,
                 TreeService $treeService,
+                JobTransport $transport,
                 private readonly string $storeRoot,
             ) {
-                parent::__construct($paths, $client, $reader, $repository, $requestFactory, $hostNormalizer, $treeService);
+                parent::__construct($repository, $requestFactory, $hostNormalizer, $treeService, $transport);
             }
 
             /**
