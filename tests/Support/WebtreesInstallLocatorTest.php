@@ -142,6 +142,7 @@ final class WebtreesInstallLocatorTest extends TempDirTestCase
         self::assertNull($locator->configFile());
         self::assertNull($locator->dataDir());
         self::assertNull($locator->defaultQueueRoot());
+        self::assertNull($locator->defaultRestPendingRoot());
     }
 
     /**
@@ -160,5 +161,8 @@ final class WebtreesInstallLocatorTest extends TempDirTestCase
         self::assertSame($expectedRoot . '/data/config.ini.php', $locator->configFile());
         self::assertSame($expectedRoot . '/data', $locator->dataDir());
         self::assertSame($expectedRoot . '/data/obituary-matcher/queue', $locator->defaultQueueRoot());
+
+        // The REST pending-jobs ledger root is the sibling of the queue root under the same module dir.
+        self::assertSame($expectedRoot . '/data/obituary-matcher/rest-pending', $locator->defaultRestPendingRoot());
     }
 }

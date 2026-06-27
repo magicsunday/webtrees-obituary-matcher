@@ -129,4 +129,18 @@ final readonly class WebtreesInstallLocator
 
         return $dataDir === null ? null : $dataDir . '/obituary-matcher/queue';
     }
+
+    /**
+     * Returns the absolute path to the located install's default REST pending-jobs ledger root
+     * (`data/obituary-matcher/rest-pending`, the sibling of {@see self::defaultQueueRoot()}), or null
+     * when no install root could be located.
+     *
+     * @return string|null
+     */
+    public function defaultRestPendingRoot(): ?string
+    {
+        $dataDir = $this->dataDir();
+
+        return $dataDir === null ? null : $dataDir . '/obituary-matcher/rest-pending';
+    }
 }
