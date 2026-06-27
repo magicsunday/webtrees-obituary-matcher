@@ -18,6 +18,7 @@ use MagicSunday\ObituaryMatcher\Queue\FeederRequestReader;
 use MagicSunday\ObituaryMatcher\Queue\QueueClient;
 use MagicSunday\ObituaryMatcher\Queue\QueueLimits;
 use MagicSunday\ObituaryMatcher\Queue\QueuePaths;
+use MagicSunday\ObituaryMatcher\Queue\ResponseReader;
 
 /**
  * The single composition root for the drain object graph. Both the headless `tools/drain.php` CLI
@@ -55,7 +56,8 @@ final class DrainServiceFactory
             new QueueClient($paths),
             new FeederRequestReader($paths, QueueLimits::FEEDER_FILE_MAX_BYTES),
             new CandidateRepository(),
-            IngestServiceFactory::create($paths),
+            new ResponseReader($paths, QueueLimits::FEEDER_FILE_MAX_BYTES),
+            IngestServiceFactory::create(),
             new TreeService(new GedcomImportService()),
         );
     }

@@ -15,8 +15,6 @@ use MagicSunday\ObituaryMatcher\Domain\ClassifiedMatch;
 use MagicSunday\ObituaryMatcher\Domain\DeathNoticeRecord;
 use MagicSunday\ObituaryMatcher\Domain\MatchExplanation;
 use MagicSunday\ObituaryMatcher\Domain\PersonCandidate;
-use MagicSunday\ObituaryMatcher\Queue\JobState;
-use MagicSunday\ObituaryMatcher\Queue\ResponseReader;
 use MagicSunday\ObituaryMatcher\Scoring\Classifier;
 use MagicSunday\ObituaryMatcher\Scoring\EnrichedMatchEngine;
 use MagicSunday\ObituaryMatcher\Support\UrlNormalizer;
@@ -29,11 +27,13 @@ use function usort;
 
 /**
  * The Phase-2 vertical slice that turns a validated feeder response into persisted pending
- * suggestions. It reads the CLAIMED (ingesting) job's response, and for every requested person who
- * still has a held candidate scores each scraped notice DIRECTLY with the enriched engine,
+ * suggestions. It is handed the already-validated notices (keyed by person), and for every requested
+ * person who still has a held candidate scores each scraped notice DIRECTLY with the enriched engine,
  * classifies the best result against the per-notice set and persists it to the passed store as a
  * pending match. The run is summarised into a typed {@see IngestResult} whose per-metric counts and
  * non-fatal warnings the caller records via {@see \MagicSunday\ObituaryMatcher\Queue\QueueClient::markIngested()}.
+ * Reading and validating the transport response is the caller's responsibility (the drain reads it via
+ * {@see \MagicSunday\ObituaryMatcher\Queue\ResponseReader}), keeping this service transport-agnostic.
  *
  * @author  Rico Sonntag <mail@ricosonntag.de>
  * @license https://opensource.org/licenses/GPL-3.0 GNU General Public License v3.0
@@ -44,46 +44,45 @@ final readonly class IngestService
     /**
      * Constructor.
      *
-     * @param ResponseReader      $reader     The validating reader for the feeder's response.json.
      * @param EnrichedMatchEngine $engine     The enriched scoring engine that harvests the notice's facts.
      * @param Classifier          $classifier The band/ambiguity classifier.
      */
     public function __construct(
-        private ResponseReader $reader,
         private EnrichedMatchEngine $engine,
         private Classifier $classifier,
     ) {
     }
 
     /**
-     * Reads the CLAIMED job's validated response, scores every notice belonging to a still-held
-     * candidate and persists the best result per notice as a pending suggestion in the passed store.
+     * Scores every already-validated notice belonging to a still-held candidate and persists the best
+     * result per notice as a pending suggestion in the passed store.
      *
-     * @param string                         $jobId              The job whose response is ingested.
-     * @param list<string>                   $requestedPersonIds The person ids that were in the request
-     *                                                           (passed straight to the reader as the
-     *                                                           strict job-ownership boundary).
-     * @param array<string, PersonCandidate> $candidatesById     The candidates the module currently
-     *                                                           holds, keyed by person id. A requested
-     *                                                           person with a notice but no entry here
-     *                                                           (e.g. now private or deleted) is not an
-     *                                                           error: it stores nothing and is reported
-     *                                                           as a warning.
-     * @param MatchStore                     $store              The persistence boundary the suggestions
-     *                                                           are written to (passed per call so the
-     *                                                           service stays store-agnostic).
+     * @param array<string, list<DeathNoticeRecord>> $notices            The already-validated notices to
+     *                                                                   ingest, keyed by person id (the
+     *                                                                   strict job-ownership boundary was
+     *                                                                   enforced by the validator).
+     * @param list<string>                           $requestedPersonIds The person ids that were in the request.
+     * @param array<string, PersonCandidate>         $candidatesById     The candidates the module currently
+     *                                                                   holds, keyed by person id. A requested
+     *                                                                   person with a notice but no entry here
+     *                                                                   (e.g. now private or deleted) is not an
+     *                                                                   error: it stores nothing and is reported
+     *                                                                   as a warning.
+     * @param MatchStore                             $store              The persistence boundary the suggestions
+     *                                                                   are written to (passed per call so the
+     *                                                                   service stays store-agnostic).
      *
      * @return IngestResult The per-metric counts and non-fatal warnings of this run.
      */
     public function ingest(
-        string $jobId,
+        array $notices,
         array $requestedPersonIds,
         array $candidatesById,
         MatchStore $store,
     ): IngestResult {
-        // The drain reads the job it has CLAIMED into the ingesting state; ownership stays strict:
-        // the reader rejects any result for a person not in the request.
-        $byPerson = $this->reader->read($jobId, $requestedPersonIds, JobState::Ingesting);
+        // Ownership was already enforced by the validator that produced these notices: every key here
+        // is one of the requested person ids.
+        $byPerson = $notices;
 
         $noticesRead = 0;
         $stored      = 0;
@@ -96,10 +95,10 @@ final readonly class IngestService
         // last-write-wins de-dup actually leaves on disk.
         $seenKeys = [];
 
-        foreach ($byPerson as $personId => $notices) {
-            $noticesRead += count($notices);
+        foreach ($byPerson as $personId => $personNotices) {
+            $noticesRead += count($personNotices);
 
-            if ($notices === []) {
+            if ($personNotices === []) {
                 continue;
             }
 
@@ -109,7 +108,7 @@ final readonly class IngestService
                 $warnings[] = sprintf(
                     'Person %s has %d notice(s) but no held candidate this run; skipped.',
                     $personId,
-                    count($notices),
+                    count($personNotices),
                 );
 
                 continue;
@@ -117,7 +116,7 @@ final readonly class IngestService
 
             $candidate = $candidatesById[$personId];
 
-            foreach ($notices as $notice) {
+            foreach ($personNotices as $notice) {
                 $match = $this->buildPendingMatch($candidate, $notice);
 
                 // The identity key mirrors FileMatchStore's keying so the count tracks distinct

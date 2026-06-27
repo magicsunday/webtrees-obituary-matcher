@@ -24,6 +24,7 @@ use MagicSunday\ObituaryMatcher\Queue\JobState;
 use MagicSunday\ObituaryMatcher\Queue\QueueClient;
 use MagicSunday\ObituaryMatcher\Queue\QueueLimits;
 use MagicSunday\ObituaryMatcher\Queue\QueuePaths;
+use MagicSunday\ObituaryMatcher\Queue\ResponseReader;
 use MagicSunday\ObituaryMatcher\Webtrees\CandidateRepository;
 use MagicSunday\ObituaryMatcher\Webtrees\DrainService;
 use MagicSunday\ObituaryMatcher\Webtrees\DrainSummary;
@@ -72,26 +73,28 @@ abstract class AbstractDrainTestCase extends AbstractQueueStoreTestCase
         $paths    = $this->paths();
         $storeDir = $this->storeRoot;
 
-        return new class($paths, new QueueClient($paths), new FeederRequestReader($paths, QueueLimits::FEEDER_FILE_MAX_BYTES), new CandidateRepository(), IngestServiceFactory::create($paths), new TreeService(new GedcomImportService()), $storeDir) extends DrainService {
+        return new class($paths, new QueueClient($paths), new FeederRequestReader($paths, QueueLimits::FEEDER_FILE_MAX_BYTES), new CandidateRepository(), new ResponseReader($paths, QueueLimits::FEEDER_FILE_MAX_BYTES), IngestServiceFactory::create(), new TreeService(new GedcomImportService()), $storeDir) extends DrainService {
             /**
-             * @param QueuePaths          $paths       The queue path builder.
-             * @param QueueClient         $client      The queue state-machine driver.
-             * @param FeederRequestReader $reader      The validating request reader.
-             * @param CandidateRepository $repository  The candidate repository.
-             * @param IngestService       $ingest      The enriched ingest pipeline.
-             * @param TreeService         $treeService The tree lookup.
-             * @param string              $storeRoot   The isolated per-tree store base directory.
+             * @param QueuePaths          $paths          The queue path builder.
+             * @param QueueClient         $client         The queue state-machine driver.
+             * @param FeederRequestReader $reader         The validating request reader.
+             * @param CandidateRepository $repository     The candidate repository.
+             * @param ResponseReader      $responseReader The validating response reader.
+             * @param IngestService       $ingest         The enriched ingest pipeline.
+             * @param TreeService         $treeService    The tree lookup.
+             * @param string              $storeRoot      The isolated per-tree store base directory.
              */
             public function __construct(
                 QueuePaths $paths,
                 QueueClient $client,
                 FeederRequestReader $reader,
                 CandidateRepository $repository,
+                ResponseReader $responseReader,
                 IngestService $ingest,
                 TreeService $treeService,
                 private readonly string $storeRoot,
             ) {
-                parent::__construct($paths, $client, $reader, $repository, $ingest, $treeService);
+                parent::__construct($paths, $client, $reader, $repository, $responseReader, $ingest, $treeService);
             }
 
             /**
@@ -261,7 +264,7 @@ abstract class AbstractDrainTestCase extends AbstractQueueStoreTestCase
     }
 
     /**
-     * Build one untrusted-shape notice the {@see \MagicSunday\ObituaryMatcher\Queue\ResponseReader} decodes into a death notice: a name,
+     * Build one untrusted-shape notice the {@see ResponseReader} decodes into a death notice: a name,
      * an exact birth + death date, a cemetery and an exact funeral date so the harvest carries both
      * burial facts.
      *

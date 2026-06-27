@@ -38,10 +38,7 @@ use MagicSunday\ObituaryMatcher\Matching\IngestService;
 use MagicSunday\ObituaryMatcher\Matching\MatchStatus;
 use MagicSunday\ObituaryMatcher\Matching\StoredMatch;
 use MagicSunday\ObituaryMatcher\Parsing\ObituaryDateParser;
-use MagicSunday\ObituaryMatcher\Queue\AtomicFile;
-use MagicSunday\ObituaryMatcher\Queue\JobState;
-use MagicSunday\ObituaryMatcher\Queue\QueuePaths;
-use MagicSunday\ObituaryMatcher\Queue\ResponseReader;
+use MagicSunday\ObituaryMatcher\Queue\ResponseValidator;
 use MagicSunday\ObituaryMatcher\Scoring\AgeScorer;
 use MagicSunday\ObituaryMatcher\Scoring\BirthScorer;
 use MagicSunday\ObituaryMatcher\Scoring\CemeteryScorer;
@@ -64,6 +61,11 @@ use MagicSunday\ObituaryMatcher\Test\Queue\QueueTempDirTestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\Attributes\UsesClass;
+
+use function file_get_contents;
+use function json_decode;
+
+use const JSON_THROW_ON_ERROR;
 
 /**
  * Tests the response → score → persist vertical slice: a validated feeder response is mapped,
@@ -112,11 +114,9 @@ use PHPUnit\Framework\Attributes\UsesClass;
 #[UsesClass(ScoreConfig::class)]
 #[UsesClass(SignalScore::class)]
 #[UsesClass(Classifier::class)]
-#[UsesClass(AtomicFile::class)]
 #[UsesClass(FileMatchStore::class)]
 #[UsesClass(MatchStatus::class)]
-#[UsesClass(QueuePaths::class)]
-#[UsesClass(ResponseReader::class)]
+#[UsesClass(ResponseValidator::class)]
 #[UsesClass(StoredMatch::class)]
 #[UsesClass(UrlNormalizer::class)]
 /* jscpd:ignore-end */
@@ -129,12 +129,13 @@ final class IngestServiceTest extends QueueTempDirTestCase
     #[Test]
     public function ingestsAResponseIntoPendingSuggestions(): void
     {
-        // The drain reads the CLAIMED job, so the response is seeded into the ingesting state.
-        $this->placeResponse('job-1', 'response-valid.json', JobState::Ingesting); // results for I1
+        // The notices are already validated by the time the ingest receives them (the drain reads and
+        // validates the CLAIMED job's response before this call).
+        $notices = $this->notices('response-valid.json', ['I1']); // results for I1
         $store   = new FileMatchStore($this->tmp . '/store');
         $service = $this->newService();
 
-        $result = $service->ingest('job-1', ['I1'], ['I1' => $this->candidateMatchingErika()], $store);
+        $result = $service->ingest($notices, ['I1'], ['I1' => $this->candidateMatchingErika()], $store);
 
         self::assertSame(1, $result->matchesStored);
 
@@ -176,9 +177,9 @@ final class IngestServiceTest extends QueueTempDirTestCase
     public function aNoticeForAPersonWithoutAHeldCandidateStoresNothingAndWarns(): void
     {
         // The response carries a notice for I1, but no candidate for I1 is held this run.
-        $this->placeResponse('job-1', 'response-valid.json', JobState::Ingesting);
-        $store  = new FileMatchStore($this->tmp . '/store');
-        $result = $this->newService()->ingest('job-1', ['I1'], [], $store);
+        $notices = $this->notices('response-valid.json', ['I1']);
+        $store   = new FileMatchStore($this->tmp . '/store');
+        $result  = $this->newService()->ingest($notices, ['I1'], [], $store);
 
         self::assertSame(1, $result->noticesRead);
         self::assertSame(0, $result->candidatesFound);
@@ -203,9 +204,9 @@ final class IngestServiceTest extends QueueTempDirTestCase
     public function countsDistinctStoredSuggestionsWhenWithinResponseDuplicatesCollapse(): void
     {
         // two I1 notices, one identity
-        $this->placeResponse('job-1', 'response-duplicate-identity.json', JobState::Ingesting);
-        $store  = new FileMatchStore($this->tmp . '/store');
-        $result = $this->newService()->ingest('job-1', ['I1'], ['I1' => $this->candidateMatchingErika()], $store);
+        $notices = $this->notices('response-duplicate-identity.json', ['I1']);
+        $store   = new FileMatchStore($this->tmp . '/store');
+        $result  = $this->newService()->ingest($notices, ['I1'], ['I1' => $this->candidateMatchingErika()], $store);
 
         // Both notices score and both writes succeed (last-write-wins de-dup is correct), but only
         // ONE distinct identity key was persisted, so the count must be 1.
@@ -220,24 +221,24 @@ final class IngestServiceTest extends QueueTempDirTestCase
     #[Test]
     public function reIngestOverATerminalRowStoresNothingAndReportsZero(): void
     {
-        $this->placeResponse('job-1', 'response-valid.json', JobState::Ingesting); // results for I1
+        $notices = $this->notices('response-valid.json', ['I1']); // results for I1
         $store   = new FileMatchStore($this->tmp . '/store');
         $service = $this->newService();
 
         // First ingest stores the single pending row and reports it.
         self::assertSame(
             1,
-            $service->ingest('job-1', ['I1'], ['I1' => $this->candidateMatchingErika()], $store)->matchesStored
+            $service->ingest($notices, ['I1'], ['I1' => $this->candidateMatchingErika()], $store)->matchesStored
         );
 
         // Drive that row terminal via an explicit rejection on the stored obituaryUrl.
         $store->markRejected('I1', $store->allPending()[0]->obituaryUrl ?? '', 'reviewer rejected');
 
-        // Re-ingesting the SAME job must store nothing (the terminal row is a no-op) and therefore
+        // Re-ingesting the SAME notices must store nothing (the terminal row is a no-op) and therefore
         // report zero — the count is destined for QueueClient::markIngested, so it may not overstate.
         self::assertSame(
             0,
-            $service->ingest('job-1', ['I1'], ['I1' => $this->candidateMatchingErika()], $store)->matchesStored
+            $service->ingest($notices, ['I1'], ['I1' => $this->candidateMatchingErika()], $store)->matchesStored
         );
 
         // No duplicate pending row was resurrected; the rejected row is still the only one.
@@ -257,12 +258,12 @@ final class IngestServiceTest extends QueueTempDirTestCase
     public function aPersonWithAnEmptyNoticeListIsSkippedSilentlyWithoutAWarning(): void
     {
         // results map I1 to an empty notice list (the feeder found no notice for the requested id).
-        $this->placeResponse('job-1', 'response-empty-notices.json', JobState::Ingesting);
-        $store = new FileMatchStore($this->tmp . '/store');
+        $notices = $this->notices('response-empty-notices.json', ['I1']);
+        $store   = new FileMatchStore($this->tmp . '/store');
 
         // A candidate IS held for I1, so this is NOT the no-candidate path: the empty list short-
         // circuits before that check, proving the two branches are genuinely distinct.
-        $result = $this->newService()->ingest('job-1', ['I1'], ['I1' => $this->candidateMatchingErika()], $store);
+        $result = $this->newService()->ingest($notices, ['I1'], ['I1' => $this->candidateMatchingErika()], $store);
 
         // No notice was read, nothing was stored, and the empty-notice person is silent — the warning
         // belongs ONLY to the no-held-candidate path, so a regression that warned here would fail.
@@ -282,12 +283,12 @@ final class IngestServiceTest extends QueueTempDirTestCase
     public function candidatesFoundCountsTheInputMapNotTheStoredRows(): void
     {
         // The response carries a single notice, for I1 only.
-        $this->placeResponse('job-1', 'response-valid.json', JobState::Ingesting);
-        $store = new FileMatchStore($this->tmp . '/store');
+        $notices = $this->notices('response-valid.json', ['I1', 'I2']);
+        $store   = new FileMatchStore($this->tmp . '/store');
 
         // Two candidates are held this run (I1 matches the notice; I2 has no notice in the response).
         $result = $this->newService()->ingest(
-            'job-1',
+            $notices,
             ['I1', 'I2'],
             [
                 'I1' => $this->candidateMatchingErika(),
@@ -303,19 +304,37 @@ final class IngestServiceTest extends QueueTempDirTestCase
     }
 
     /**
-     * Builds the ingest service wired to the validating reader over this test's temporary queue, the
-     * enriched scoring engine and the classifier. The persistence store is passed per ingest() call,
-     * so it is deliberately NOT part of this construction.
+     * Builds the ingest service wired to the enriched scoring engine and the classifier. The service
+     * is now transport-agnostic — it receives already-validated notices — so it no longer holds a
+     * response reader. The persistence store is passed per ingest() call, so it is deliberately NOT
+     * part of this construction.
      *
      * @return IngestService The service under test.
      */
     private function newService(): IngestService
     {
-        return new IngestService(
-            new ResponseReader(new QueuePaths($this->tmp)),
-            new EnrichedMatchEngine(),
-            new Classifier(),
-        );
+        return new IngestService(new EnrichedMatchEngine(), new Classifier());
+    }
+
+    /**
+     * Builds the already-validated notices the ingest receives, by narrowing a feeder-response fixture
+     * through the SAME {@see ResponseValidator} the drain uses — so the test feeds the ingest exactly
+     * the seam shape it sees in production, without re-coupling to the on-disk reader.
+     *
+     * @param string       $fixture           The fixture file name under tests/fixtures (jobId "job-1").
+     * @param list<string> $expectedPersonIds The requested person ids (the validator's ownership boundary).
+     *
+     * @return array<string, list<DeathNoticeRecord>> The validated notices keyed by person id.
+     */
+    private function notices(string $fixture, array $expectedPersonIds): array
+    {
+        $contents = file_get_contents(__DIR__ . '/../fixtures/' . $fixture);
+        self::assertIsString($contents, 'fixture is readable');
+
+        /** @var array<int|string, mixed> $payload */
+        $payload = json_decode($contents, true, flags: JSON_THROW_ON_ERROR);
+
+        return (new ResponseValidator())->validate($payload, 'job-1', $expectedPersonIds);
     }
 
     /**

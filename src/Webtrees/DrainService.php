@@ -20,6 +20,7 @@ use MagicSunday\ObituaryMatcher\Queue\FeederRequestReader;
 use MagicSunday\ObituaryMatcher\Queue\JobState;
 use MagicSunday\ObituaryMatcher\Queue\QueueClient;
 use MagicSunday\ObituaryMatcher\Queue\QueuePaths;
+use MagicSunday\ObituaryMatcher\Queue\ResponseReader;
 use MagicSunday\ObituaryMatcher\Queue\ResponseValidationException;
 use RuntimeException;
 use Throwable;
@@ -57,18 +58,20 @@ class DrainService
     /**
      * Constructor.
      *
-     * @param QueuePaths          $paths       The queue path builder used for discovery and roots.
-     * @param QueueClient         $client      The queue state-machine driver (claim/finalize/release).
-     * @param FeederRequestReader $reader      The validating reader for the claimed request.json.
-     * @param CandidateRepository $repository  The repository that rebuilds the requested candidates.
-     * @param IngestService       $ingest      The store-agnostic enriched ingest pipeline.
-     * @param TreeService         $treeService The webtrees tree lookup (throws on an unknown id).
+     * @param QueuePaths          $paths          The queue path builder used for discovery and roots.
+     * @param QueueClient         $client         The queue state-machine driver (claim/finalize/release).
+     * @param FeederRequestReader $reader         The validating reader for the claimed request.json.
+     * @param CandidateRepository $repository     The repository that rebuilds the requested candidates.
+     * @param ResponseReader      $responseReader The validating reader for the claimed response.json.
+     * @param IngestService       $ingest         The store-agnostic enriched ingest pipeline.
+     * @param TreeService         $treeService    The webtrees tree lookup (throws on an unknown id).
      */
     public function __construct(
         private readonly QueuePaths $paths,
         private readonly QueueClient $client,
         private readonly FeederRequestReader $reader,
         private readonly CandidateRepository $repository,
+        private readonly ResponseReader $responseReader,
         private readonly IngestService $ingest,
         private readonly TreeService $treeService,
     ) {
@@ -160,12 +163,41 @@ class DrainService
             $candidatesById = $this->repository->findByXrefs($tree, $request['requestedPersonIds']);
 
             try {
-                // The ingest reads the untrusted response.json via the ResponseReader, which throws
-                // on a corrupt or hand-edited response. Isolate the failure per job: park the claimed
-                // job in failed-ingest and move on rather than aborting the whole drain. markIngested
-                // and the ingested tally stay INSIDE the try, applied only on a successful ingest.
-                $result = $this->ingest->ingest(
+                // Read the untrusted response.json off the CLAIMED (ingesting) job directory and let the
+                // ResponseReader validate it; ownership stays strict (a result for a person not in the
+                // request is rejected). The transport will take this read over in a later slice — the
+                // ingest itself is now transport-agnostic and receives already-validated notices.
+                $notices = $this->responseReader->read(
                     $jobId,
+                    $request['requestedPersonIds'],
+                    JobState::Ingesting,
+                );
+            } catch (ResponseValidationException) {
+                // A corrupt or hand-edited response is not retryable: park the claimed job in the
+                // failed-ingest state and move on rather than aborting the whole drain.
+                $this->client->markFailedIngest($jobId, 'response_invalid');
+                ++$failed;
+
+                continue;
+            } catch (RuntimeException) {
+                // ResponseValidationException (a RuntimeException subclass) is matched above, so this
+                // arm catches a PLAIN RuntimeException: an IO/system failure from readJsonCapped() (a
+                // symlink, an unreadable, an oversize or a torn response.json). Isolate it the same way
+                // — park the claimed job in failed-ingest and move on. Order is REQUIRED: the specific
+                // validation type must stay first.
+                $this->client->markFailedIngest($jobId, 'request_failed');
+                ++$failed;
+
+                continue;
+            }
+
+            try {
+                // The ingest scores the already-validated notices and persists the suggestions. Isolate
+                // a failure per job: park the claimed job in failed-ingest and move on rather than
+                // aborting the whole drain. markIngested and the ingested tally stay INSIDE the try,
+                // applied only on a successful ingest.
+                $result = $this->ingest->ingest(
+                    $notices,
                     $request['requestedPersonIds'],
                     $candidatesById,
                     $store,
@@ -184,13 +216,6 @@ class DrainService
                 );
 
                 ++$ingested;
-            } catch (ResponseValidationException) {
-                // A corrupt or hand-edited response is not retryable: park the claimed job in the
-                // failed-ingest state and move on rather than aborting the whole drain.
-                $this->client->markFailedIngest($jobId, 'response_invalid');
-                ++$failed;
-
-                continue;
             } catch (Throwable) {
                 // Any other ingest failure is isolated the same way: the one bad job is parked and
                 // the drain continues with the next, so a single failure never strands the batch.
