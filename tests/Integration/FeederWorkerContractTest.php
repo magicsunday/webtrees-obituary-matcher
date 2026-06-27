@@ -184,7 +184,7 @@ final class FeederWorkerContractTest extends TempDirTestCase
         $store   = new FileMatchStore($this->tmp . '/store');
         $notices = (new ResponseReader($paths))->read($jobId, [$candidate->id], JobState::Ingesting);
         $service = new IngestService(new EnrichedMatchEngine(), new Classifier());
-        $result  = $service->ingest($notices, [$candidate->id], [$candidate->id => $candidate], $store);
+        $result  = $service->ingest($notices, [$candidate->id => $candidate], $store);
 
         // 6. The fixture pins exactly two notices (Erika with dates, Max without), so the chain
         //    persists exactly two pending suggestions for the requested person — a dropped or

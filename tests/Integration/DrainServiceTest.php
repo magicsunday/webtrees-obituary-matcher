@@ -69,6 +69,7 @@ use const JSON_THROW_ON_ERROR;
 #[UsesClass(EnrichedMatchEngine::class)]
 #[UsesClass(Classifier::class)]
 #[UsesClass(\MagicSunday\ObituaryMatcher\Queue\ResponseValidationException::class)]
+#[UsesClass(\MagicSunday\ObituaryMatcher\Queue\JobStatus::class)]
 final class DrainServiceTest extends AbstractDrainTestCase
 {
     /**
@@ -258,14 +259,7 @@ final class DrainServiceTest extends AbstractDrainTestCase
             ],
         );
 
-        $summary = $this->drainService()->drain(null, 20);
-
-        self::assertSame(0, $summary->ingested);
-        self::assertSame(1, $summary->failed);
-        self::assertSame(0, $summary->stored);
-
-        self::assertSame(JobState::FailedIngest, $this->paths()->stateOf('job-001'));
-        self::assertSame([], $this->storeFor($tree)->allPending());
+        $this->assertJobOneParkedInFailedIngestWithEmptyStore($tree);
     }
 
     /**
@@ -281,17 +275,7 @@ final class DrainServiceTest extends AbstractDrainTestCase
 
         // job-001 carries a valid request but a schema-invalid response.json (wrong version), so the
         // ingest step's ResponseReader throws ResponseValidationException only once ingest runs.
-        $corruptDir = $this->paths()->doneDir('job-001');
-        mkdir($corruptDir, 0o700, true);
-        AtomicFile::writeJson(
-            $corruptDir . '/request.json',
-            [
-                'schemaVersion' => 3,
-                'jobId'         => 'job-001',
-                'treeId'        => $tree->id(),
-                'candidates'    => [['personId' => 'I1']],
-            ],
-        );
+        $corruptDir = $this->seedDoneJobWithValidRequest($tree);
         AtomicFile::writeJson(
             $corruptDir . '/response.json',
             [
@@ -303,6 +287,39 @@ final class DrainServiceTest extends AbstractDrainTestCase
 
         // The corrupt job is parked in failed-ingest while a valid sibling still ingests.
         $this->assertBadJobParkedWhileValidJobIngests($tree, 'job-001');
+    }
+
+    /**
+     * A TORN response.json (malformed/truncated JSON) is parked as ingest_failed, NOT request_failed:
+     * the read of the response shares the SAME try block as the ingest, so the plain RuntimeException
+     * {@see AtomicFile::readJsonCapped()} throws on a decode failure
+     * (a converted JsonException, which is NOT a ResponseValidationException) is caught by the Throwable
+     * arm and recorded under the ingest_failed reason category. This preserves the file path's original
+     * behaviour — before the slice that split the response read into its own catch, a torn-response IO
+     * failure surfaced from inside ingest() and was caught as ingest_failed — and pins that a
+     * RESPONSE-read fault is never mislabelled as a request fault.
+     */
+    #[Test]
+    public function aTornResponseJobIsParkedAsIngestFailed(): void
+    {
+        $tree = $this->ottoTree('fixture-a');
+
+        // A valid request.json (schema v3) but a TORN response.json: the JSON is truncated, so
+        // readJsonCapped() throws a plain RuntimeException (a converted JsonException), NOT a
+        // ResponseValidationException. The job is claimed (done -> ingesting) before the read runs.
+        $jobDir = $this->seedDoneJobWithValidRequest($tree);
+
+        // Deliberately malformed (truncated) JSON so the decode throws — written raw because
+        // AtomicFile::writeJson would only ever produce well-formed JSON.
+        file_put_contents($jobDir . '/response.json', '{"schemaVersion": 1, "jobId": "job-001", "results":');
+
+        // The torn-response job is parked in failed-ingest, counted failed, and persisted no row.
+        $this->assertJobOneParkedInFailedIngestWithEmptyStore($tree);
+
+        // The reason CATEGORY is ingest_failed (a RESPONSE-read IO fault routed through the shared
+        // ingest try block), NOT request_failed — a response-read failure must never be mislabelled as
+        // a request fault.
+        self::assertSame('ingest_failed', (new QueueClient($this->paths()))->status('job-001')->error);
     }
 
     /**
@@ -529,6 +546,55 @@ final class DrainServiceTest extends AbstractDrainTestCase
         self::assertInstanceOf(Individual::class, $individual);
 
         return $individual;
+    }
+
+    /**
+     * Drain the whole batch and assert the single-job failure outcome shared by the "one bad job, no
+     * valid sibling" scenarios: nothing ingested or stored, exactly one job counted failed, job-001
+     * parked in failed-ingest (not stranded in ingesting/) and the store left empty. The caller may
+     * additionally assert the recorded failure reason category.
+     *
+     * @param Tree $tree The tree whose (empty) store is checked.
+     *
+     * @return void
+     */
+    private function assertJobOneParkedInFailedIngestWithEmptyStore(Tree $tree): void
+    {
+        $summary = $this->drainService()->drain(null, 20);
+
+        self::assertSame(0, $summary->ingested);
+        self::assertSame(1, $summary->failed);
+        self::assertSame(0, $summary->stored);
+
+        self::assertSame(JobState::FailedIngest, $this->paths()->stateOf('job-001'));
+        self::assertSame([], $this->storeFor($tree)->allPending());
+    }
+
+    /**
+     * Seed a done job ('job-001') carrying ONLY a valid request.json (schema v3, the single held
+     * candidate I1) and return its directory, so the caller can drop in its own response.json shape
+     * (a schema-invalid one, a torn one, …). Shared by the response-fault scenarios whose request half
+     * is byte-identical, keeping the duplicate seeding out of each test body.
+     *
+     * @param Tree $tree The tree the request belongs to.
+     *
+     * @return string The seeded done job directory (absolute path).
+     */
+    private function seedDoneJobWithValidRequest(Tree $tree): string
+    {
+        $jobDir = $this->paths()->doneDir('job-001');
+        mkdir($jobDir, 0o700, true);
+        AtomicFile::writeJson(
+            $jobDir . '/request.json',
+            [
+                'schemaVersion' => 3,
+                'jobId'         => 'job-001',
+                'treeId'        => $tree->id(),
+                'candidates'    => [['personId' => 'I1']],
+            ],
+        );
+
+        return $jobDir;
     }
 
     /**

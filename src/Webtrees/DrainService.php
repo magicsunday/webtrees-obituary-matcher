@@ -167,41 +167,20 @@ class DrainService
                 // ResponseReader validate it; ownership stays strict (a result for a person not in the
                 // request is rejected). The transport will take this read over in a later slice — the
                 // ingest itself is now transport-agnostic and receives already-validated notices.
+                //
+                // The response read and the ingest share ONE try block on purpose: a torn/oversize/
+                // unreadable response.json is a RESPONSE-read fault, NOT a request fault. Folding it
+                // here preserves the file path's original categories — a response IO RuntimeException
+                // (from readJsonCapped) surfaces as ingest_failed via the Throwable arm, never as
+                // request_failed. markIngested and the ingested tally stay INSIDE the try, applied only
+                // on a successful ingest.
                 $notices = $this->responseReader->read(
                     $jobId,
                     $request['requestedPersonIds'],
                     JobState::Ingesting,
                 );
-            } catch (ResponseValidationException) {
-                // A corrupt or hand-edited response is not retryable: park the claimed job in the
-                // failed-ingest state and move on rather than aborting the whole drain.
-                $this->client->markFailedIngest($jobId, 'response_invalid');
-                ++$failed;
 
-                continue;
-            } catch (RuntimeException) {
-                // ResponseValidationException (a RuntimeException subclass) is matched above, so this
-                // arm catches a PLAIN RuntimeException: an IO/system failure from readJsonCapped() (a
-                // symlink, an unreadable, an oversize or a torn response.json). Isolate it the same way
-                // — park the claimed job in failed-ingest and move on. Order is REQUIRED: the specific
-                // validation type must stay first.
-                $this->client->markFailedIngest($jobId, 'request_failed');
-                ++$failed;
-
-                continue;
-            }
-
-            try {
-                // The ingest scores the already-validated notices and persists the suggestions. Isolate
-                // a failure per job: park the claimed job in failed-ingest and move on rather than
-                // aborting the whole drain. markIngested and the ingested tally stay INSIDE the try,
-                // applied only on a successful ingest.
-                $result = $this->ingest->ingest(
-                    $notices,
-                    $request['requestedPersonIds'],
-                    $candidatesById,
-                    $store,
-                );
+                $result = $this->ingest->ingest($notices, $candidatesById, $store);
 
                 $stored += $result->matchesStored;
 
@@ -216,9 +195,19 @@ class DrainService
                 );
 
                 ++$ingested;
+            } catch (ResponseValidationException) {
+                // A corrupt or hand-edited response is not retryable: park the claimed job in the
+                // failed-ingest state and move on rather than aborting the whole drain. Order is
+                // REQUIRED: the specific validation type must stay before the Throwable arm.
+                $this->client->markFailedIngest($jobId, 'response_invalid');
+                ++$failed;
+
+                continue;
             } catch (Throwable) {
-                // Any other ingest failure is isolated the same way: the one bad job is parked and
-                // the drain continues with the next, so a single failure never strands the batch.
+                // Any other response-read or ingest failure is isolated the same way — including a plain
+                // RuntimeException from readJsonCapped() (a symlink, an unreadable, an oversize or a torn
+                // response.json): the one bad job is parked and the drain continues with the next, so a
+                // single failure never strands the batch.
                 $this->client->markFailedIngest($jobId, 'ingest_failed');
                 ++$failed;
 

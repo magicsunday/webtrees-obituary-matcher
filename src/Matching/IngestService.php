@@ -57,26 +57,24 @@ final readonly class IngestService
      * Scores every already-validated notice belonging to a still-held candidate and persists the best
      * result per notice as a pending suggestion in the passed store.
      *
-     * @param array<string, list<DeathNoticeRecord>> $notices            The already-validated notices to
-     *                                                                   ingest, keyed by person id (the
-     *                                                                   strict job-ownership boundary was
-     *                                                                   enforced by the validator).
-     * @param list<string>                           $requestedPersonIds The person ids that were in the request.
-     * @param array<string, PersonCandidate>         $candidatesById     The candidates the module currently
-     *                                                                   holds, keyed by person id. A requested
-     *                                                                   person with a notice but no entry here
-     *                                                                   (e.g. now private or deleted) is not an
-     *                                                                   error: it stores nothing and is reported
-     *                                                                   as a warning.
-     * @param MatchStore                             $store              The persistence boundary the suggestions
-     *                                                                   are written to (passed per call so the
-     *                                                                   service stays store-agnostic).
+     * @param array<string, list<DeathNoticeRecord>> $notices        The already-validated notices to
+     *                                                               ingest, keyed by person id (the
+     *                                                               strict job-ownership boundary was
+     *                                                               enforced by the validator).
+     * @param array<string, PersonCandidate>         $candidatesById The candidates the module currently
+     *                                                               holds, keyed by person id. A requested
+     *                                                               person with a notice but no entry here
+     *                                                               (e.g. now private or deleted) is not an
+     *                                                               error: it stores nothing and is reported
+     *                                                               as a warning.
+     * @param MatchStore                             $store          The persistence boundary the suggestions
+     *                                                               are written to (passed per call so the
+     *                                                               service stays store-agnostic).
      *
      * @return IngestResult The per-metric counts and non-fatal warnings of this run.
      */
     public function ingest(
         array $notices,
-        array $requestedPersonIds,
         array $candidatesById,
         MatchStore $store,
     ): IngestResult {

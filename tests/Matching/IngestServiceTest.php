@@ -135,7 +135,7 @@ final class IngestServiceTest extends QueueTempDirTestCase
         $store   = new FileMatchStore($this->tmp . '/store');
         $service = $this->newService();
 
-        $result = $service->ingest($notices, ['I1'], ['I1' => $this->candidateMatchingErika()], $store);
+        $result = $service->ingest($notices, ['I1' => $this->candidateMatchingErika()], $store);
 
         self::assertSame(1, $result->matchesStored);
 
@@ -179,7 +179,7 @@ final class IngestServiceTest extends QueueTempDirTestCase
         // The response carries a notice for I1, but no candidate for I1 is held this run.
         $notices = $this->notices('response-valid.json', ['I1']);
         $store   = new FileMatchStore($this->tmp . '/store');
-        $result  = $this->newService()->ingest($notices, ['I1'], [], $store);
+        $result  = $this->newService()->ingest($notices, [], $store);
 
         self::assertSame(1, $result->noticesRead);
         self::assertSame(0, $result->candidatesFound);
@@ -206,7 +206,7 @@ final class IngestServiceTest extends QueueTempDirTestCase
         // two I1 notices, one identity
         $notices = $this->notices('response-duplicate-identity.json', ['I1']);
         $store   = new FileMatchStore($this->tmp . '/store');
-        $result  = $this->newService()->ingest($notices, ['I1'], ['I1' => $this->candidateMatchingErika()], $store);
+        $result  = $this->newService()->ingest($notices, ['I1' => $this->candidateMatchingErika()], $store);
 
         // Both notices score and both writes succeed (last-write-wins de-dup is correct), but only
         // ONE distinct identity key was persisted, so the count must be 1.
@@ -228,7 +228,7 @@ final class IngestServiceTest extends QueueTempDirTestCase
         // First ingest stores the single pending row and reports it.
         self::assertSame(
             1,
-            $service->ingest($notices, ['I1'], ['I1' => $this->candidateMatchingErika()], $store)->matchesStored
+            $service->ingest($notices, ['I1' => $this->candidateMatchingErika()], $store)->matchesStored
         );
 
         // Drive that row terminal via an explicit rejection on the stored obituaryUrl.
@@ -238,7 +238,7 @@ final class IngestServiceTest extends QueueTempDirTestCase
         // report zero — the count is destined for QueueClient::markIngested, so it may not overstate.
         self::assertSame(
             0,
-            $service->ingest($notices, ['I1'], ['I1' => $this->candidateMatchingErika()], $store)->matchesStored
+            $service->ingest($notices, ['I1' => $this->candidateMatchingErika()], $store)->matchesStored
         );
 
         // No duplicate pending row was resurrected; the rejected row is still the only one.
@@ -263,7 +263,7 @@ final class IngestServiceTest extends QueueTempDirTestCase
 
         // A candidate IS held for I1, so this is NOT the no-candidate path: the empty list short-
         // circuits before that check, proving the two branches are genuinely distinct.
-        $result = $this->newService()->ingest($notices, ['I1'], ['I1' => $this->candidateMatchingErika()], $store);
+        $result = $this->newService()->ingest($notices, ['I1' => $this->candidateMatchingErika()], $store);
 
         // No notice was read, nothing was stored, and the empty-notice person is silent — the warning
         // belongs ONLY to the no-held-candidate path, so a regression that warned here would fail.
@@ -289,7 +289,6 @@ final class IngestServiceTest extends QueueTempDirTestCase
         // Two candidates are held this run (I1 matches the notice; I2 has no notice in the response).
         $result = $this->newService()->ingest(
             $notices,
-            ['I1', 'I2'],
             [
                 'I1' => $this->candidateMatchingErika(),
                 'I2' => $this->unmatchedCandidate(),
