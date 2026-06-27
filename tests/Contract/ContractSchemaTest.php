@@ -386,19 +386,28 @@ final class ContractSchemaTest extends TestCase
     }
 
     /**
-     * Locale identifiers webtrees actually emits — `lang`, `lang-REGION`, and script-subtag forms.
+     * Locale identifiers the pattern admits — every accept BRANCH covered so a re-tightening reds.
+     *
+     * The pattern `^[a-z]{2,3}(-[A-Z][a-z]{3})?(-[A-Z]{2})?$` widens the historical `lang(-REGION)`
+     * shape on two forward-compatible axes: a 3-letter primary language (BCP-47 / ISO-639-3, as
+     * webtrees ships e.g. `gsw`) and a combined script+region tail (`zh-Hant-TW`). Every accept branch
+     * — bare language, 3-letter language, +region, +script, and script+region together — is exercised
+     * by at least one row, so dropping the `{2,3}` or either optional group from the pattern reds the
+     * suite rather than passing silently. The three +script rows `sr-Latn`/`zh-Hans`/`zh-Hant` share
+     * one branch on purpose: they document the real webtrees script-subtag locale set.
      *
      * @return array<string, array{0: string}>
      */
     public static function webtreesLocales(): array
     {
         return [
-            'language only'        => ['de'],
-            'language + region'    => ['en-AU'],
-            'language + region BR' => ['pt-BR'],
-            'language + script'    => ['sr-Latn'],
-            'chinese simplified'   => ['zh-Hans'],
-            'chinese traditional'  => ['zh-Hant'],
+            'language only'              => ['de'],
+            'three-letter language'      => ['gsw'],
+            'language + region'          => ['en-AU'],
+            'language + script'          => ['sr-Latn'],
+            'chinese simplified'         => ['zh-Hans'],
+            'chinese traditional'        => ['zh-Hant'],
+            'language + script + region' => ['zh-Hant-TW'],
         ];
     }
 
