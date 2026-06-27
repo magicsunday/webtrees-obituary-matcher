@@ -52,14 +52,16 @@ final class ContractSchemaTest extends TestCase
     private const string ID_PREFIX = 'https://raw.githubusercontent.com/magicsunday/webtrees-obituary-matcher/main/schemas/';
 
     /**
-     * Captures the bare filename of an external `*.json` `$ref` in the OpenAPI YAML.
+     * Captures the relative target of an external `*.json` `$ref` in the OpenAPI YAML.
      *
      * Quotes are OPTIONAL on both sides (YAML does not require them on a plain `./file.json` scalar,
      * and a formatter may strip them), an optional `./` prefix and an optional `#fragment` are
-     * tolerated, and group 1 is the bare filename. Internal `#/components/...` refs carry no `.json`
-     * and never match.
+     * tolerated, and group 1 is the relative path with the fragment stripped. The path class admits
+     * `/`, so a stale subdirectory ref (e.g. a `./schemas/…` that survived the lift) is CAPTURED with
+     * its separator rather than silently not matching — the flat-sibling assertion then rejects it.
+     * Internal `#/components/...` refs carry no `.json` and never match.
      */
-    private const string REF_PATTERN = '#\$ref:\s*["\']?(?:\./)?([A-Za-z0-9._-]+\.json)(?:\#[^"\'\s]*)?["\']?#';
+    private const string REF_PATTERN = '#\$ref:\s*["\']?(?:\./)?([A-Za-z0-9._/-]+\.json)(?:\#[^"\'\s]*)?["\']?#';
 
     /**
      * Builds a validator with all three contract schemas registered by their $id so cross-references
@@ -217,19 +219,23 @@ final class ContractSchemaTest extends TestCase
         $yaml = (string) file_get_contents(self::SCHEMA_DIR . '/obituary-finder.openapi.yaml');
 
         // Collect EVERY external *.json file ref generically (durable against future schema files),
-        // not a hard-coded list. group 1 is the bare filename, so the fragment is stripped before the
-        // file-exists check. Internal `#/components/...` refs (no `.json`) never match. Any such
-        // external ref must resolve to a sibling file. See self::REF_PATTERN for the match contract.
+        // not a hard-coded list. group 1 is the relative target with the fragment stripped. Internal
+        // `#/components/...` refs (no `.json`) never match. See self::REF_PATTERN for the contract.
         preg_match_all(self::REF_PATTERN, $yaml, $matches);
 
         self::assertNotEmpty($matches[1], 'expected at least one external *.json ref in the OpenAPI');
 
         foreach ($matches[1] as $file) {
+            // The lift moved the OpenAPI next to the schemas, so every external ref must be a FLAT
+            // sibling — a surviving subdirectory segment (e.g. a stale `./schemas/…`) is captured
+            // with its `/` and rejected here precisely, without forbidding `./schemas/` in prose.
+            self::assertStringNotContainsString(
+                '/',
+                $file,
+                'OpenAPI ref must be a flat sibling, got a subdirectory path: ' . $file
+            );
             self::assertFileExists(self::SCHEMA_DIR . '/' . $file, 'OpenAPI references a missing file: ' . $file);
         }
-
-        // The lift moved the OpenAPI next to the schemas, so no ./schemas/ prefix may survive.
-        self::assertStringNotContainsString('./schemas/', $yaml, 'OpenAPI still has a stale ./schemas/ ref');
     }
 
     /**
@@ -254,6 +260,28 @@ final class ContractSchemaTest extends TestCase
             'ref pattern did not match: ' . $line
         );
         self::assertSame('capabilities.schema.json', $match[1], 'ref pattern captured the wrong filename');
+    }
+
+    /**
+     * A stale subdirectory ref is captured WITH its separator, so the flat-sibling guard can catch it.
+     *
+     * The lift rewrote `./schemas/X` refs to flat `./X` siblings. If a `./schemas/…` ref ever survived,
+     * the path-aware capture keeps the `schemas/` segment (rather than silently not matching), and
+     * openApiExternalRefsResolve() then rejects any captured ref containing a `/`. This pins that the
+     * capture sees the subdirectory path instead of dropping the ref out of the check entirely.
+     *
+     * @return void
+     */
+    #[Test]
+    public function refPatternCapturesASubdirectoryPathSoTheFlatSiblingGuardCatchesIt(): void
+    {
+        self::assertSame(
+            1,
+            preg_match(self::REF_PATTERN, '$ref: "./schemas/job-request.schema.json"', $match),
+            'ref pattern did not match a subdirectory ref'
+        );
+        self::assertSame('schemas/job-request.schema.json', $match[1], 'subdirectory segment was dropped');
+        self::assertStringContainsString('/', $match[1], 'a subdirectory ref must keep its separator');
     }
 
     /**
