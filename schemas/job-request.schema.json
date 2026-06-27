@@ -50,6 +50,7 @@
                     "description": "Restrict the search to these portal ids (see capabilities). Absent = all portals the finder offers.",
                     "type": "array",
                     "maxItems": 200,
+                    "uniqueItems": true,
                     "items": {
                         "type": "string",
                         "pattern": "^[a-z0-9][a-z0-9_.-]{0,63}$"

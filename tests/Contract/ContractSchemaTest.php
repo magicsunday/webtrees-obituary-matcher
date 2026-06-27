@@ -68,13 +68,17 @@ final class ContractSchemaTest extends TestCase
     {
         $validator = new Validator();
 
+        // resolver() is typed nullable but is always present on a default validator. Assert it once
+        // (phpstan-phpunit narrows the type away) so a future null turns into a loud failure here
+        // rather than a silent skip that would surface as a confusing "schema not found" downstream.
+        $resolver = $validator->resolver();
+        self::assertNotNull($resolver, 'opis validator must expose a schema resolver');
+
         foreach (['capabilities', 'job-request', 'job-response'] as $name) {
             $path = self::SCHEMA_DIR . '/' . $name . '.schema.json';
             $id   = self::ID_PREFIX . $name . '.schema.json';
 
-            // resolver() is typed nullable but is always present on a default validator; the
-            // null-safe call keeps the static analysis honest without an ignore.
-            $validator->resolver()?->registerFile($id, $path);
+            $resolver->registerFile($id, $path);
         }
 
         return $validator;
@@ -367,6 +371,21 @@ final class ContractSchemaTest extends TestCase
                 'birthspec-without-yearrange.request.json',
                 self::ID_PREFIX . 'job-request.schema.json',
                 'required',
+            ],
+            'duplicate schemaVersions → uniqueItems' => [
+                'duplicate-schemaversions.capabilities.json',
+                self::ID_PREFIX . 'capabilities.schema.json',
+                'uniqueItems',
+            ],
+            'duplicate portal regions → uniqueItems' => [
+                'duplicate-regions.capabilities.json',
+                self::ID_PREFIX . 'capabilities.schema.json',
+                'uniqueItems',
+            ],
+            'duplicate request portals → uniqueItems' => [
+                'duplicate-portals.request.json',
+                self::ID_PREFIX . 'job-request.schema.json',
+                'uniqueItems',
             ],
         ];
     }
