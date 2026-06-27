@@ -22,9 +22,9 @@
             "pattern": "^[A-Za-z0-9_-]{1,128}$"
         },
         "locale": {
-            "description": "UI/search locale hint forwarded from webtrees: an ISO-639 language with an optional script subtag and/or region (e.g. \"de\", \"de-DE\", \"zh-Hans\", \"sr-Latn\"). A bounded BCP-47 subset covering webtrees' locale identifiers, not full BCP-47.",
+            "description": "UI/search locale hint forwarded from webtrees: an ISO-639 language with an optional script subtag and/or region (e.g. \"de\", \"de-DE\", \"zh-Hans\", \"sr-Latn\", \"es-419\"). The region is an ISO-3166-1 two-letter code or a UN M.49 three-digit code, matching webtrees' locale identifiers. A bounded BCP-47 subset, not full BCP-47.",
             "type": "string",
-            "pattern": "^[a-z]{2,3}(-[A-Z][a-z]{3})?(-[A-Z]{2})?$",
+            "pattern": "^[a-z]{2,3}(-[A-Z][a-z]{3})?(-(?:[A-Z]{2}|[0-9]{3}))?$",
             "default": "de"
         },
         "options": {
