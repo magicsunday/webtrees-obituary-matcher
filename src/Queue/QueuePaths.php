@@ -69,9 +69,11 @@ final readonly class QueuePaths
     private const string STATE_FAILED_INGEST = 'failed-ingest';
 
     /**
-     * @var string Regular expression a jobId must match to be accepted (path-traversal guard).
+     * @var string Regular expression a jobId must match to be accepted (path-traversal guard). The `D`
+     *             (PCRE_DOLLAR_ENDONLY) modifier anchors `$` to the true end of subject, so a trailing
+     *             newline (e.g. "job-1\n") can never slip past the guard into a filename.
      */
-    private const string JOB_ID_PATTERN = '/^[A-Za-z0-9_-]{1,64}$/';
+    private const string JOB_ID_PATTERN = '/^[A-Za-z0-9_-]{1,64}$/D';
 
     /**
      * Constructor.

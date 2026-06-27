@@ -54,6 +54,13 @@ final readonly class RestPendingLedger
     private const int ENTRY_MAX_BYTES = 65_536;
 
     /**
+     * @var QueuePaths The shared jobId path-traversal guard. The guard inspects only the candidate name
+     *                 and never reads the queue root, so it is allocated once here (the root is irrelevant
+     *                 to its result) instead of per call during an entries() scan.
+     */
+    private QueuePaths $jobIdGuard;
+
+    /**
      * Constructor.
      *
      * @param string $root Absolute path to the ledger root directory (e.g. data/obituary-matcher/rest-pending).
@@ -61,6 +68,9 @@ final readonly class RestPendingLedger
     public function __construct(
         private string $root,
     ) {
+        // The guard is root-independent (isJobDirectoryName inspects only the candidate name); reuse the
+        // ledger root so no placeholder leaks into a future root-reading method.
+        $this->jobIdGuard = new QueuePaths($this->root);
     }
 
     /**
@@ -273,6 +283,6 @@ final readonly class RestPendingLedger
      */
     private function isValidJobId(string $jobId): bool
     {
-        return (new QueuePaths($this->root))->isJobDirectoryName($jobId);
+        return $this->jobIdGuard->isJobDirectoryName($jobId);
     }
 }

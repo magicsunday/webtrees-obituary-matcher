@@ -17,6 +17,7 @@ use MagicSunday\ObituaryMatcher\Queue\QueuePaths;
 use MagicSunday\ObituaryMatcher\Queue\RestPendingLedger;
 use MagicSunday\ObituaryMatcher\Test\Support\TempDirTestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\Attributes\UsesClass;
 
@@ -154,5 +155,71 @@ final class RestPendingLedgerTest extends TempDirTestCase
         $this->expectException(InvalidArgumentException::class);
 
         $ledger->record('../escape', 1, [], '2024-01-01T00:00:00Z');
+    }
+
+    /**
+     * A jobId carrying a trailing newline is rejected before any file is written: the `$` end-anchor of
+     * the shared path-traversal guard is `D`-modified, so "job-1\n" can never become a "job-1\n.json"
+     * sink. No entry is created under the root afterwards.
+     *
+     * @return void
+     */
+    #[Test]
+    public function recordRejectsAJobIdWithATrailingNewline(): void
+    {
+        $ledger = new RestPendingLedger($this->tmp . '/rest-pending');
+
+        try {
+            $ledger->record("job-1\n", 7, [], '2024-01-01T00:00:00Z');
+            self::fail('Expected an InvalidArgumentException for a trailing-newline jobId.');
+        } catch (InvalidArgumentException) {
+            // Expected: the trailing-newline jobId is rejected.
+        }
+
+        self::assertSame([], iterator_to_array($ledger->entries()));
+        self::assertSame([], $ledger->jobIds());
+    }
+
+    /**
+     * Every distinct field-shape failure in narrow() rejects the malformed entry (it is absent from
+     * entries()/jobIds()) while a valid sibling entry still surfaces, so one structurally invalid file
+     * can never poison the scan.
+     *
+     * @param string $malformedJson The raw JSON bytes of the structurally invalid entry.
+     *
+     * @return void
+     */
+    #[Test]
+    #[DataProvider('structurallyInvalidEntries')]
+    public function aStructurallyInvalidEntryIsSkippedWhileAValidSiblingSurfaces(string $malformedJson): void
+    {
+        $root = $this->tmp . '/rest-pending';
+        mkdir($root, 0o700, true);
+
+        // Valid filename so the basename guard passes; only narrow() may reject it.
+        file_put_contents($root . '/bad.json', $malformedJson);
+
+        $ledger = new RestPendingLedger($root);
+        $ledger->record('good-job', 3, ['I9'], '2024-01-01T00:00:00Z');
+
+        $entries = iterator_to_array($ledger->entries());
+
+        self::assertCount(1, $entries);
+        self::assertSame('good-job', $entries[0]['jobId']);
+        self::assertSame(['good-job'], $ledger->jobIds());
+    }
+
+    /**
+     * @return array<string, array{0: string}>
+     */
+    public static function structurallyInvalidEntries(): array
+    {
+        return [
+            'treeId not an int'                       => ['{"jobId":"x","treeId":"7","requestedPersonIds":[],"submittedAt":"t"}'],
+            'jobId not a string'                      => ['{"jobId":7,"treeId":1,"requestedPersonIds":[],"submittedAt":"t"}'],
+            'submittedAt not a string'                => ['{"jobId":"x","treeId":1,"requestedPersonIds":[],"submittedAt":5}'],
+            'requestedPersonIds not an array'         => ['{"jobId":"x","treeId":1,"requestedPersonIds":"nope","submittedAt":"t"}'],
+            'a non-string requestedPersonIds element' => ['{"jobId":"x","treeId":1,"requestedPersonIds":[1],"submittedAt":"t"}'],
+        ];
     }
 }
