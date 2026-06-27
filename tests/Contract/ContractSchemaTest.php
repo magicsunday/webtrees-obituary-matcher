@@ -22,6 +22,7 @@ use stdClass;
 
 use function file_get_contents;
 use function json_decode;
+use function preg_match;
 use function preg_match_all;
 
 /**
@@ -46,6 +47,16 @@ final class ContractSchemaTest extends TestCase
      * The shared $id prefix every contract schema (and the example-to-schema mapping) is keyed by.
      */
     private const string ID_PREFIX = 'https://raw.githubusercontent.com/magicsunday/webtrees-obituary-matcher/main/schemas/';
+
+    /**
+     * Captures the bare filename of an external `*.json` `$ref` in the OpenAPI YAML.
+     *
+     * Quotes are OPTIONAL on both sides (YAML does not require them on a plain `./file.json` scalar,
+     * and a formatter may strip them), an optional `./` prefix and an optional `#fragment` are
+     * tolerated, and group 1 is the bare filename. Internal `#/components/...` refs carry no `.json`
+     * and never match.
+     */
+    private const string REF_PATTERN = '#\$ref:\s*["\']?(?:\./)?([A-Za-z0-9._-]+\.json)(?:\#[^"\'\s]*)?["\']?#';
 
     /**
      * Builds a validator with all three contract schemas registered by their $id so cross-references
@@ -193,11 +204,10 @@ final class ContractSchemaTest extends TestCase
         $yaml = (string) file_get_contents(self::SCHEMA_DIR . '/obituary-finder.openapi.yaml');
 
         // Collect EVERY external *.json file ref generically (durable against future schema files),
-        // not a hard-coded list. The capture tolerates an optional `./` prefix and an optional
-        // `#fragment` (e.g. `job-response.schema.json#/$defs/Notice`); group 1 is the bare filename,
-        // so the fragment is stripped before the file-exists check. Internal `#/components/...` refs
-        // (no `.json`) never match. Any such external ref must resolve to a sibling file.
-        preg_match_all('#\$ref:\s*["\'](?:\./)?([A-Za-z0-9._-]+\.json)(?:\#[^"\']*)?["\']#', $yaml, $matches);
+        // not a hard-coded list. group 1 is the bare filename, so the fragment is stripped before the
+        // file-exists check. Internal `#/components/...` refs (no `.json`) never match. Any such
+        // external ref must resolve to a sibling file. See self::REF_PATTERN for the match contract.
+        preg_match_all(self::REF_PATTERN, $yaml, $matches);
 
         self::assertNotEmpty($matches[1], 'expected at least one external *.json ref in the OpenAPI');
 
@@ -207,6 +217,56 @@ final class ContractSchemaTest extends TestCase
 
         // The lift moved the OpenAPI next to the schemas, so no ./schemas/ prefix may survive.
         self::assertStringNotContainsString('./schemas/', $yaml, 'OpenAPI still has a stale ./schemas/ ref');
+    }
+
+    /**
+     * The external-ref capture tolerates an unquoted YAML scalar, not only a quoted one.
+     *
+     * YAML does not require quotes around a plain `./file.json` scalar, and a formatter may strip
+     * them. A pattern that only matched the quoted form would silently miss every ref and red the
+     * non-emptiness guard (a false failure) the moment the OpenAPI was reformatted. This pins that
+     * both spellings capture the same bare filename.
+     *
+     * @param string $line The `$ref:` YAML line to match.
+     *
+     * @return void
+     */
+    #[Test]
+    #[DataProvider('refLineSpellings')]
+    public function openApiRefPatternToleratesUnquotedYaml(string $line): void
+    {
+        self::assertSame(
+            1,
+            preg_match(self::REF_PATTERN, $line, $match),
+            'ref pattern did not match: ' . $line
+        );
+        self::assertSame('capabilities.schema.json', $match[1], 'ref pattern captured the wrong filename');
+    }
+
+    /**
+     * The locale pattern accepts the locale identifiers webtrees actually emits.
+     *
+     * webtrees ships locales beyond `lang` / `lang-REGION`: script-subtag forms such as `zh-Hans`,
+     * `zh-Hant` and `sr-Latn`. The matcher forwards the active webtrees locale verbatim, so a pattern
+     * that rejected those would make a legitimate request fail its own published schema. This pins the
+     * accept direction for the real webtrees locale set.
+     *
+     * @param string $locale A locale identifier webtrees can emit.
+     *
+     * @return void
+     */
+    #[Test]
+    #[DataProvider('webtreesLocales')]
+    public function localeAcceptsWebtreesIdentifiers(string $locale): void
+    {
+        $request = json_decode((string) file_get_contents(self::SCHEMA_DIR . '/examples/request.json'));
+        self::assertInstanceOf(stdClass::class, $request, 'request example is not a JSON object');
+
+        $request->locale = $locale;
+
+        $result = $this->validator()->validate($request, self::ID_PREFIX . 'job-request.schema.json');
+
+        self::assertTrue($result->isValid(), 'locale "' . $locale . '" must validate against job-request');
     }
 
     /**
@@ -298,6 +358,47 @@ final class ContractSchemaTest extends TestCase
                 self::ID_PREFIX . 'capabilities.schema.json',
                 'required',
             ],
+            'malformed locale → pattern' => [
+                'bad-locale.request.json',
+                self::ID_PREFIX . 'job-request.schema.json',
+                'pattern',
+            ],
+            'birth without yearRange → required' => [
+                'birthspec-without-yearrange.request.json',
+                self::ID_PREFIX . 'job-request.schema.json',
+                'required',
+            ],
+        ];
+    }
+
+    /**
+     * The quoted and unquoted YAML spellings of one external `$ref`, both of which must capture.
+     *
+     * @return array<string, array{0: string}>
+     */
+    public static function refLineSpellings(): array
+    {
+        return [
+            'double-quoted' => ['                                $ref: "./capabilities.schema.json"'],
+            'single-quoted' => ["                                \$ref: './capabilities.schema.json'"],
+            'unquoted'      => ['                                $ref: ./capabilities.schema.json'],
+        ];
+    }
+
+    /**
+     * Locale identifiers webtrees actually emits — `lang`, `lang-REGION`, and script-subtag forms.
+     *
+     * @return array<string, array{0: string}>
+     */
+    public static function webtreesLocales(): array
+    {
+        return [
+            'language only'        => ['de'],
+            'language + region'    => ['en-AU'],
+            'language + region BR' => ['pt-BR'],
+            'language + script'    => ['sr-Latn'],
+            'chinese simplified'   => ['zh-Hans'],
+            'chinese traditional'  => ['zh-Hant'],
         ];
     }
 

@@ -1,0 +1,31 @@
+{
+    "schemaVersion": 1,
+    "jobId": "job-2024-0001-abcdef",
+    "locale": "de_DE",
+    "options": {
+        "portals": [
+            "obituary-example-de"
+        ],
+        "maxPages": 3
+    },
+    "candidates": [
+        {
+            "personId": "I123-Mustermann",
+            "names": [
+                {
+                    "kind": "primary",
+                    "full": "Max Mustermann",
+                    "given": "Max",
+                    "surname": "Mustermann"
+                }
+            ],
+            "birth": {
+                "exactDate": "1940-03-15",
+                "yearRange": {
+                    "min": 1940,
+                    "max": 1940
+                }
+            }
+        }
+    ]
+}
