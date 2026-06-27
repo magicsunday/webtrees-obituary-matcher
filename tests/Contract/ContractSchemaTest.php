@@ -11,6 +11,7 @@ declare(strict_types=1);
 
 namespace MagicSunday\ObituaryMatcher\Test\Contract;
 
+use JsonException;
 use Opis\JsonSchema\Errors\ValidationError;
 use Opis\JsonSchema\ValidationResult;
 use Opis\JsonSchema\Validator;
@@ -24,6 +25,8 @@ use function file_get_contents;
 use function json_decode;
 use function preg_match;
 use function preg_match_all;
+
+use const JSON_THROW_ON_ERROR;
 
 /**
  * The published-contract gate: every schema under schemas/ is itself a valid JSON-Schema 2020-12
@@ -99,11 +102,13 @@ final class ContractSchemaTest extends TestCase
      * @param string $schemaId The $id of the schema to validate against.
      *
      * @return ValidationResult The validation outcome.
+     *
+     * @throws JsonException If the document is not valid JSON.
      */
     private function loadAndValidate(string $path, string $schemaId): ValidationResult
     {
         return $this->validator()->validate(
-            json_decode((string) file_get_contents($path)),
+            json_decode((string) file_get_contents($path), flags: JSON_THROW_ON_ERROR),
             $schemaId
         );
     }
@@ -159,13 +164,15 @@ final class ContractSchemaTest extends TestCase
      * @param string $file The schema filename under schemas/.
      *
      * @return void
+     *
+     * @throws JsonException If the schema file is not valid JSON.
      */
     #[Test]
     #[DataProvider('schemaFiles')]
     public function schemaDeclares202012Dialect(string $file): void
     {
         // Decode object-faithfully (no `true` flag), consistent with loadAndValidate().
-        $decoded = json_decode((string) file_get_contents(self::SCHEMA_DIR . '/' . $file));
+        $decoded = json_decode((string) file_get_contents(self::SCHEMA_DIR . '/' . $file), flags: JSON_THROW_ON_ERROR);
 
         self::assertInstanceOf(stdClass::class, $decoded, $file . ' is not a JSON object');
         self::assertSame(
@@ -187,6 +194,8 @@ final class ContractSchemaTest extends TestCase
      * @param string $schemaId The $id of the schema the example must satisfy.
      *
      * @return void
+     *
+     * @throws JsonException If the example is not valid JSON.
      */
     #[Test]
     #[DataProvider('validExamples')]
@@ -258,12 +267,17 @@ final class ContractSchemaTest extends TestCase
      * @param string $locale A locale identifier webtrees can emit.
      *
      * @return void
+     *
+     * @throws JsonException If the request example is not valid JSON.
      */
     #[Test]
     #[DataProvider('webtreesLocales')]
     public function localeAcceptsWebtreesIdentifiers(string $locale): void
     {
-        $request = json_decode((string) file_get_contents(self::SCHEMA_DIR . '/examples/request.json'));
+        $request = json_decode(
+            (string) file_get_contents(self::SCHEMA_DIR . '/examples/request.json'),
+            flags: JSON_THROW_ON_ERROR
+        );
         self::assertInstanceOf(stdClass::class, $request, 'request example is not a JSON object');
 
         $request->locale = $locale;
@@ -285,6 +299,8 @@ final class ContractSchemaTest extends TestCase
      * @param string $expectedKeyword The JSON-Schema keyword whose violation must reject the fixture.
      *
      * @return void
+     *
+     * @throws JsonException If the fixture is not valid JSON.
      */
     #[Test]
     #[DataProvider('invalidFixtures')]
@@ -386,6 +402,11 @@ final class ContractSchemaTest extends TestCase
                 'duplicate-portals.request.json',
                 self::ID_PREFIX . 'job-request.schema.json',
                 'uniqueItems',
+            ],
+            'empty name part → minLength' => [
+                'empty-name.request.json',
+                self::ID_PREFIX . 'job-request.schema.json',
+                'minLength',
             ],
         ];
     }

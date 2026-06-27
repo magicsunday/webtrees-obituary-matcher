@@ -11,10 +11,15 @@ declare(strict_types=1);
 
 namespace MagicSunday\ObituaryMatcher\Test\Contract;
 
+use JsonException;
 use Opis\JsonSchema\Validator;
 use PHPUnit\Framework\Attributes\CoversNothing;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
+
+use function json_decode;
+
+use const JSON_THROW_ON_ERROR;
 
 /**
  * Pins the toolchain capability the contract gate depends on: opis/json-schema must validate
@@ -37,12 +42,21 @@ final class FormatAssertionTest extends TestCase
     /**
      * A real calendar date validates.
      *
+     * The schema is decoded to an object before validation: opis accepts a JSON-string schema only
+     * via its URI-or-decode fallback, so decoding here is explicit and JSON_THROW_ON_ERROR turns a
+     * malformed fragment into a clear JsonException rather than a confusing validation outcome.
+     *
      * @return void
+     *
+     * @throws JsonException If the schema fragment is not valid JSON.
      */
     #[Test]
     public function aValidDatePasses(): void
     {
-        $result = (new Validator())->validate('2023-02-28', self::DATE_SCHEMA);
+        $result = (new Validator())->validate(
+            '2023-02-28',
+            json_decode(self::DATE_SCHEMA, flags: JSON_THROW_ON_ERROR)
+        );
 
         self::assertTrue($result->isValid());
     }
@@ -51,11 +65,16 @@ final class FormatAssertionTest extends TestCase
      * A calendar-invalid date is rejected — proves `format` is asserted, not annotation-only.
      *
      * @return void
+     *
+     * @throws JsonException If the schema fragment is not valid JSON.
      */
     #[Test]
     public function aCalendarInvalidDateIsRejected(): void
     {
-        $result = (new Validator())->validate('2023-02-30', self::DATE_SCHEMA);
+        $result = (new Validator())->validate(
+            '2023-02-30',
+            json_decode(self::DATE_SCHEMA, flags: JSON_THROW_ON_ERROR)
+        );
 
         self::assertFalse($result->isValid());
     }

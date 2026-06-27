@@ -131,16 +131,19 @@
                 "full": {
                     "description": "Full display name, plain text (no GEDCOM slashes, no markup).",
                     "type": "string",
+                    "minLength": 1,
                     "maxLength": 200
                 },
                 "given": {
                     "description": "Given name(s).",
                     "type": "string",
+                    "minLength": 1,
                     "maxLength": 200
                 },
                 "surname": {
                     "description": "Surname / family name.",
                     "type": "string",
+                    "minLength": 1,
                     "maxLength": 200
                 }
             },
