@@ -19,7 +19,9 @@ use function array_filter;
 use function array_values;
 use function count;
 use function is_dir;
+use function restore_error_handler;
 use function scandir;
+use function set_error_handler;
 use function sort;
 
 use const SCANDIR_SORT_NONE;
@@ -40,8 +42,8 @@ use const SORT_NATURAL;
  *
  * The class is pure (it lives in the {@see \MagicSunday\ObituaryMatcher\Queue} layer): it depends only
  * on {@see QueueClient}, {@see ResponseReader}, {@see FeederRequestReader}, {@see QueuePaths} and its own
- * value objects, so it stays webtrees-free and the {@see DrainService}/{@see EnqueueService} adapters
- * inject it through the {@see JobTransport} seam.
+ * value objects, so it stays webtrees-free and the {@see \MagicSunday\ObituaryMatcher\Webtrees\DrainService}/{@see \MagicSunday\ObituaryMatcher\Webtrees\EnqueueService}
+ * adapters inject it through the {@see JobTransport} seam.
  *
  * @author  Rico Sonntag <mail@ricosonntag.de>
  * @license https://opensource.org/licenses/GPL-3.0 GNU General Public License v3.0
@@ -90,6 +92,10 @@ final readonly class FileJobTransport implements JobTransport
      */
     public function fetchCompleted(): iterable
     {
+        // Accepted minor divergence: a CORRUPT response is detected here (-> a `response_invalid`
+        // FailedJob) BEFORE the DrainService applies its `onlyTreeId` tree-filter, so a corrupt
+        // foreign-tree job is terminally failed by whichever drain reaches it rather than released
+        // untouched. Accepted because a corrupt response fails for its owning tree too.
         foreach ($this->discoverDone() as $jobId) {
             // The claim is the synchronisation point: a job another drain already claimed (or a job
             // that vanished between discovery and now) returns false and is simply skipped.
@@ -193,23 +199,7 @@ final readonly class FileJobTransport implements JobTransport
     public function inFlightRequests(): iterable
     {
         foreach ($this->inFlightStates() as $state) {
-            $root = $this->paths->stateRoot($state->value);
-
-            if (!is_dir($root)) {
-                continue;
-            }
-
-            $entries = scandir($root, SCANDIR_SORT_NONE);
-
-            if ($entries === false) {
-                continue;
-            }
-
-            foreach ($entries as $entry) {
-                if (!$this->paths->isJobDirectoryName($entry)) {
-                    continue;
-                }
-
+            foreach ($this->jobNamesIn($state) as $entry) {
                 try {
                     $request = $this->requestReader->read($entry, $state);
                 } catch (RuntimeException|InvalidArgumentException) {
@@ -238,24 +228,7 @@ final readonly class FileJobTransport implements JobTransport
      */
     public function staleCount(): int
     {
-        $ingestingRoot = $this->paths->stateRoot(JobState::Ingesting->value);
-
-        if (!is_dir($ingestingRoot)) {
-            return 0;
-        }
-
-        $entries = scandir($ingestingRoot, SCANDIR_SORT_NONE);
-
-        if ($entries === false) {
-            return 0;
-        }
-
-        $jobs = array_filter(
-            $entries,
-            $this->paths->isJobDirectoryName(...),
-        );
-
-        return count($jobs);
+        return count($this->jobNamesIn(JobState::Ingesting));
     }
 
     /**
@@ -272,27 +245,46 @@ final readonly class FileJobTransport implements JobTransport
      */
     private function discoverDone(): array
     {
-        $doneRoot = $this->paths->stateRoot(JobState::Done->value);
+        $jobIds = $this->jobNamesIn(JobState::Done);
+        sort($jobIds, SORT_NATURAL);
 
-        if (!is_dir($doneRoot)) {
+        return $jobIds;
+    }
+
+    /**
+     * Lists the job-directory names sitting in $state, scope-wrapping the scandir so an unreadable
+     * root degrades to the graceful "treat as empty" path. The entries are unsorted (SCANDIR_SORT_NONE);
+     * a caller needing oldest-first order (e.g. {@see discoverDone()}) sorts the result itself.
+     *
+     * @param JobState $state The queue state whose job directories to list.
+     *
+     * @return list<string> The job-directory names in $state (unsorted); empty when the
+     *                      state root is absent or unreadable.
+     */
+    private function jobNamesIn(JobState $state): array
+    {
+        $root = $this->paths->stateRoot($state->value);
+
+        if (!is_dir($root)) {
             return [];
         }
 
-        $entries = scandir($doneRoot, SCANDIR_SORT_NONE);
+        // Scope a permissive handler so an unreadable root yields scandir()===false
+        // (the graceful "treat as empty" path) instead of webtrees' warning-to-exception
+        // handler throwing before the false-guard runs.
+        set_error_handler(static fn (): bool => true);
+
+        try {
+            $entries = scandir($root, SCANDIR_SORT_NONE);
+        } finally {
+            restore_error_handler();
+        }
 
         if ($entries === false) {
             return [];
         }
 
-        $jobIds = array_filter(
-            $entries,
-            $this->paths->isJobDirectoryName(...),
-        );
-
-        $jobIds = array_values($jobIds);
-        sort($jobIds, SORT_NATURAL);
-
-        return $jobIds;
+        return array_values(array_filter($entries, $this->paths->isJobDirectoryName(...)));
     }
 
     /**

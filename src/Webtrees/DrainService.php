@@ -61,8 +61,9 @@ class DrainService
      * Drains up to $limit oldest-first completed jobs into their per-tree match stores. When
      * $onlyTreeId is non-null only jobs for that tree are ingested; a job for any other tree is
      * released back to the completed pool (so a tree-scoped drain leaves foreign jobs untouched for
-     * another run). A job whose ingest throws mid-flight is released too — kept in flight to be retried
-     * on the next drain rather than terminally failed. After the run the transport's stale tally (the
+     * another run). A job whose ingest throws mid-flight is terminally parked as `ingest_failed` — a
+     * deterministically-throwing job must not be released and re-claimed every drain (head-of-line
+     * starvation). After the run the transport's stale tally (the
      * file transport's still-ingesting directories; 0 for the REST transport) is reported in the
      * summary; this slice does NOT auto-reclaim such a job (recovery is manual/a future hardening).
      *
@@ -77,6 +78,12 @@ class DrainService
      */
     public function drain(?int $onlyTreeId, int $limit): DrainSummary
     {
+        // Contract symmetry with EnqueueService: a non-positive cap processes nothing (the break-AFTER
+        // loop would otherwise still process one job). The stale tally is still reported.
+        if ($limit < 1) {
+            return new DrainSummary(0, 0, 0, 0, $this->transport->staleCount());
+        }
+
         $ingested = 0;
         $skipped  = 0;
         $failed   = 0;
@@ -113,8 +120,8 @@ class DrainService
      * Ingests a single claimed {@see CompletedJob} and finalises it through the transport, returning the
      * tally deltas this one job contributes. The tree is resolved first (an unknown id is parked as
      * `tree_unknown`); a tree-scoped drain releases a foreign job; otherwise the notices are ingested
-     * into the tree-scoped store and the job marked ingested. A throw from the ingest itself releases
-     * the job (kept in flight for a retry) rather than terminally failing it.
+     * into the tree-scoped store and the job marked ingested. A throw from the ingest (or its
+     * markIngested finalisation) terminally parks the job as `ingest_failed` rather than releasing it.
      *
      * @param CompletedJob $job        The claimed completed job to ingest.
      * @param int|null     $onlyTreeId The single tree to ingest, or null to ingest every tree.
@@ -146,27 +153,29 @@ class DrainService
         $store          = $this->storeForTree($tree);
         $candidatesById = $this->repository->findByXrefs($tree, $job->requestedPersonIds);
 
+        // The ingest AND the markIngested finalisation share ONE try so a deterministically-throwing
+        // job is terminally parked (markFailed), never released back to done — otherwise it would be
+        // re-claimed every drain forever (head-of-line starvation). markIngested() itself throws on a
+        // failed ingesting -> ingested rename, so it must sit inside the guard too rather than crash
+        // the whole drain when it propagates uncaught.
         try {
             $result = $this->ingest->ingest($job->notices, $candidatesById, $store);
+            $this->transport->markIngested(
+                $job->jobId,
+                [
+                    'noticesRead'     => $result->noticesRead,
+                    'candidatesFound' => $result->candidatesFound,
+                    'matchesStored'   => $result->matchesStored,
+                ],
+                $result->warnings,
+            );
+
+            return DrainOutcome::ingested($result->matchesStored);
         } catch (Throwable) {
-            // A throw mid-ingest is not terminal: release the job so the next drain retries it rather
-            // than parking it failed (a transient store/IO fault must not strand a valid job).
-            $this->transport->release($job->jobId);
+            $this->transport->markFailed($job->jobId, 'ingest_failed');
 
             return DrainOutcome::failed();
         }
-
-        $this->transport->markIngested(
-            $job->jobId,
-            [
-                'noticesRead'     => $result->noticesRead,
-                'candidatesFound' => $result->candidatesFound,
-                'matchesStored'   => $result->matchesStored,
-            ],
-            $result->warnings,
-        );
-
-        return DrainOutcome::ingested($result->matchesStored);
     }
 
     /**

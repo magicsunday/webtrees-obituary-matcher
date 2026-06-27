@@ -108,6 +108,71 @@ final class FileJobTransportTest extends QueueTempDirTestCase
     }
 
     /**
+     * A request.json carrying a wrong/missing schemaVersion makes {@see FeederRequestReader} throw a
+     * {@see ResponseValidationException}, surfacing as a {@see FailedJob} under the `schema_invalid`
+     * category — the exact reason the file path's status.json persists today.
+     *
+     * @return void
+     */
+    #[Test]
+    public function aSchemaInvalidRequestYieldsASchemaInvalidFailedJob(): void
+    {
+        // Valid JSON (so readJsonCapped() does NOT throw) but a wrong schemaVersion, so the reader's
+        // version gate throws a ResponseValidationException -> schema_invalid.
+        $this->placeRaw(
+            'job-x',
+            'request.json',
+            '{"schemaVersion": 999, "jobId": "job-x", "treeId": 1, "candidates": []}',
+            JobState::Done,
+        );
+
+        $jobs = iterator_to_array($this->newFileTransport()->fetchCompleted(), false);
+
+        self::assertCount(1, $jobs);
+        self::assertInstanceOf(FailedJob::class, $jobs[0]);
+        self::assertSame('schema_invalid', $jobs[0]->reasonCategory);
+    }
+
+    /**
+     * A torn (malformed-JSON) request.json makes {@see FeederRequestReader} throw a plain
+     * {@see \RuntimeException} from the IO read, surfacing as a {@see FailedJob} under the
+     * `request_failed` category — never mislabelled as a validation reject.
+     *
+     * @return void
+     */
+    #[Test]
+    public function aTornRequestYieldsARequestFailedFailedJob(): void
+    {
+        $this->placeRaw('job-x', 'request.json', '{not json', JobState::Done);
+
+        $jobs = iterator_to_array($this->newFileTransport()->fetchCompleted(), false);
+
+        self::assertCount(1, $jobs);
+        self::assertInstanceOf(FailedJob::class, $jobs[0]);
+        self::assertSame('request_failed', $jobs[0]->reasonCategory);
+    }
+
+    /**
+     * A valid request.json with a torn (malformed-JSON) response.json makes {@see ResponseReader}
+     * throw a plain {@see \RuntimeException} from the IO read, surfacing as a {@see FailedJob} under the
+     * `ingest_failed` category — a RESPONSE-read IO fault is never mislabelled as a request fault.
+     *
+     * @return void
+     */
+    #[Test]
+    public function aTornResponseYieldsAnIngestFailedFailedJob(): void
+    {
+        $this->placeRequest('job-x', 'request-valid.json', JobState::Done);
+        $this->placeRaw('job-x', 'response.json', '{not json', JobState::Done);
+
+        $jobs = iterator_to_array($this->newFileTransport()->fetchCompleted(), false);
+
+        self::assertCount(1, $jobs);
+        self::assertInstanceOf(FailedJob::class, $jobs[0]);
+        self::assertSame('ingest_failed', $jobs[0]->reasonCategory);
+    }
+
+    /**
      * The in-flight request scan yields the one valid request and SKIPS a job directory whose
      * request.json is malformed JSON (the reader throws), matching today's
      * {@see \MagicSunday\ObituaryMatcher\Webtrees\EnqueueService} in-flight dedup tolerance.
