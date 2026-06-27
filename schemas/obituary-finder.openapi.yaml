@@ -81,8 +81,8 @@ paths:
                         Retry-After:
                             description: Suggested delay before the first GET /jobs/{jobId} poll (HTTP Retry-After — delta-seconds).
                             schema:
-                                type: string
-                                pattern: "^[0-9]+$"
+                                type: integer
+                                minimum: 0
                     content:
                         application/json:
                             schema:
@@ -116,8 +116,8 @@ paths:
                         Retry-After:
                             description: Delay before retrying (HTTP Retry-After — delta-seconds).
                             schema:
-                                type: string
-                                pattern: "^[0-9]+$"
+                                type: integer
+                                minimum: 0
                     content:
                         application/json:
                             schema:
