@@ -16,6 +16,7 @@
 >
     <testsuites>
         <testsuite name="unit">
+            <directory>tests/Contract</directory>
             <directory>tests/Domain</directory>
             <directory>tests/Matching</directory>
             <directory>tests/Parsing</directory>

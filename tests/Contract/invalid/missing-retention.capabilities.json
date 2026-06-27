@@ -1,0 +1,33 @@
+{
+    "finderId": "obituary-finder-example",
+    "finderVersion": "1.0.0",
+    "schemaVersions": [
+        1
+    ],
+    "portals": [
+        {
+            "id": "obituary-example-de",
+            "name": "Obituary Example (DE)",
+            "country": "DE",
+            "regions": [
+                "Musterland",
+                "Beispielland"
+            ]
+        }
+    ],
+    "noticeFields": [
+        "death",
+        "birth",
+        "place",
+        "cemetery",
+        "age",
+        "funeralDate",
+        "relatives"
+    ],
+    "features": {
+        "pagination": true,
+        "regionRouting": true,
+        "queryHints": true,
+        "reverseMatch": false
+    }
+}

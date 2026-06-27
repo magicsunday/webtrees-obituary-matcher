@@ -1,0 +1,54 @@
+{
+    "schemaVersion": 1,
+    "jobId": "job-2024-0001-abcdef",
+    "state": "done",
+    "startedAt": "2024-05-21T08:29:55Z",
+    "finishedAt": "2024-05-21T08:30:05Z",
+    "results": {
+        "I123-Mustermann": {
+            "notices": [
+                {
+                    "noticeType": "obituary",
+                    "name": "Max Mustermann",
+                    "birth": "1940-03-15",
+                    "death": "2024-05-20",
+                    "place": "Musterstadt, Musterland",
+                    "cemetery": "Waldfriedhof Musterstadt",
+                    "age": 84,
+                    "funeralDate": "2024-05-28",
+                    "relatives": [
+                        {
+                            "name": "Erika Mustermann",
+                            "relation": "spouse"
+                        },
+                        {
+                            "name": "Hans Mustermann",
+                            "relation": "child"
+                        }
+                    ],
+                    "url": "https://obituary.example/notices/max-mustermann-12345",
+                    "source": "obituary-example-de",
+                    "fetchedAt": "2024-05-21T08:30:00Z"
+                }
+            ],
+            "coverage": [
+                {
+                    "portal": "obituary-example-de",
+                    "status": "ok",
+                    "noticeCount": 1,
+                    "message": "Searched successfully."
+                }
+            ]
+        }
+    },
+    "warnings": [
+        "Portal returned no results for one query."
+    ],
+    "counts": {
+        "candidates": 1,
+        "queries": 2,
+        "notices": 1,
+        "portalErrors": 0,
+        "skippedNotices": 0
+    }
+}

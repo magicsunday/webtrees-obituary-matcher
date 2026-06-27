@@ -1,0 +1,238 @@
+openapi: 3.1.0
+jsonSchemaDialect: "https://json-schema.org/draft/2020-12/schema"
+info:
+    title: Obituary Finder API
+    version: "1.0.0"
+    summary: Asynchronous job API a finder exposes so a matcher can submit search jobs and poll results.
+    description: >
+        REST surface of the finder↔matcher contract (the sole, decided transport). The matcher is the
+        CLIENT, the finder is the SERVER: the matcher decides who to search for (POST /jobs) and consumes
+        the results (GET /jobs/{jobId}); the finder owns the scraping. The data shapes are defined as
+        JSON Schema documents alongside this file and referenced by the request/response bodies below.
+
+
+        Auth/TLS depend on the network path, NOT on REST: over loopback or an internal container network,
+        plain HTTP with no token is acceptable (same trust boundary as a shared filesystem queue). The
+        moment an endpoint leaves the host (remote/third-party finder, LAN, internet) TLS and a bearer
+        token are REQUIRED, because the token is replayable and the payload carries PII.
+    license:
+        name: MIT
+    contact:
+        name: magicsunday/webtrees-obituary-matcher
+        url: https://github.com/magicsunday/webtrees-obituary-matcher
+
+servers:
+    -
+        url: http://finder:8080
+        description: Co-located finder on the internal container network (no TLS needed).
+    -
+        url: https://{host}
+        description: Remote/third-party finder (TLS + bearer token required).
+        variables:
+            host:
+                default: finder.example.org
+
+security:
+    -
+        bearerAuth: []
+    - []
+
+paths:
+    /capabilities:
+        get:
+            operationId: getCapabilities
+            summary: Describe which portals, fields and features this finder offers.
+            tags:
+                - discovery
+            responses:
+                "200":
+                    description: Finder capabilities.
+                    content:
+                        application/json:
+                            schema:
+                                $ref: "./capabilities.schema.json"
+
+    /jobs:
+        post:
+            operationId: submitJob
+            summary: Submit a search job for one or more candidates.
+            description: >
+                Accepts the job and returns immediately with its id and initial state. The finder
+                processes it asynchronously (cron-driven, rate-limited); the matcher polls GET
+                /jobs/{jobId} for the outcome.
+
+
+                AUTH: the document-level `security` permits no-auth (`[]`) ONLY as a loopback/
+                internal-network affordance. A finder reachable off-host MUST require `bearerAuth`
+                on this operation (it carries person PII) — the empty option is not a licence to
+                run token-less off-host.
+            tags:
+                - jobs
+            requestBody:
+                required: true
+                content:
+                    application/json:
+                        schema:
+                            $ref: "./job-request.schema.json"
+            responses:
+                "202":
+                    description: Job accepted and queued.
+                    headers:
+                        Retry-After:
+                            description: Suggested delay before the first GET /jobs/{jobId} poll (HTTP Retry-After — delta-seconds).
+                            schema:
+                                type: integer
+                                minimum: 0
+                    content:
+                        application/json:
+                            schema:
+                                $ref: "#/components/schemas/JobAck"
+                "400":
+                    description: >
+                        Malformed request or unsupported schemaVersion. The finder SHOULD distinguish the two
+                        via the Error.error code (e.g. `malformed_request` vs `unsupported_schema_version`) so
+                        the matcher can branch.
+                    content:
+                        application/json:
+                            schema:
+                                $ref: "#/components/schemas/Error"
+                "401":
+                    description: Missing/invalid bearer token (only enforced off-host).
+                "409":
+                    description: >
+                        A job with this jobId already exists. The finder IGNORES the new body and returns the
+                        existing job's ack; the matcher MUST poll the existing job rather than assume the new
+                        candidates were accepted. Reusing a jobId for DIFFERENT content is a matcher bug —
+                        jobIds should be unique (e.g. content-derived).
+                    content:
+                        application/json:
+                            schema:
+                                $ref: "#/components/schemas/JobAck"
+                "415":
+                    description: Body is not application/json.
+                "429":
+                    description: Too many jobs in flight; back off and retry.
+                    headers:
+                        Retry-After:
+                            description: Delay before retrying (HTTP Retry-After — delta-seconds).
+                            schema:
+                                type: integer
+                                minimum: 0
+                    content:
+                        application/json:
+                            schema:
+                                $ref: "#/components/schemas/Error"
+                default:
+                    description: Unexpected finder error.
+                    content:
+                        application/json:
+                            schema:
+                                $ref: "#/components/schemas/Error"
+
+    /jobs/{jobId}:
+        parameters:
+            -
+                name: jobId
+                in: path
+                required: true
+                schema:
+                    type: string
+                    pattern: "^[A-Za-z0-9_-]{1,128}$"
+        get:
+            operationId: getJob
+            summary: Poll a job's state and, once done, its results.
+            tags:
+                - jobs
+            responses:
+                "200":
+                    description: Current job state and (when done) results.
+                    content:
+                        application/json:
+                            schema:
+                                $ref: "./job-response.schema.json"
+                "404":
+                    description: >
+                        No such job. The Error.error code disambiguates: `unknown_job` (never existed)
+                        vs `job_expired` (results were produced but the retention window
+                        — capabilities.retentionSeconds — has passed; the matcher MAY start a fresh job).
+                    content:
+                        application/json:
+                            schema:
+                                $ref: "#/components/schemas/Error"
+                default:
+                    description: Unexpected finder error.
+                    content:
+                        application/json:
+                            schema:
+                                $ref: "#/components/schemas/Error"
+        delete:
+            operationId: cancelJob
+            summary: Cancel/forget a job (optional, best-effort).
+            description: >
+                Best-effort and FULLY idempotent. Cancelling a running scrape is best-effort; cancelling a done
+                job purges its (possibly unfetched) results; an unknown or already-deleted jobId is NOT an error
+                (returns 204 too). After a successful DELETE, GET /jobs/{jobId} returns 404. A finder MAY
+                implement this as a no-op on terminal jobs. The matcher's re-run path (DELETE then re-POST, see
+                the README) relies on this: deleting a never-existed/expired id must not fail.
+            tags:
+                - jobs
+            responses:
+                "204":
+                    description: Job cancelled, already gone, or never existed (idempotent — unknown jobId is not an error).
+                default:
+                    description: Unexpected finder error.
+                    content:
+                        application/json:
+                            schema:
+                                $ref: "#/components/schemas/Error"
+
+components:
+    securitySchemes:
+        bearerAuth:
+            type: http
+            scheme: bearer
+            description: Shared bearer token. Required only when the endpoint is reachable off-host.
+
+    schemas:
+        JobAck:
+            type: object
+            additionalProperties: false
+            required:
+                - jobId
+                - state
+            properties:
+                jobId:
+                    type: string
+                    pattern: "^[A-Za-z0-9_-]{1,128}$"
+                state:
+                    description: >
+                        Current state of the job. A fresh 202 ack is queued/running; a 409 ack echoes the
+                        existing job's state, which may already be done/failed — the matcher then GETs for results.
+                    type: string
+                    enum:
+                        - queued
+                        - running
+                        - done
+                        - failed
+
+        Error:
+            type: object
+            additionalProperties: false
+            required:
+                - error
+            properties:
+                error:
+                    description: Machine-readable error code so the matcher can branch.
+                    type: string
+                    maxLength: 64
+                    examples:
+                        - malformed_request
+                        - unsupported_schema_version
+                        - rate_limited
+                        - internal_error
+                        - unknown_job
+                        - job_expired
+                message:
+                    description: Human-readable detail. Sanitised summary only — never a stack trace or internal path.
+                    type: string
+                    maxLength: 1000

@@ -1,0 +1,260 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://raw.githubusercontent.com/magicsunday/webtrees-obituary-matcher/main/schemas/job-request.schema.json",
+    "title": "Obituary search job request (Matcher → Finder)",
+    "description": "The POST /jobs request body. Carries PII-minimal, STRUCTURED person facts so each finder builds portal-optimal queries itself; pre-baked query strings are an optional hint only. Producer obligation: candidates MUST be people the matcher has reason to believe are DECEASED (apply the webtrees privacy filter first); never submit a living person.",
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+        "schemaVersion",
+        "jobId",
+        "candidates"
+    ],
+    "properties": {
+        "schemaVersion": {
+            "description": "Major contract version. A finder MUST reject an unknown major.",
+            "type": "integer",
+            "const": 1
+        },
+        "jobId": {
+            "description": "Opaque, matcher-assigned job identifier. Used as a path segment in GET /jobs/{jobId}, hence the URL-safe charset. SHOULD be content-derived (a salted hash of the candidate set) so a collision implies identical content; see the 409 semantics.",
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{1,128}$"
+        },
+        "locale": {
+            "description": "UI/search locale hint forwarded from webtrees: an ISO-639 language with an optional script subtag and/or region (e.g. \"de\", \"de-DE\", \"zh-Hans\", \"sr-Latn\", \"es-419\"). The region is an ISO-3166-1 two-letter code or a UN M.49 three-digit code, matching webtrees' locale identifiers. A bounded BCP-47 subset, not full BCP-47.",
+            "type": "string",
+            "pattern": "^[a-z]{2,3}(-[A-Z][a-z]{3})?(-(?:[A-Z]{2}|[0-9]{3}))?$",
+            "default": "de"
+        },
+        "options": {
+            "$ref": "#/$defs/JobOptions"
+        },
+        "candidates": {
+            "description": "The people to search for. The finder treats every candidate independently. Bounded per job so a single request stays a manageable unit of work; the matcher splits larger sweeps across multiple jobs.",
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 500,
+            "items": {
+                "$ref": "#/$defs/CandidateFacts"
+            }
+        }
+    },
+    "$defs": {
+        "JobOptions": {
+            "description": "Optional, non-authoritative job-level hints. A finder MAY ignore any of these.",
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "portals": {
+                    "description": "Restrict the search to these portal ids (see capabilities). Absent = all portals the finder offers.",
+                    "type": "array",
+                    "maxItems": 200,
+                    "uniqueItems": true,
+                    "items": {
+                        "type": "string",
+                        "pattern": "^[a-z0-9][a-z0-9_.-]{0,63}$"
+                    }
+                },
+                "maxPages": {
+                    "description": "Soft per-portal pagination ceiling hint.",
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 100
+                }
+            }
+        },
+        "CandidateFacts": {
+            "description": "PII-minimal facts needed to SEARCH for one person. Deliberately excludes relatives — those are needed only for SCORING, which happens in the matcher, never in the finder. The matcher SHOULD omit residence places for any candidate whose death is not established.",
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+                "personId",
+                "names"
+            ],
+            "properties": {
+                "personId": {
+                    "description": "Opaque matcher reference. The finder echoes it back unchanged as the result key; it carries no meaning for the finder. URL/path-safe charset (same discipline as jobId) because the matcher may use it to derive a storage key.",
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9_-]{1,256}$"
+                },
+                "names": {
+                    "description": "One or more names to search under, including maiden (birth) and married names.",
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 10,
+                    "items": {
+                        "$ref": "#/$defs/NameEntry"
+                    }
+                },
+                "birth": {
+                    "$ref": "#/$defs/BirthSpec"
+                },
+                "places": {
+                    "description": "Known places (birth, baptism, residences …). Each value is the full, possibly comma-separated GEDCOM place hierarchy; the finder is expected to consider EVERY segment (Ortsteil) when matching, not only the first.",
+                    "type": "array",
+                    "maxItems": 50,
+                    "items": {
+                        "$ref": "#/$defs/PlaceEntry"
+                    }
+                },
+                "region": {
+                    "description": "Optional coarse region hint for portal routing (e.g. a state/Bundesland or county), derived by the matcher.",
+                    "type": "string",
+                    "maxLength": 200
+                },
+                "queryHints": {
+                    "description": "Optional pre-built query strings (matcher's QueryGenerator). A finder MAY use them, but SHOULD prefer building portal-optimal queries from the structured fields above.",
+                    "type": "array",
+                    "maxItems": 50,
+                    "items": {
+                        "$ref": "#/$defs/QueryHint"
+                    }
+                }
+            }
+        },
+        "NameEntry": {
+            "description": "A single searchable name. At least one of full / surname / given must be present.",
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "kind": {
+                    "description": "Provenance of the name within the tree.",
+                    "type": "string",
+                    "enum": [
+                        "primary",
+                        "birth",
+                        "married",
+                        "alias"
+                    ]
+                },
+                "full": {
+                    "description": "Full display name, plain text (no GEDCOM slashes, no markup).",
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200
+                },
+                "given": {
+                    "description": "Given name(s).",
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200
+                },
+                "surname": {
+                    "description": "Surname / family name.",
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200
+                }
+            },
+            "anyOf": [
+                {
+                    "required": [
+                        "full"
+                    ]
+                },
+                {
+                    "required": [
+                        "surname"
+                    ]
+                },
+                {
+                    "required": [
+                        "given"
+                    ]
+                }
+            ]
+        },
+        "BirthSpec": {
+            "description": "Birth date, resilient to imprecise GEDCOM dates (ABT/BET..AND/AFT/BEF). Supply exactDate when known to the day; ALWAYS supply yearRange as the resolved interval the true year must fall into (min == max for an exact year). This lets a finder filter by a year window without parsing GEDCOM. The structured fields are authoritative — the original GEDCOM string is intentionally NOT transmitted (PII minimisation). Producer obligation: yearRange.min <= yearRange.max (cannot be expressed in JSON Schema); a consumer MAY reject or swap a reversed range.",
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "exactDate": {
+                    "description": "Exact birth date when known.",
+                    "type": "string",
+                    "format": "date",
+                    "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+                },
+                "yearRange": {
+                    "description": "Inclusive [min, max] year interval covering the GEDCOM date's uncertainty.",
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                        "min",
+                        "max"
+                    ],
+                    "properties": {
+                        "min": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "maximum": 2200
+                        },
+                        "max": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "maximum": 2200
+                        }
+                    }
+                }
+            },
+            "required": [
+                "yearRange"
+            ]
+        },
+        "PlaceEntry": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+                "value"
+            ],
+            "properties": {
+                "kind": {
+                    "description": "Role of this place for the person. ADVISORY: a finder MAY use kind for routing/weighting but MUST NOT require it; ignoring kind and matching on value is a valid implementation.",
+                    "type": "string",
+                    "enum": [
+                        "birth",
+                        "baptism",
+                        "residence",
+                        "death-hint",
+                        "burial"
+                    ]
+                },
+                "value": {
+                    "description": "Full GEDCOM place, possibly comma-separated from most-specific to least (e.g. \"Musterhausen, Musterstadt, Musterland\").",
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 300
+                }
+            }
+        },
+        "QueryHint": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+                "query",
+                "dedupKey"
+            ],
+            "properties": {
+                "query": {
+                    "description": "A ready-to-use search phrase.",
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 500
+                },
+                "priority": {
+                    "description": "1 = highest. Absent priority is treated as 1 (most important). Lower priority hints may be skipped under rate limits.",
+                    "type": "integer",
+                    "minimum": 1,
+                    "default": 1
+                },
+                "dedupKey": {
+                    "description": "Stable key so the finder runs an identical phrase only once per job.",
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200
+                }
+            }
+        }
+    }
+}
