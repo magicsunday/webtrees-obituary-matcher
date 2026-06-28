@@ -11,6 +11,7 @@ declare(strict_types=1);
 
 namespace MagicSunday\ObituaryMatcher\Test\Support;
 
+use InvalidArgumentException;
 use MagicSunday\ObituaryMatcher\Support\FinderConnection;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\Test;
@@ -73,5 +74,20 @@ final class FinderConnectionTest extends TestCase
     public function theTokenStaysRetrievableForLegitimateUse(): void
     {
         self::assertSame('secret-token', FinderConnection::rest('http://x', 'secret-token')->token());
+    }
+
+    #[Test]
+    public function aTokenWithControlCharactersIsRejectedWithoutEchoingIt(): void
+    {
+        // A control character (e.g. a copy-pasted trailing newline) would make a PSR-7 Authorization
+        // header build throw — spilling the token into the throwing frame's arguments — or inject a CRLF
+        // header on a non-validating client. It is rejected at this single source, and the failure must
+        // never echo the secret itself.
+        try {
+            FinderConnection::rest('https://finder.example', "secret\ntoken");
+            self::fail('Expected an InvalidArgumentException for a control-character token.');
+        } catch (InvalidArgumentException $exception) {
+            self::assertStringNotContainsString('secret', $exception->getMessage());
+        }
     }
 }

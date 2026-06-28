@@ -11,7 +11,10 @@ declare(strict_types=1);
 
 namespace MagicSunday\ObituaryMatcher\Support;
 
+use InvalidArgumentException;
 use SensitiveParameter;
+
+use function preg_match;
 
 /**
  * Immutable description of how the module talks to the obituary finder: either the file-drop queue
@@ -60,9 +63,22 @@ final readonly class FinderConnection
      * @param string|null $token   The secret bearer token, or null when unauthenticated.
      *
      * @return self The REST-transport connection.
+     *
+     * @throws InvalidArgumentException When the token carries a control character. Such a token would
+     *                                  make a PSR-7 `Authorization` header build throw (spilling the
+     *                                  token into the throwing frame's arguments) or, on a non-validating
+     *                                  client, inject a CRLF header — so it is rejected at this single
+     *                                  source. The message never echoes the token.
      */
     public static function rest(string $baseUrl, #[SensitiveParameter] ?string $token): self
     {
+        if (
+            ($token !== null)
+            && (preg_match('/[\x00-\x1F\x7F]/', $token) === 1)
+        ) {
+            throw new InvalidArgumentException('The finder bearer token must not contain control characters.');
+        }
+
         return new self('rest', $baseUrl, $token);
     }
 
