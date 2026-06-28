@@ -15,6 +15,7 @@ use InvalidArgumentException;
 use SensitiveParameter;
 
 use function in_array;
+use function is_string;
 use function parse_url;
 use function preg_match;
 use function strtolower;
@@ -83,7 +84,12 @@ final readonly class FinderConnection
             throw new InvalidArgumentException('The finder base URL must not contain control characters.');
         }
 
-        if (!in_array(strtolower((string) parse_url($baseUrl, PHP_URL_SCHEME)), ['http', 'https'], true)) {
+        $scheme = parse_url($baseUrl, PHP_URL_SCHEME);
+
+        if (
+            !is_string($scheme)
+            || !in_array(strtolower($scheme), ['http', 'https'], true)
+        ) {
             throw new InvalidArgumentException('The finder base URL must be an http or https URL.');
         }
 
