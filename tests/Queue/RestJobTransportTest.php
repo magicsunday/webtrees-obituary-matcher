@@ -417,6 +417,7 @@ final class RestJobTransportTest extends TempDirTestCase
         self::assertSame([], $ledger->jobIds());
         self::assertCount(2, $http->sent);
         self::assertSame('DELETE', $http->sent[1]->getMethod());
+        self::assertStringContainsString('/jobs/huge', (string) $http->sent[1]->getUri());
     }
 
     /**
