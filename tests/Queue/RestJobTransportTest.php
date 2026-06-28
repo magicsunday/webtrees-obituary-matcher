@@ -1,0 +1,468 @@
+<?php
+
+/**
+ * This file is part of the package magicsunday/webtrees-obituary-matcher.
+ *
+ * For the full copyright and license information, please read the
+ * LICENSE file that was distributed with this source code.
+ */
+
+declare(strict_types=1);
+
+namespace MagicSunday\ObituaryMatcher\Test\Queue;
+
+use DateTimeImmutable;
+use GuzzleHttp\Psr7\HttpFactory;
+use GuzzleHttp\Psr7\Response;
+use MagicSunday\ObituaryMatcher\Domain\DeathNoticeRecord;
+use MagicSunday\ObituaryMatcher\Domain\NoticeRelative;
+use MagicSunday\ObituaryMatcher\Domain\NoticeType;
+use MagicSunday\ObituaryMatcher\Domain\PersonName;
+use MagicSunday\ObituaryMatcher\Domain\Place;
+use MagicSunday\ObituaryMatcher\Parsing\ObituaryDateParser;
+use MagicSunday\ObituaryMatcher\Queue\AtomicFile;
+use MagicSunday\ObituaryMatcher\Queue\CompletedJob;
+use MagicSunday\ObituaryMatcher\Queue\FailedJob;
+use MagicSunday\ObituaryMatcher\Queue\QueuePaths;
+use MagicSunday\ObituaryMatcher\Queue\ResponseValidationException;
+use MagicSunday\ObituaryMatcher\Queue\ResponseValidator;
+use MagicSunday\ObituaryMatcher\Queue\RestJobTransport;
+use MagicSunday\ObituaryMatcher\Queue\RestPendingLedger;
+use MagicSunday\ObituaryMatcher\Support\FeederCandidateRequest;
+use MagicSunday\ObituaryMatcher\Support\FeederRequest;
+use MagicSunday\ObituaryMatcher\Support\FinderConnection;
+use MagicSunday\ObituaryMatcher\Support\ObituaryNameParser;
+use MagicSunday\ObituaryMatcher\Test\Support\TempDirTestCase;
+use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\Test;
+use PHPUnit\Framework\Attributes\UsesClass;
+use Psr\Http\Client\ClientExceptionInterface;
+use Psr\Http\Client\ClientInterface;
+use Psr\Http\Message\RequestInterface;
+use Psr\Http\Message\ResponseInterface;
+use RuntimeException;
+
+use function array_shift;
+use function iterator_to_array;
+use function json_encode;
+
+use const JSON_THROW_ON_ERROR;
+
+/**
+ * Tests the REST job transport against a scriptable PSR-18 client double: the queued->running->done
+ * poll lifecycle, the 404/5xx/connect-error branches, the malformed-done -> response_invalid mapping,
+ * the bearer-header-without-token-leak contract, the release no-op, idempotent finalisation even when
+ * the remote DELETE fails, and the Variante-B parity that the shared validator ignores a top-level
+ * `state` field.
+ *
+ * @author  Rico Sonntag <mail@ricosonntag.de>
+ * @license https://opensource.org/licenses/GPL-3.0 GNU General Public License v3.0
+ * @link    https://github.com/magicsunday/webtrees-obituary-matcher/
+ */
+#[CoversClass(RestJobTransport::class)]
+#[UsesClass(RestPendingLedger::class)]
+#[UsesClass(AtomicFile::class)]
+#[UsesClass(QueuePaths::class)]
+#[UsesClass(CompletedJob::class)]
+#[UsesClass(FailedJob::class)]
+#[UsesClass(ResponseValidator::class)]
+#[UsesClass(ResponseValidationException::class)]
+#[UsesClass(FinderConnection::class)]
+#[UsesClass(FeederRequest::class)]
+#[UsesClass(FeederCandidateRequest::class)]
+#[UsesClass(DeathNoticeRecord::class)]
+#[UsesClass(NoticeType::class)]
+#[UsesClass(NoticeRelative::class)]
+#[UsesClass(PersonName::class)]
+#[UsesClass(Place::class)]
+#[UsesClass(ObituaryNameParser::class)]
+#[UsesClass(ObituaryDateParser::class)]
+final class RestJobTransportTest extends TempDirTestCase
+{
+    /**
+     * A job submitted and then polled queued -> running -> done surfaces exactly one CompletedJob once
+     * the remote reports `done`, and nothing while it is still running.
+     *
+     * @return void
+     */
+    #[Test]
+    public function aQueuedThenRunningThenDoneJobRoundTrips(): void
+    {
+        $ledger = new RestPendingLedger($this->tmp . '/rp');
+        $http   = $this->http([
+            static fn (): ResponseInterface => self::json(202, ['schemaVersion' => 1, 'jobId' => 'job-1', 'state' => 'queued']),
+            static fn (): ResponseInterface => self::json(200, ['schemaVersion' => 1, 'jobId' => 'job-1', 'state' => 'running']),
+            fn (): ResponseInterface => self::json(200, $this->doneBody('job-1', 'I1')),
+        ]);
+
+        $transport = $this->newRest($http, $ledger);
+        $transport->submit($this->feederRequest('job-1', 7, ['I1']));
+
+        $running = iterator_to_array($transport->fetchCompleted());
+
+        self::assertCount(0, $running);
+
+        $done = iterator_to_array($transport->fetchCompleted());
+
+        self::assertCount(1, $done);
+        self::assertInstanceOf(CompletedJob::class, $done[0]);
+        self::assertSame('job-1', $done[0]->jobId);
+        self::assertSame(7, $done[0]->treeId);
+        self::assertArrayHasKey('I1', $done[0]->notices);
+    }
+
+    /**
+     * A 200 `done` body that fails response validation yields one FailedJob categorised
+     * `response_invalid`, never a CompletedJob.
+     *
+     * @return void
+     */
+    #[Test]
+    public function aMalformedDoneBodyYieldsResponseInvalid(): void
+    {
+        $ledger = new RestPendingLedger($this->tmp . '/rp');
+        $ledger->record('job-1', 7, ['I1'], '2024-05-21T08:29:55Z');
+
+        $http = $this->http([
+            static fn (): ResponseInterface => self::json(200, [
+                'schemaVersion' => 1,
+                'jobId'         => 'job-1',
+                'state'         => 'done',
+                'results'       => 'not-an-object',
+            ]),
+        ]);
+
+        $outcomes = iterator_to_array($this->newRest($http, $ledger)->fetchCompleted());
+
+        self::assertCount(1, $outcomes);
+        self::assertInstanceOf(FailedJob::class, $outcomes[0]);
+        self::assertSame('response_invalid', $outcomes[0]->reasonCategory);
+    }
+
+    /**
+     * A 404 means the remote forgot the job: it yields one FailedJob categorised `finder_job_missing`.
+     *
+     * @return void
+     */
+    #[Test]
+    public function aFinder404YieldsFinderJobMissing(): void
+    {
+        $ledger = new RestPendingLedger($this->tmp . '/rp');
+        $ledger->record('job-1', 7, ['I1'], '2024-05-21T08:29:55Z');
+
+        $http     = $this->http([static fn (): ResponseInterface => self::json(404, ['error' => 'gone'])]);
+        $outcomes = iterator_to_array($this->newRest($http, $ledger)->fetchCompleted());
+
+        self::assertCount(1, $outcomes);
+        self::assertInstanceOf(FailedJob::class, $outcomes[0]);
+        self::assertSame('finder_job_missing', $outcomes[0]->reasonCategory);
+    }
+
+    /**
+     * A `failed` state yields one FailedJob categorised `finder_failed`.
+     *
+     * @return void
+     */
+    #[Test]
+    public function aFailedStateYieldsFinderFailed(): void
+    {
+        $ledger = new RestPendingLedger($this->tmp . '/rp');
+        $ledger->record('job-1', 7, ['I1'], '2024-05-21T08:29:55Z');
+
+        $http = $this->http([
+            static fn (): ResponseInterface => self::json(200, ['schemaVersion' => 1, 'jobId' => 'job-1', 'state' => 'failed']),
+        ]);
+
+        $outcomes = iterator_to_array($this->newRest($http, $ledger)->fetchCompleted());
+
+        self::assertCount(1, $outcomes);
+        self::assertInstanceOf(FailedJob::class, $outcomes[0]);
+        self::assertSame('finder_failed', $outcomes[0]->reasonCategory);
+    }
+
+    /**
+     * A transient 5xx leaves the job in flight: nothing is yielded and the ledger entry is kept for the
+     * next drain to retry.
+     *
+     * @return void
+     */
+    #[Test]
+    public function aTransient5xxLeavesTheJobInFlight(): void
+    {
+        $ledger = new RestPendingLedger($this->tmp . '/rp');
+        $ledger->record('job-1', 7, ['I1'], '2024-05-21T08:29:55Z');
+
+        $http      = $this->http([static fn (): ResponseInterface => self::json(500, ['error' => 'busy'])]);
+        $transport = $this->newRest($http, $ledger);
+
+        self::assertSame([], iterator_to_array($transport->fetchCompleted()));
+        self::assertSame(['job-1'], $ledger->jobIds());
+    }
+
+    /**
+     * A connect error (the PSR-18 client throws a ClientExceptionInterface) is transient: nothing is
+     * yielded and the ledger entry is kept.
+     *
+     * @return void
+     */
+    #[Test]
+    public function aConnectErrorLeavesTheJobInFlight(): void
+    {
+        $ledger = new RestPendingLedger($this->tmp . '/rp');
+        $ledger->record('job-1', 7, ['I1'], '2024-05-21T08:29:55Z');
+
+        $http = $this->http([
+            static function (): ResponseInterface {
+                throw new class('connect timed out') extends RuntimeException implements ClientExceptionInterface {};
+            },
+        ]);
+        $transport = $this->newRest($http, $ledger);
+
+        self::assertSame([], iterator_to_array($transport->fetchCompleted()));
+        self::assertSame(['job-1'], $ledger->jobIds());
+    }
+
+    /**
+     * submit attaches the bearer token to the Authorization header, and a submission that the remote
+     * rejects fails WITHOUT the secret token ever appearing in the exception message or trace.
+     *
+     * @return void
+     */
+    #[Test]
+    public function submitSendsABearerHeaderAndNeverLeaksTheTokenOnError(): void
+    {
+        $ledger = new RestPendingLedger($this->tmp . '/rp');
+        $http   = $this->http([
+            static fn (): ResponseInterface => self::json(202, ['schemaVersion' => 1, 'jobId' => 'job-1', 'state' => 'queued']),
+        ]);
+
+        $this->newRest($http, $ledger)->submit($this->feederRequest('job-1', 7, ['I1']));
+
+        self::assertCount(1, $http->sent);
+        self::assertSame('Bearer secret-token', $http->sent[0]->getHeaderLine('Authorization'));
+
+        $rejecting = $this->http([static fn (): ResponseInterface => self::json(500, ['error' => 'nope'])]);
+
+        try {
+            $this->newRest($rejecting, new RestPendingLedger($this->tmp . '/rp2'))
+                ->submit($this->feederRequest('job-1', 7, ['I1']));
+            self::fail('Expected a RuntimeException for a rejected submission.');
+        } catch (RuntimeException $exception) {
+            self::assertStringNotContainsString('secret-token', $exception->getMessage());
+            self::assertStringNotContainsString('secret-token', $exception->getTraceAsString());
+        }
+    }
+
+    /**
+     * release is a no-op for the REST transport: the ledger entry stays so the next drain re-polls it.
+     *
+     * @return void
+     */
+    #[Test]
+    public function releaseKeepsTheLedgerEntry(): void
+    {
+        $ledger = new RestPendingLedger($this->tmp . '/rp');
+        $ledger->record('job-1', 7, ['I1'], '2024-05-21T08:29:55Z');
+
+        $this->newRest($this->http([]), $ledger)->release('job-1');
+
+        self::assertSame(['job-1'], $ledger->jobIds());
+    }
+
+    /**
+     * markIngested removes the ledger entry even when the best-effort remote DELETE returns an error,
+     * so a failed cleanup can never resurrect the job into the poll set.
+     *
+     * @return void
+     */
+    #[Test]
+    public function markIngestedRemovesTheLedgerEntryEvenWhenDeleteFails(): void
+    {
+        $ledger = new RestPendingLedger($this->tmp . '/rp');
+        $ledger->record('job-1', 7, ['I1'], '2024-05-21T08:29:55Z');
+
+        $http = $this->http([static fn (): ResponseInterface => self::json(500, [])]);
+        $this->newRest($http, $ledger)->markIngested('job-1', ['matchesStored' => 0]);
+
+        self::assertSame([], $ledger->jobIds());
+    }
+
+    /**
+     * markFailed also drops the ledger entry (a REST job carries no local failure bookkeeping).
+     *
+     * @return void
+     */
+    #[Test]
+    public function markFailedRemovesTheLedgerEntry(): void
+    {
+        $ledger = new RestPendingLedger($this->tmp . '/rp');
+        $ledger->record('job-1', 7, ['I1'], '2024-05-21T08:29:55Z');
+
+        $http = $this->http([static fn (): ResponseInterface => self::json(500, [])]);
+        $this->newRest($http, $ledger)->markFailed('job-1', 'ingest_failed');
+
+        self::assertSame([], $ledger->jobIds());
+    }
+
+    /**
+     * inFlightRequests maps each ledger entry to the {treeId, requestedPersonIds} shape the producer
+     * dedups against, and staleCount is always 0 (REST jobs are never claimed into an ingesting state).
+     *
+     * @return void
+     */
+    #[Test]
+    public function inFlightRequestsMapTheLedgerAndStaleCountIsZero(): void
+    {
+        $ledger = new RestPendingLedger($this->tmp . '/rp');
+        $ledger->record('job-1', 7, ['I1', 'I2'], '2024-05-21T08:29:55Z');
+
+        $transport = $this->newRest($this->http([]), $ledger);
+        $inFlight  = iterator_to_array($transport->inFlightRequests());
+
+        self::assertSame([['treeId' => 7, 'requestedPersonIds' => ['I1', 'I2']]], $inFlight);
+        self::assertSame(0, $transport->staleCount());
+    }
+
+    /**
+     * Variante-B parity pin: a #56 job-response carrying a top-level `state` validates unchanged
+     * through the shared ResponseValidator, which reads only schemaVersion/jobId/results.
+     *
+     * @return void
+     */
+    #[Test]
+    public function theValidatorIgnoresATopLevelStateField(): void
+    {
+        $byPerson = (new ResponseValidator())->validate($this->doneBody('job-1', 'I1'), 'job-1', ['I1']);
+
+        self::assertArrayHasKey('I1', $byPerson);
+    }
+
+    /**
+     * Builds the REST transport wired to the given client double and ledger, using a real Guzzle
+     * PSR-17 factory and a tokened REST connection.
+     *
+     * @param ClientInterface   $http   The scriptable PSR-18 client double.
+     * @param RestPendingLedger $ledger The in-flight ledger.
+     *
+     * @return RestJobTransport The wired transport.
+     */
+    private function newRest(ClientInterface $http, RestPendingLedger $ledger): RestJobTransport
+    {
+        $factory = new HttpFactory();
+
+        return new RestJobTransport(
+            $http,
+            $factory,
+            $factory,
+            $ledger,
+            FinderConnection::rest('https://finder.example/', 'secret-token'),
+            new ResponseValidator()
+        );
+    }
+
+    /**
+     * Builds a feeder request with one candidate per person id.
+     *
+     * @param string       $jobId     The job identifier.
+     * @param int          $treeId    The tree identifier.
+     * @param list<string> $personIds The requested person ids.
+     *
+     * @return FeederRequest The assembled request.
+     */
+    private function feederRequest(string $jobId, int $treeId, array $personIds): FeederRequest
+    {
+        $candidates = [];
+
+        foreach ($personIds as $personId) {
+            $candidates[] = new FeederCandidateRequest($personId, []);
+        }
+
+        return new FeederRequest(
+            1,
+            $jobId,
+            new DateTimeImmutable('2024-05-21T08:29:55+00:00'),
+            'de-DE',
+            $candidates,
+            $treeId
+        );
+    }
+
+    /**
+     * A minimal valid #56 done job-response carrying a top-level `state` (Variante B): one person with
+     * a single well-formed notice. Mirrors ResponseValidatorTest's valid payload plus the state field.
+     *
+     * @param string $jobId    The job identifier the response echoes.
+     * @param string $personId The requested person the notice belongs to.
+     *
+     * @return array<string, mixed> The done job-response body.
+     */
+    private function doneBody(string $jobId, string $personId): array
+    {
+        return [
+            'schemaVersion' => 1,
+            'jobId'         => $jobId,
+            'state'         => 'done',
+            'results'       => [
+                $personId => [
+                    [
+                        'url'        => 'https://obituary.example/n/1',
+                        'fetchedAt'  => '2024-05-21T08:30:00Z',
+                        'noticeType' => 'obituary',
+                        'name'       => 'Max Mustermann',
+                        'source'     => 'obituary-example-de',
+                    ],
+                ],
+            ],
+        ];
+    }
+
+    /**
+     * A scriptable PSR-18 client: each scripted callable is consumed in order and produces (or throws)
+     * the next response, while every sent request is captured in the public $sent list for assertions.
+     *
+     * @param list<callable(RequestInterface): ResponseInterface> $script The scripted responders, in order.
+     *
+     * @return ClientInterface&object{sent: list<RequestInterface>} The capturing client double.
+     */
+    private function http(array $script): ClientInterface
+    {
+        return new class($script) implements ClientInterface {
+            /**
+             * @var list<RequestInterface> The requests the transport sent, in order.
+             */
+            public array $sent = [];
+
+            /**
+             * @param list<callable(RequestInterface): ResponseInterface> $script The scripted responders.
+             */
+            public function __construct(private array $script)
+            {
+            }
+
+            public function sendRequest(RequestInterface $request): ResponseInterface
+            {
+                $this->sent[] = $request;
+                $next         = array_shift($this->script);
+
+                if ($next === null) {
+                    throw new RuntimeException('Unexpected request: ' . $request->getMethod() . ' ' . $request->getUri());
+                }
+
+                return $next($request);
+            }
+        };
+    }
+
+    /**
+     * Builds a JSON response with the given status and decoded body.
+     *
+     * @param int                  $status The HTTP status code.
+     * @param array<string, mixed> $data   The body to JSON-encode.
+     *
+     * @return ResponseInterface The JSON response.
+     */
+    private static function json(int $status, array $data): ResponseInterface
+    {
+        return new Response($status, ['Content-Type' => 'application/json'], json_encode($data, JSON_THROW_ON_ERROR));
+    }
+}
