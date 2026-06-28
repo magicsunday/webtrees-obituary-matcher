@@ -318,12 +318,13 @@ final class RestJobTransportTest extends TempDirTestCase
 
     /**
      * A submission to an unreachable finder fails with a base-URL-only RuntimeException (no token in the
-     * message or trace) and rolls the speculative ledger entry back.
+     * message or trace) and records NOTHING — the POST runs before the record, so a failed POST leaves
+     * the ledger untouched.
      *
      * @return void
      */
     #[Test]
-    public function submitOnAConnectErrorRollsBackAndDoesNotLeakTheToken(): void
+    public function submitOnAConnectErrorRecordsNothingAndDoesNotLeakTheToken(): void
     {
         $ledger = new RestPendingLedger($this->tmp . '/rp');
         $http   = $this->http([
@@ -345,13 +346,13 @@ final class RestJobTransportTest extends TempDirTestCase
     }
 
     /**
-     * A 202 acknowledging a DIFFERENT job than submitted fails the submission and rolls the ledger entry
-     * back, so the ledger never records a job the remote did not confirm.
+     * A 202 acknowledging a DIFFERENT job than submitted fails the submission and records nothing, so the
+     * ledger never holds a job the remote did not confirm under the submitted id.
      *
      * @return void
      */
     #[Test]
-    public function submitOnAMismatchedAcknowledgementRollsBack(): void
+    public function submitOnAMismatchedAcknowledgementRecordsNothing(): void
     {
         $ledger = new RestPendingLedger($this->tmp . '/rp');
         $http   = $this->http([
@@ -369,27 +370,53 @@ final class RestJobTransportTest extends TempDirTestCase
     }
 
     /**
-     * A request too large to record is rejected BEFORE any remote POST, so a job the drain could never
-     * poll is never submitted (no orphaned remote job) and nothing is recorded.
+     * A 202 whose body is unreadable (the remote accepted then returned garbage) fails the submission and
+     * records nothing — covering the unreadable-acknowledgement operand of the postJob guard.
      *
      * @return void
      */
     #[Test]
-    public function submitRejectsAnOversizedRequestBeforePosting(): void
+    public function submitOnAnUnreadableAcknowledgementRecordsNothing(): void
     {
         $ledger = new RestPendingLedger($this->tmp . '/rp');
-        $http   = $this->http([]);
+        $http   = $this->http([static fn (): ResponseInterface => self::raw(202, '{not json')]);
+
+        try {
+            $this->newRest($http, $ledger)->submit($this->feederRequest('job-1', 7, ['I1']));
+            self::fail('Expected a RuntimeException for an unreadable acknowledgement.');
+        } catch (RuntimeException) {
+            // Expected: the 202 body could not be read back to confirm the job.
+        }
+
+        self::assertSame([], $ledger->jobIds());
+    }
+
+    /**
+     * A job the remote accepted (202) but that is too large to record locally is DELETED remotely so it
+     * never runs untracked, the failure is surfaced, and nothing is left in the ledger.
+     *
+     * @return void
+     */
+    #[Test]
+    public function submitDeletesTheRemoteJobWhenItCannotBeRecorded(): void
+    {
+        $ledger = new RestPendingLedger($this->tmp . '/rp');
+        $http   = $this->http([
+            static fn (): ResponseInterface => self::json(202, ['schemaVersion' => 1, 'jobId' => 'huge', 'state' => 'queued']),
+            static fn (): ResponseInterface => self::json(200, []),
+        ]);
 
         try {
             $this->newRest($http, $ledger)
                 ->submit($this->feederRequest('huge', 7, array_fill(0, 12_000, 'I1234567')));
-            self::fail('Expected a RuntimeException for an oversized request.');
+            self::fail('Expected a RuntimeException for an unrecordable oversized request.');
         } catch (RuntimeException) {
-            // Expected: record() rejects the oversized entry before any POST is attempted.
+            // Expected: the entry exceeds the read-back byte cap after the remote already accepted it.
         }
 
-        self::assertCount(0, $http->sent);
         self::assertSame([], $ledger->jobIds());
+        self::assertCount(2, $http->sent);
+        self::assertSame('DELETE', $http->sent[1]->getMethod());
     }
 
     /**
@@ -440,18 +467,22 @@ final class RestJobTransportTest extends TempDirTestCase
     }
 
     /**
-     * markIngested removes the ledger entry even when the best-effort remote DELETE returns an error,
-     * so a failed cleanup can never resurrect the job into the poll set.
+     * markIngested removes the ledger entry even when the best-effort remote DELETE THROWS (a transport
+     * fault), so the swallowed-Throwable cleanup can never resurrect the job into the poll set.
      *
      * @return void
      */
     #[Test]
-    public function markIngestedRemovesTheLedgerEntryEvenWhenDeleteFails(): void
+    public function markIngestedRemovesTheLedgerEntryEvenWhenDeleteThrows(): void
     {
         $ledger = new RestPendingLedger($this->tmp . '/rp');
         $ledger->record('job-1', 7, ['I1'], '2024-05-21T08:29:55Z');
 
-        $http = $this->http([static fn (): ResponseInterface => self::json(500, [])]);
+        $http = $this->http([
+            static function (): ResponseInterface {
+                throw new class('delete failed') extends RuntimeException implements ClientExceptionInterface {};
+            },
+        ]);
         $this->newRest($http, $ledger)->markIngested('job-1', ['matchesStored' => 0]);
 
         self::assertSame([], $ledger->jobIds());

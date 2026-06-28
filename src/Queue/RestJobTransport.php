@@ -131,25 +131,26 @@ final readonly class RestJobTransport implements JobTransport
      */
     public function submit(FeederRequest $request): string
     {
-        // Record the job locally BEFORE the remote POST. RestPendingLedger::record() rejects an
-        // un-recordable job (an entry larger than the read-back byte cap) right here, so a job the drain
-        // could never poll is never submitted to the remote in the first place. If the submission then
-        // fails the entry is rolled back, so the ledger is never out of sync with what the remote
-        // accepted (a crash between the record and the POST self-heals: the next drain polls the entry,
-        // the remote 404s it, and it is finalised as finder_job_missing).
-        $this->ledger->record(
-            $request->jobId,
-            $request->treeId,
-            $this->personIdsOf($request),
-            $request->createdAt->format(DateTimeInterface::ATOM)
-        );
+        // POST first, record second: the job enters the local ledger only AFTER the remote has accepted
+        // it (202). A drain may run concurrently with this submission (the enqueue side is a web request,
+        // the drain a scheduled task, with no shared lock); recording before the POST would let that
+        // drain observe a not-yet-accepted entry, poll it, get a 404 and phantom-remove it as
+        // finder_job_missing — silently dropping a job the remote then runs. A failed POST therefore
+        // simply propagates with nothing recorded.
+        $this->postJob($request);
 
         try {
-            $this->postJob($request);
+            $this->ledger->record(
+                $request->jobId,
+                $request->treeId,
+                $this->personIdsOf($request),
+                $request->createdAt->format(DateTimeInterface::ATOM)
+            );
         } catch (Throwable $exception) {
-            // The remote never confirmed the job, so drop the speculative ledger entry and surface the
-            // (base-URL-only, token-free) failure to the caller.
-            $this->ledger->remove($request->jobId);
+            // The remote accepted the job but it is too large to track locally (an entry beyond the
+            // read-back byte cap). Delete it remotely so it never runs untracked (no orphan), then
+            // surface the failure to the caller.
+            $this->forget($request->jobId);
 
             throw $exception;
         }
