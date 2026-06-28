@@ -96,4 +96,32 @@ final class FinderConnectionTest extends TestCase
             self::assertStringNotContainsString('secret', $exception->getMessage());
         }
     }
+
+    /**
+     * A base URL carrying a control character (a CRLF that could inject a header on a non-validating
+     * client) is rejected at the single source.
+     *
+     * @return void
+     */
+    #[Test]
+    public function aBaseUrlWithAControlCharacterIsRejected(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+
+        FinderConnection::rest("https://finder.example/\r\nX-Injected: 1", null);
+    }
+
+    /**
+     * A base URL whose scheme is not http(s) is rejected, so a malformed config value cannot point the
+     * transport at a non-HTTP target.
+     *
+     * @return void
+     */
+    #[Test]
+    public function aBaseUrlWithoutAnHttpSchemeIsRejected(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+
+        FinderConnection::rest('file:///etc/passwd', null);
+    }
 }

@@ -14,7 +14,12 @@ namespace MagicSunday\ObituaryMatcher\Support;
 use InvalidArgumentException;
 use SensitiveParameter;
 
+use function in_array;
+use function parse_url;
 use function preg_match;
+use function strtolower;
+
+use const PHP_URL_SCHEME;
 
 /**
  * Immutable description of how the module talks to the obituary finder: either the file-drop queue
@@ -64,14 +69,24 @@ final readonly class FinderConnection
      *
      * @return self The REST-transport connection.
      *
-     * @throws InvalidArgumentException When the token carries a control character. Such a token would
-     *                                  make a PSR-7 `Authorization` header build throw (spilling the
-     *                                  token into the throwing frame's arguments) or, on a non-validating
-     *                                  client, inject a CRLF header — so it is rejected at this single
-     *                                  source. The message never echoes the token.
+     * @throws InvalidArgumentException When the base URL is not an http(s) URL or carries a control
+     *                                  character, or when the token carries a control character. Either
+     *                                  value flows into an outbound request line, so a control character
+     *                                  would make a PSR-7 build throw (spilling a value into the throwing
+     *                                  frame's arguments) or, on a non-validating client, inject a CRLF
+     *                                  header — both rejected at this single source. The message never
+     *                                  echoes the token.
      */
     public static function rest(string $baseUrl, #[SensitiveParameter] ?string $token): self
     {
+        if (preg_match('/[\x00-\x1F\x7F]/', $baseUrl) === 1) {
+            throw new InvalidArgumentException('The finder base URL must not contain control characters.');
+        }
+
+        if (!in_array(strtolower((string) parse_url($baseUrl, PHP_URL_SCHEME)), ['http', 'https'], true)) {
+            throw new InvalidArgumentException('The finder base URL must be an http or https URL.');
+        }
+
         if (
             ($token !== null)
             && (preg_match('/[\x00-\x1F\x7F]/', $token) === 1)
