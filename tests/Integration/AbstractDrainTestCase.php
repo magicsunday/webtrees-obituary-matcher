@@ -76,14 +76,15 @@ abstract class AbstractDrainTestCase extends AbstractQueueStoreTestCase
      *
      * @return DrainService
      */
-    protected function drainService(?MatchStore $storeOverride = null): DrainService
+    protected function drainService(?MatchStore $storeOverride = null, ?JobTransport $transport = null): DrainService
     {
         $paths    = $this->paths();
         $storeDir = $this->storeRoot;
 
         // Build the file transport over this test's throwaway queue exactly as DrainServiceFactory does,
         // so the test drives the real composition root; only the per-tree store seam is redirected below.
-        $transport = new FileJobTransport(
+        // A caller can inject an alternate transport (e.g. the REST transport for the parity test).
+        $transport ??= new FileJobTransport(
             new QueueClient($paths),
             new ResponseReader($paths, QueueLimits::FEEDER_FILE_MAX_BYTES),
             new FeederRequestReader($paths, QueueLimits::FEEDER_FILE_MAX_BYTES),

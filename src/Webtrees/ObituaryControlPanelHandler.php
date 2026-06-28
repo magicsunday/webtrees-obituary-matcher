@@ -23,6 +23,7 @@ use Fisharebest\Webtrees\Services\TreeService;
 use Fisharebest\Webtrees\Validator;
 use MagicSunday\ObituaryMatcher\Queue\QueueClient;
 use MagicSunday\ObituaryMatcher\Queue\QueuePaths;
+use MagicSunday\ObituaryMatcher\Support\FinderConnection;
 use MagicSunday\ObituaryMatcher\Support\WebtreesInstallLocator;
 use MagicSunday\ObituaryMatcher\Ui\ControlPanelPresenter;
 use Psr\Http\Message\ResponseInterface;
@@ -413,8 +414,10 @@ class ObituaryControlPanelHandler implements RequestHandlerInterface
 
     /**
      * Builds the real enqueue producer over the given queue paths, mirroring the `tools/enqueue.php`
-     * wiring exactly. A seam so a test can inject a producer that throws (to pin the trigger path's
-     * always-PRG-redirect contract on a DomainException/RuntimeException from the producer).
+     * wiring exactly. The transport is selected from the persisted finder connection; the REST ledger
+     * root is resolved from the locator only when the REST transport is selected. A seam so a test can
+     * inject a producer that throws (to pin the trigger path's always-PRG-redirect contract on a
+     * DomainException/RuntimeException from the producer).
      *
      * @param QueuePaths $paths The queue path builder rooted at the resolved queue root.
      *
@@ -422,6 +425,43 @@ class ObituaryControlPanelHandler implements RequestHandlerInterface
      */
     protected function enqueueService(QueuePaths $paths): EnqueueService
     {
-        return EnqueueServiceFactory::create($paths);
+        $connection      = $this->finderConnection();
+        $restPendingRoot = $connection->transport() === 'rest' ? $this->restPendingRoot() : null;
+
+        return EnqueueServiceFactory::create($paths, $connection, $restPendingRoot);
+    }
+
+    /**
+     * Reads the finder connection from module preferences. Pure #58 plumbing: until #58 adds the config
+     * UI every preference is unset, so `finder_transport` resolves to `file` and this returns the
+     * file-drop connection — the control panel behaves byte-for-byte as before. Once #58 sets the
+     * preferences, the admin "Enqueue now" path honours them.
+     *
+     * @return FinderConnection The connection the persisted preferences describe.
+     */
+    protected function finderConnection(): FinderConnection
+    {
+        if ($this->module->getPreference('finder_transport', 'file') !== 'rest') {
+            return FinderConnection::file();
+        }
+
+        $token = $this->module->getPreference('finder_token', '');
+
+        return FinderConnection::rest(
+            $this->module->getPreference('finder_base_url', ''),
+            $token === '' ? null : $token,
+        );
+    }
+
+    /**
+     * Resolves the running instance's default REST in-flight ledger root, or null when it cannot be
+     * located. A protected seam (mirroring {@see self::queueRoot()}) so a test can redirect it onto a
+     * throwaway directory.
+     *
+     * @return string|null The REST-pending ledger root, or null when unresolvable.
+     */
+    protected function restPendingRoot(): ?string
+    {
+        return (new WebtreesInstallLocator(dirname(__DIR__, 2)))->defaultRestPendingRoot();
     }
 }

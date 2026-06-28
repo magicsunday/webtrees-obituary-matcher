@@ -12,6 +12,7 @@ declare(strict_types=1);
 namespace MagicSunday\ObituaryMatcher\Test\Webtrees;
 
 use MagicSunday\ObituaryMatcher\Queue\QueuePaths;
+use MagicSunday\ObituaryMatcher\Support\FinderConnection;
 use MagicSunday\ObituaryMatcher\Webtrees\DrainServiceFactory;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\Test;
@@ -44,6 +45,25 @@ final class DrainServiceFactoryTest extends TestCase
 
         $first  = DrainServiceFactory::create($paths);
         $second = DrainServiceFactory::create($paths);
+
+        self::assertNotSame($first, $second);
+    }
+
+    /**
+     * The factory accepts a REST connection and an explicit ledger root and assembles the drain graph
+     * over the REST transport without error — pinning the new connection-driven wiring.
+     *
+     * @return void
+     */
+    #[Test]
+    public function createWiresTheRestDrainGraph(): void
+    {
+        $paths      = new QueuePaths(sys_get_temp_dir() . '/obituary-queue-test');
+        $connection = FinderConnection::rest('http://finder:8080', null);
+        $root       = sys_get_temp_dir() . '/obituary-rest-pending-test';
+
+        $first  = DrainServiceFactory::create($paths, $connection, $root);
+        $second = DrainServiceFactory::create($paths, $connection, $root);
 
         self::assertNotSame($first, $second);
     }
