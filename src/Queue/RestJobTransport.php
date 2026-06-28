@@ -158,52 +158,6 @@ final readonly class RestJobTransport implements JobTransport
     }
 
     /**
-     * Sends the `POST {baseUrl}/jobs` submission and verifies the remote accepted exactly this job: a
-     * 202 whose acknowledged jobId matches the submitted one. Every failure — unreachable, refused, or
-     * an unreadable/mismatched acknowledgement — is reported with the base URL only, never the token.
-     *
-     * @param FeederRequest $request The request being submitted.
-     *
-     * @return void
-     *
-     * @throws RuntimeException When the remote is unreachable, refuses the submission, or acknowledges a
-     *                          different or unreadable job.
-     */
-    private function postJob(FeederRequest $request): void
-    {
-        $httpRequest = $this->request('POST', $this->baseUrl . '/jobs')
-            ->withHeader('Content-Type', 'application/json')
-            ->withBody($this->streamFactory->createStream($this->encode($request->toArray())));
-
-        try {
-            $response = $this->http->sendRequest($httpRequest);
-        } catch (ClientExceptionInterface) {
-            // The token lives only in a header, so it is absent from the base URL reported here.
-            throw new RuntimeException(
-                sprintf('Failed to reach the obituary finder at %s.', $this->baseUrl)
-            );
-        }
-
-        if ($response->getStatusCode() !== self::STATUS_ACCEPTED) {
-            throw new RuntimeException(
-                sprintf(
-                    'Obituary finder refused the job submission (HTTP %d) at %s.',
-                    $response->getStatusCode(),
-                    $this->baseUrl
-                )
-            );
-        }
-
-        $body = $this->decodeBody($response);
-
-        if (($body === null) || (($body['jobId'] ?? null) !== $request->jobId)) {
-            throw new RuntimeException(
-                sprintf('Obituary finder returned an unreadable or mismatched acknowledgement at %s.', $this->baseUrl)
-            );
-        }
-    }
-
-    /**
      * {@inheritDoc}
      *
      * Polls `GET {baseUrl}/jobs/{jobId}` for every pending ledger entry and maps the lifecycle:
@@ -360,6 +314,52 @@ final readonly class RestJobTransport implements JobTransport
     public function staleCount(): int
     {
         return 0;
+    }
+
+    /**
+     * Sends the `POST {baseUrl}/jobs` submission and verifies the remote accepted exactly this job: a
+     * 202 whose acknowledged jobId matches the submitted one. Every failure — unreachable, refused, or
+     * an unreadable/mismatched acknowledgement — is reported with the base URL only, never the token.
+     *
+     * @param FeederRequest $request The request being submitted.
+     *
+     * @return void
+     *
+     * @throws RuntimeException When the remote is unreachable, refuses the submission, or acknowledges a
+     *                          different or unreadable job.
+     */
+    private function postJob(FeederRequest $request): void
+    {
+        $httpRequest = $this->request('POST', $this->baseUrl . '/jobs')
+            ->withHeader('Content-Type', 'application/json')
+            ->withBody($this->streamFactory->createStream($this->encode($request->toArray())));
+
+        try {
+            $response = $this->http->sendRequest($httpRequest);
+        } catch (ClientExceptionInterface) {
+            // The token lives only in a header, so it is absent from the base URL reported here.
+            throw new RuntimeException(
+                sprintf('Failed to reach the obituary finder at %s.', $this->baseUrl)
+            );
+        }
+
+        if ($response->getStatusCode() !== self::STATUS_ACCEPTED) {
+            throw new RuntimeException(
+                sprintf(
+                    'Obituary finder refused the job submission (HTTP %d) at %s.',
+                    $response->getStatusCode(),
+                    $this->baseUrl
+                )
+            );
+        }
+
+        $body = $this->decodeBody($response);
+
+        if (($body === null) || (($body['jobId'] ?? null) !== $request->jobId)) {
+            throw new RuntimeException(
+                sprintf('Obituary finder returned an unreadable or mismatched acknowledgement at %s.', $this->baseUrl)
+            );
+        }
     }
 
     /**

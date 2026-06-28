@@ -76,6 +76,12 @@ final class FinderConnectionTest extends TestCase
         self::assertSame('secret-token', FinderConnection::rest('http://x', 'secret-token')->token());
     }
 
+    /**
+     * A token carrying a control character is rejected at the single source, and the failure message
+     * never echoes the secret itself.
+     *
+     * @return void
+     */
     #[Test]
     public function aTokenWithControlCharactersIsRejectedWithoutEchoingIt(): void
     {

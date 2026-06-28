@@ -16,6 +16,7 @@ use GuzzleHttp\Psr7\FnStream;
 use GuzzleHttp\Psr7\HttpFactory;
 use GuzzleHttp\Psr7\Response;
 use GuzzleHttp\Psr7\Utils;
+use MagicSunday\ObituaryMatcher\Domain\DateRange;
 use MagicSunday\ObituaryMatcher\Domain\DeathNoticeRecord;
 use MagicSunday\ObituaryMatcher\Domain\NoticeRelative;
 use MagicSunday\ObituaryMatcher\Domain\NoticeType;
@@ -49,6 +50,7 @@ use function array_fill;
 use function array_shift;
 use function iterator_to_array;
 use function json_encode;
+use function str_contains;
 
 use const JSON_THROW_ON_ERROR;
 
@@ -75,6 +77,7 @@ use const JSON_THROW_ON_ERROR;
 #[UsesClass(FeederRequest::class)]
 #[UsesClass(FeederCandidateRequest::class)]
 #[UsesClass(DeathNoticeRecord::class)]
+#[UsesClass(DateRange::class)]
 #[UsesClass(NoticeType::class)]
 #[UsesClass(NoticeRelative::class)]
 #[UsesClass(PersonName::class)]
@@ -285,22 +288,32 @@ final class RestJobTransportTest extends TempDirTestCase
 
     /**
      * A connection dropped MID-BODY (the PSR-7 stream throws on read, as a lazily-streaming client does)
-     * is isolated to that one entry: it is skipped, the ledger entry is kept, and the drain loop is NOT
-     * aborted for the remaining pending jobs.
+     * is isolated to ITS OWN entry: that job is skipped and kept in the ledger, while a SECOND pending
+     * job in the same drain still completes — the fault does not abort the loop. The response is routed
+     * by request URL so the assertion holds regardless of the unordered ledger scan.
      *
      * @return void
      */
     #[Test]
-    public function aMidBodyReadFaultLeavesTheJobInFlight(): void
+    public function aMidBodyReadFaultIsIsolatedToItsOwnEntry(): void
     {
         $ledger = new RestPendingLedger($this->tmp . '/rp');
-        $ledger->record('job-1', 7, ['I1'], '2024-05-21T08:29:55Z');
+        $ledger->record('job-torn', 7, ['I1'], '2024-05-21T08:29:55Z');
+        $ledger->record('job-ok', 7, ['I1'], '2024-05-21T08:29:55Z');
 
-        $http      = $this->http([fn (): ResponseInterface => new Response(200, [], $this->throwingStream())]);
-        $transport = $this->newRest($http, $ledger);
+        $route = fn (RequestInterface $request): ResponseInterface => str_contains((string) $request->getUri(), 'job-torn')
+            ? new Response(200, [], $this->throwingStream())
+            : self::json(200, $this->doneBody('job-ok', 'I1'));
 
-        self::assertSame([], iterator_to_array($transport->fetchCompleted()));
-        self::assertSame(['job-1'], $ledger->jobIds());
+        $transport = $this->newRest($this->http([$route, $route]), $ledger);
+        $outcomes  = iterator_to_array($transport->fetchCompleted());
+
+        // The torn job yields nothing but the other pending job still completes, proving the loop was not
+        // aborted; the torn entry stays in the ledger for a later retry.
+        self::assertCount(1, $outcomes);
+        self::assertInstanceOf(CompletedJob::class, $outcomes[0]);
+        self::assertSame('job-ok', $outcomes[0]->jobId);
+        self::assertContains('job-torn', $ledger->jobIds());
     }
 
     /**
@@ -478,6 +491,53 @@ final class RestJobTransportTest extends TempDirTestCase
 
         self::assertSame([['treeId' => 7, 'requestedPersonIds' => ['I1', 'I2']]], $inFlight);
         self::assertSame(0, $transport->staleCount());
+    }
+
+    /**
+     * An unauthenticated REST connection (no token) sends NO Authorization header, so the token-null
+     * branch of the request builder is exercised.
+     *
+     * @return void
+     */
+    #[Test]
+    public function anUnauthenticatedConnectionSendsNoAuthorizationHeader(): void
+    {
+        $ledger = new RestPendingLedger($this->tmp . '/rp');
+        $http   = $this->http([
+            static fn (): ResponseInterface => self::json(202, ['schemaVersion' => 1, 'jobId' => 'job-1', 'state' => 'queued']),
+        ]);
+        $factory = new HttpFactory();
+
+        $transport = new RestJobTransport(
+            $http,
+            $factory,
+            $factory,
+            $ledger,
+            FinderConnection::rest('https://finder.example', null),
+            new ResponseValidator()
+        );
+
+        $transport->submit($this->feederRequest('job-1', 7, ['I1']));
+
+        self::assertFalse($http->sent[0]->hasHeader('Authorization'));
+    }
+
+    /**
+     * Finalising a job whose id is not a path-safe filename removes the (already absent) ledger entry but
+     * sends NO remote DELETE, so the guarded delete path never builds a request URL from an unvalidated
+     * id.
+     *
+     * @return void
+     */
+    #[Test]
+    public function finalisingAnInvalidJobIdSendsNoDeleteRequest(): void
+    {
+        $ledger = new RestPendingLedger($this->tmp . '/rp');
+        $http   = $this->http([]);
+
+        $this->newRest($http, $ledger)->markFailed('../evil', 'finder_failed');
+
+        self::assertCount(0, $http->sent);
     }
 
     /**
