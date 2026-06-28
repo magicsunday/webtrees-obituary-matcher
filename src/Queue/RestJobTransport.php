@@ -34,8 +34,6 @@ use function sprintf;
 use function strlen;
 
 use const JSON_THROW_ON_ERROR;
-use const JSON_UNESCAPED_SLASHES;
-use const JSON_UNESCAPED_UNICODE;
 
 /**
  * The REST {@see JobTransport}: it submits feeder jobs to a remote HTTP endpoint and polls their
@@ -133,6 +131,46 @@ final readonly class RestJobTransport implements JobTransport
      */
     public function submit(FeederRequest $request): string
     {
+        // Record the job locally BEFORE the remote POST. RestPendingLedger::record() rejects an
+        // un-recordable job (an entry larger than the read-back byte cap) right here, so a job the drain
+        // could never poll is never submitted to the remote in the first place. If the submission then
+        // fails the entry is rolled back, so the ledger is never out of sync with what the remote
+        // accepted (a crash between the record and the POST self-heals: the next drain polls the entry,
+        // the remote 404s it, and it is finalised as finder_job_missing).
+        $this->ledger->record(
+            $request->jobId,
+            $request->treeId,
+            $this->personIdsOf($request),
+            $request->createdAt->format(DateTimeInterface::ATOM)
+        );
+
+        try {
+            $this->postJob($request);
+        } catch (Throwable $exception) {
+            // The remote never confirmed the job, so drop the speculative ledger entry and surface the
+            // (base-URL-only, token-free) failure to the caller.
+            $this->ledger->remove($request->jobId);
+
+            throw $exception;
+        }
+
+        return $request->jobId;
+    }
+
+    /**
+     * Sends the `POST {baseUrl}/jobs` submission and verifies the remote accepted exactly this job: a
+     * 202 whose acknowledged jobId matches the submitted one. Every failure — unreachable, refused, or
+     * an unreadable/mismatched acknowledgement — is reported with the base URL only, never the token.
+     *
+     * @param FeederRequest $request The request being submitted.
+     *
+     * @return void
+     *
+     * @throws RuntimeException When the remote is unreachable, refuses the submission, or acknowledges a
+     *                          different or unreadable job.
+     */
+    private function postJob(FeederRequest $request): void
+    {
         $httpRequest = $this->request('POST', $this->baseUrl . '/jobs')
             ->withHeader('Content-Type', 'application/json')
             ->withBody($this->streamFactory->createStream($this->encode($request->toArray())));
@@ -160,18 +198,9 @@ final readonly class RestJobTransport implements JobTransport
 
         if (($body === null) || (($body['jobId'] ?? null) !== $request->jobId)) {
             throw new RuntimeException(
-                sprintf('Obituary finder acknowledged a different job than submitted at %s.', $this->baseUrl)
+                sprintf('Obituary finder returned an unreadable or mismatched acknowledgement at %s.', $this->baseUrl)
             );
         }
-
-        $this->ledger->record(
-            $request->jobId,
-            $request->treeId,
-            $this->personIdsOf($request),
-            $request->createdAt->format(DateTimeInterface::ATOM)
-        );
-
-        return $request->jobId;
     }
 
     /**
@@ -346,6 +375,13 @@ final readonly class RestJobTransport implements JobTransport
     {
         $this->ledger->remove($jobId);
 
+        // Never build a request URL from an unvalidated jobId. The ledger removal above already no-ops on
+        // an invalid id; this guard keeps the DELETE path-safe too, so the class never trusts its caller
+        // for a URL path component (defence-in-depth, consistent with the validated poll URL).
+        if (!QueuePaths::isJobDirectoryName($jobId)) {
+            return;
+        }
+
         try {
             $this->http->sendRequest($this->request('DELETE', $this->baseUrl . '/jobs/' . $jobId));
         } catch (Throwable) {
@@ -407,30 +443,40 @@ final readonly class RestJobTransport implements JobTransport
 
     /**
      * Reads a response body stream into memory, capped at $maxBytes, or returns null when the stream
-     * carries more than the cap allows. Reading $maxBytes + 1 bytes lets the cap be enforced on the
-     * bytes actually read rather than a (spoofable) Content-Length header.
+     * carries more than the cap allows OR a read fault interrupts it. Reading $maxBytes + 1 bytes lets
+     * the cap be enforced on the bytes actually read rather than a (spoofable) Content-Length header.
+     *
+     * A PSR-7 stream may throw on read (a lazily-streaming PSR-18 client performs the transfer during
+     * read(), so a connection dropped mid-body surfaces here, NOT from sendRequest()). That fault is
+     * caught and turned into a null result so a single torn response is isolated like an oversized or
+     * undecodable one — never escaping to abort the whole drain loop.
      *
      * @param ResponseInterface $response The response whose body stream is read.
      *
-     * @return string|null The body bytes, or null when the body exceeds the cap.
+     * @return string|null The body bytes, or null when the body exceeds the cap or a read fault occurs.
      */
     private function readCappedBody(ResponseInterface $response): ?string
     {
         $stream   = $response->getBody();
         $contents = '';
 
-        while (!$stream->eof()) {
-            $chunk = $stream->read($this->maxBytes + 1 - strlen($contents));
+        try {
+            while (!$stream->eof()) {
+                $chunk = $stream->read($this->maxBytes + 1 - strlen($contents));
 
-            if ($chunk === '') {
-                break;
+                if ($chunk === '') {
+                    break;
+                }
+
+                $contents .= $chunk;
+
+                if (strlen($contents) > $this->maxBytes) {
+                    return null;
+                }
             }
-
-            $contents .= $chunk;
-
-            if (strlen($contents) > $this->maxBytes) {
-                return null;
-            }
+        } catch (Throwable) {
+            // A torn/interrupted body read is isolated like any other unusable body: skip, never abort.
+            return null;
         }
 
         return $contents;
@@ -449,10 +495,7 @@ final readonly class RestJobTransport implements JobTransport
     private function encode(array $payload): string
     {
         try {
-            return json_encode(
-                $payload,
-                JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE
-            );
+            return json_encode($payload, AtomicFile::JSON_ENCODE_FLAGS);
         } catch (JsonException) {
             throw new RuntimeException('Failed to encode the feeder request payload.');
         }

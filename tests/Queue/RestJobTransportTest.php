@@ -12,8 +12,10 @@ declare(strict_types=1);
 namespace MagicSunday\ObituaryMatcher\Test\Queue;
 
 use DateTimeImmutable;
+use GuzzleHttp\Psr7\FnStream;
 use GuzzleHttp\Psr7\HttpFactory;
 use GuzzleHttp\Psr7\Response;
+use GuzzleHttp\Psr7\Utils;
 use MagicSunday\ObituaryMatcher\Domain\DeathNoticeRecord;
 use MagicSunday\ObituaryMatcher\Domain\NoticeRelative;
 use MagicSunday\ObituaryMatcher\Domain\NoticeType;
@@ -40,8 +42,10 @@ use Psr\Http\Client\ClientExceptionInterface;
 use Psr\Http\Client\ClientInterface;
 use Psr\Http\Message\RequestInterface;
 use Psr\Http\Message\ResponseInterface;
+use Psr\Http\Message\StreamInterface;
 use RuntimeException;
 
+use function array_fill;
 use function array_shift;
 use function iterator_to_array;
 use function json_encode;
@@ -223,6 +227,159 @@ final class RestJobTransportTest extends TempDirTestCase
     }
 
     /**
+     * A 200 whose body is not valid JSON is not a terminal signal: it is skipped and the ledger entry
+     * is kept for the next drain.
+     *
+     * @return void
+     */
+    #[Test]
+    public function anUndecodableBodyLeavesTheJobInFlight(): void
+    {
+        $ledger = new RestPendingLedger($this->tmp . '/rp');
+        $ledger->record('job-1', 7, ['I1'], '2024-05-21T08:29:55Z');
+
+        $http      = $this->http([static fn (): ResponseInterface => self::raw(200, '{not json')]);
+        $transport = $this->newRest($http, $ledger);
+
+        self::assertSame([], iterator_to_array($transport->fetchCompleted()));
+        self::assertSame(['job-1'], $ledger->jobIds());
+    }
+
+    /**
+     * A 200 body larger than the byte cap is skipped (not read into memory), leaving the job in flight.
+     *
+     * @return void
+     */
+    #[Test]
+    public function anOversizedBodyLeavesTheJobInFlight(): void
+    {
+        $ledger = new RestPendingLedger($this->tmp . '/rp');
+        $ledger->record('job-1', 7, ['I1'], '2024-05-21T08:29:55Z');
+
+        // A 50-byte cap against a normal done body (well over 50 bytes) forces the oversize skip path.
+        $http      = $this->http([fn (): ResponseInterface => self::json(200, $this->doneBody('job-1', 'I1'))]);
+        $transport = $this->newRest($http, $ledger, 50);
+
+        self::assertSame([], iterator_to_array($transport->fetchCompleted()));
+        self::assertSame(['job-1'], $ledger->jobIds());
+    }
+
+    /**
+     * A 200 whose `state` is not a string is skipped (it carries no usable lifecycle signal), leaving
+     * the job in flight.
+     *
+     * @return void
+     */
+    #[Test]
+    public function aNonStringStateLeavesTheJobInFlight(): void
+    {
+        $ledger = new RestPendingLedger($this->tmp . '/rp');
+        $ledger->record('job-1', 7, ['I1'], '2024-05-21T08:29:55Z');
+
+        $http      = $this->http([static fn (): ResponseInterface => self::json(200, ['schemaVersion' => 1, 'jobId' => 'job-1', 'state' => 42])]);
+        $transport = $this->newRest($http, $ledger);
+
+        self::assertSame([], iterator_to_array($transport->fetchCompleted()));
+        self::assertSame(['job-1'], $ledger->jobIds());
+    }
+
+    /**
+     * A connection dropped MID-BODY (the PSR-7 stream throws on read, as a lazily-streaming client does)
+     * is isolated to that one entry: it is skipped, the ledger entry is kept, and the drain loop is NOT
+     * aborted for the remaining pending jobs.
+     *
+     * @return void
+     */
+    #[Test]
+    public function aMidBodyReadFaultLeavesTheJobInFlight(): void
+    {
+        $ledger = new RestPendingLedger($this->tmp . '/rp');
+        $ledger->record('job-1', 7, ['I1'], '2024-05-21T08:29:55Z');
+
+        $http      = $this->http([fn (): ResponseInterface => new Response(200, [], $this->throwingStream())]);
+        $transport = $this->newRest($http, $ledger);
+
+        self::assertSame([], iterator_to_array($transport->fetchCompleted()));
+        self::assertSame(['job-1'], $ledger->jobIds());
+    }
+
+    /**
+     * A submission to an unreachable finder fails with a base-URL-only RuntimeException (no token in the
+     * message or trace) and rolls the speculative ledger entry back.
+     *
+     * @return void
+     */
+    #[Test]
+    public function submitOnAConnectErrorRollsBackAndDoesNotLeakTheToken(): void
+    {
+        $ledger = new RestPendingLedger($this->tmp . '/rp');
+        $http   = $this->http([
+            static function (): ResponseInterface {
+                throw new class('connection refused') extends RuntimeException implements ClientExceptionInterface {};
+            },
+        ]);
+
+        try {
+            $this->newRest($http, $ledger)->submit($this->feederRequest('job-1', 7, ['I1']));
+            self::fail('Expected a RuntimeException for an unreachable finder.');
+        } catch (RuntimeException $exception) {
+            self::assertStringContainsString('finder.example', $exception->getMessage());
+            self::assertStringNotContainsString('secret-token', $exception->getMessage());
+            self::assertStringNotContainsString('secret-token', $exception->getTraceAsString());
+        }
+
+        self::assertSame([], $ledger->jobIds());
+    }
+
+    /**
+     * A 202 acknowledging a DIFFERENT job than submitted fails the submission and rolls the ledger entry
+     * back, so the ledger never records a job the remote did not confirm.
+     *
+     * @return void
+     */
+    #[Test]
+    public function submitOnAMismatchedAcknowledgementRollsBack(): void
+    {
+        $ledger = new RestPendingLedger($this->tmp . '/rp');
+        $http   = $this->http([
+            static fn (): ResponseInterface => self::json(202, ['schemaVersion' => 1, 'jobId' => 'OTHER', 'state' => 'queued']),
+        ]);
+
+        try {
+            $this->newRest($http, $ledger)->submit($this->feederRequest('job-1', 7, ['I1']));
+            self::fail('Expected a RuntimeException for a mismatched acknowledgement.');
+        } catch (RuntimeException) {
+            // Expected: the remote acknowledged a different job.
+        }
+
+        self::assertSame([], $ledger->jobIds());
+    }
+
+    /**
+     * A request too large to record is rejected BEFORE any remote POST, so a job the drain could never
+     * poll is never submitted (no orphaned remote job) and nothing is recorded.
+     *
+     * @return void
+     */
+    #[Test]
+    public function submitRejectsAnOversizedRequestBeforePosting(): void
+    {
+        $ledger = new RestPendingLedger($this->tmp . '/rp');
+        $http   = $this->http([]);
+
+        try {
+            $this->newRest($http, $ledger)
+                ->submit($this->feederRequest('huge', 7, array_fill(0, 12_000, 'I1234567')));
+            self::fail('Expected a RuntimeException for an oversized request.');
+        } catch (RuntimeException) {
+            // Expected: record() rejects the oversized entry before any POST is attempted.
+        }
+
+        self::assertCount(0, $http->sent);
+        self::assertSame([], $ledger->jobIds());
+    }
+
+    /**
      * submit attaches the bearer token to the Authorization header, and a submission that the remote
      * rejects fails WITHOUT the secret token ever appearing in the exception message or trace.
      *
@@ -341,12 +498,13 @@ final class RestJobTransportTest extends TempDirTestCase
      * Builds the REST transport wired to the given client double and ledger, using a real Guzzle
      * PSR-17 factory and a tokened REST connection.
      *
-     * @param ClientInterface   $http   The scriptable PSR-18 client double.
-     * @param RestPendingLedger $ledger The in-flight ledger.
+     * @param ClientInterface   $http     The scriptable PSR-18 client double.
+     * @param RestPendingLedger $ledger   The in-flight ledger.
+     * @param int               $maxBytes The response-body byte cap (defaults to the production 5 MiB).
      *
      * @return RestJobTransport The wired transport.
      */
-    private function newRest(ClientInterface $http, RestPendingLedger $ledger): RestJobTransport
+    private function newRest(ClientInterface $http, RestPendingLedger $ledger, int $maxBytes = 5_242_880): RestJobTransport
     {
         $factory = new HttpFactory();
 
@@ -356,7 +514,8 @@ final class RestJobTransportTest extends TempDirTestCase
             $factory,
             $ledger,
             FinderConnection::rest('https://finder.example/', 'secret-token'),
-            new ResponseValidator()
+            new ResponseValidator(),
+            $maxBytes
         );
     }
 
@@ -439,6 +598,9 @@ final class RestJobTransportTest extends TempDirTestCase
             {
             }
 
+            /**
+             * {@inheritDoc}
+             */
             public function sendRequest(RequestInterface $request): ResponseInterface
             {
                 $this->sent[] = $request;
@@ -464,5 +626,35 @@ final class RestJobTransportTest extends TempDirTestCase
     private static function json(int $status, array $data): ResponseInterface
     {
         return new Response($status, ['Content-Type' => 'application/json'], json_encode($data, JSON_THROW_ON_ERROR));
+    }
+
+    /**
+     * Builds a response with a raw (possibly non-JSON) body, for the undecodable-body path.
+     *
+     * @param int    $status The HTTP status code.
+     * @param string $body   The raw body bytes.
+     *
+     * @return ResponseInterface The response.
+     */
+    private static function raw(int $status, string $body): ResponseInterface
+    {
+        return new Response($status, ['Content-Type' => 'application/json'], $body);
+    }
+
+    /**
+     * Builds a body stream that throws on read, simulating a connection dropped mid-body (the fault a
+     * lazily-streaming PSR-18 client surfaces from read(), not from sendRequest()).
+     *
+     * @return StreamInterface The throwing stream.
+     */
+    private function throwingStream(): StreamInterface
+    {
+        return FnStream::decorate(
+            Utils::streamFor('payload'),
+            [
+                'eof'  => static fn (): bool => false,
+                'read' => static fn (): string => throw new RuntimeException('connection reset mid-body'),
+            ]
+        );
     }
 }

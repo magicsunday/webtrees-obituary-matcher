@@ -54,6 +54,13 @@ use const JSON_UNESCAPED_UNICODE;
 final class AtomicFile
 {
     /**
+     * @var int The json_encode flags every queue-layer writer uses, so the on-disk and on-the-wire JSON
+     *          bytes stay identical across the file and REST transports (throw on error, keep slashes and
+     *          unicode raw). The single source of truth for the queue's JSON write-byte contract.
+     */
+    public const int JSON_ENCODE_FLAGS = JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE;
+
+    /**
      * Constructor. Private to enforce static-only use.
      */
     private function __construct()
@@ -123,10 +130,7 @@ final class AtomicFile
      */
     public static function writeJson(string $path, array $data, ?int $maxBytes = null): void
     {
-        $json = json_encode(
-            $data,
-            JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE
-        );
+        $json = json_encode($data, self::JSON_ENCODE_FLAGS);
 
         if (
             ($maxBytes !== null)
