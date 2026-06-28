@@ -80,7 +80,7 @@ final class QueuePathsTest extends TempDirTestCase
     #[DataProvider('jobDirectoryNames')]
     public function isJobDirectoryNameClassifiesAnEntry(string $entry, bool $expected): void
     {
-        self::assertSame($expected, (new QueuePaths($this->tmp))->isJobDirectoryName($entry));
+        self::assertSame($expected, QueuePaths::isJobDirectoryName($entry));
     }
 
     /**

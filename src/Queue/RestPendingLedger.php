@@ -13,6 +13,7 @@ namespace MagicSunday\ObituaryMatcher\Queue;
 
 use FilesystemIterator;
 use InvalidArgumentException;
+use RuntimeException;
 use SplFileInfo;
 use Throwable;
 use UnexpectedValueException;
@@ -54,13 +55,6 @@ final readonly class RestPendingLedger
     private const int ENTRY_MAX_BYTES = 65_536;
 
     /**
-     * @var QueuePaths The shared jobId path-traversal guard. The guard inspects only the candidate name
-     *                 and never reads the queue root, so it is allocated once here (the root is irrelevant
-     *                 to its result) instead of per call during an entries() scan.
-     */
-    private QueuePaths $jobIdGuard;
-
-    /**
      * Constructor.
      *
      * @param string $root Absolute path to the ledger root directory (e.g. data/obituary-matcher/rest-pending).
@@ -68,9 +62,6 @@ final readonly class RestPendingLedger
     public function __construct(
         private string $root,
     ) {
-        // The guard is root-independent (isJobDirectoryName inspects only the candidate name); reuse the
-        // ledger root so no placeholder leaks into a future root-reading method.
-        $this->jobIdGuard = new QueuePaths($this->root);
     }
 
     /**
@@ -86,6 +77,8 @@ final readonly class RestPendingLedger
      * @return void
      *
      * @throws InvalidArgumentException When the jobId is not a path-safe filename.
+     * @throws RuntimeException         When the encoded entry exceeds the read-back byte cap (so an
+     *                                  entry the scan could never read back is never written).
      */
     public function record(string $jobId, int $treeId, array $requestedPersonIds, string $submittedAt): void
     {
@@ -96,6 +89,10 @@ final readonly class RestPendingLedger
         }
 
         AtomicFile::ensureDirectory($this->root);
+
+        // Cap the write at the same byte limit entries() reads back. An entry larger than ENTRY_MAX_BYTES
+        // would be written fine but then silently skipped by the capped read, orphaning the job forever;
+        // rejecting it here surfaces the problem loudly at record time instead.
         AtomicFile::writeJson(
             $this->entryPath($jobId),
             [
@@ -103,7 +100,8 @@ final readonly class RestPendingLedger
                 'treeId'             => $treeId,
                 'requestedPersonIds' => $requestedPersonIds,
                 'submittedAt'        => $submittedAt,
-            ]
+            ],
+            self::ENTRY_MAX_BYTES
         );
     }
 
@@ -178,7 +176,9 @@ final readonly class RestPendingLedger
 
             // Skip a foreign file whose basename (minus .json) fails the same path-traversal guard a
             // recorded jobId must pass, so a poison/foreign file is never treated as an entry.
-            if (!$this->isValidJobId(substr($name, 0, -5))) {
+            $jobId = substr($name, 0, -5);
+
+            if (!$this->isValidJobId($jobId)) {
                 continue;
             }
 
@@ -188,7 +188,10 @@ final readonly class RestPendingLedger
                 continue;
             }
 
-            $narrowed = $this->narrow($data);
+            // The filename basename — already validated above — is the authoritative identity, so the
+            // entry is narrowed against it. A payload whose own jobId field disagrees (a corrupt or
+            // planted file) is rejected, guaranteeing the yielded jobId is always the path-safe basename.
+            $narrowed = $this->narrow($data, $jobId);
 
             if ($narrowed === null) {
                 continue;
@@ -219,12 +222,16 @@ final readonly class RestPendingLedger
      * Narrows an untrusted decoded entry to the concrete shape, or returns null when any of the four
      * fields is missing or of the wrong type. The person-id list is rebuilt element by element, so a
      * non-string element rejects the whole entry and the result is guaranteed to be a list of strings.
+     * The payload's own jobId must equal the authoritative filename basename; a mismatch (a corrupt or
+     * planted file whose content disagrees with its name) rejects the entry, so the yielded jobId is
+     * always the path-safe basename rather than an unvalidated content string.
      *
-     * @param array<string, mixed> $data The untrusted decoded entry.
+     * @param array<string, mixed> $data          The untrusted decoded entry.
+     * @param string               $expectedJobId The authoritative, already path-validated filename basename.
      *
      * @return array{jobId: string, treeId: int, requestedPersonIds: list<string>, submittedAt: string}|null
      */
-    private function narrow(array $data): ?array
+    private function narrow(array $data, string $expectedJobId): ?array
     {
         $jobId              = $data['jobId'] ?? null;
         $treeId             = $data['treeId'] ?? null;
@@ -233,6 +240,7 @@ final readonly class RestPendingLedger
 
         if (
             !is_string($jobId)
+            || ($jobId !== $expectedJobId)
             || !is_int($treeId)
             || !is_string($submittedAt)
             || !is_array($requestedPersonIds)
@@ -273,9 +281,8 @@ final readonly class RestPendingLedger
     /**
      * Reports whether a jobId is a path-safe filename by delegating to the queue's authoritative
      * path-traversal guard ({@see QueuePaths::isJobDirectoryName()}, the `^[A-Za-z0-9_-]{1,64}$`
-     * pattern). The guard inspects only the candidate name and never reads the queue root, so passing
-     * the ledger root here is irrelevant to the result — it reuses the single source of truth for the
-     * pattern instead of duplicating the regular expression.
+     * pattern). The guard is a stateless predicate on the candidate name, so it is called statically —
+     * reusing the single source of truth for the pattern instead of duplicating the regular expression.
      *
      * @param string $jobId The candidate job identifier.
      *
@@ -283,6 +290,6 @@ final readonly class RestPendingLedger
      */
     private function isValidJobId(string $jobId): bool
     {
-        return $this->jobIdGuard->isJobDirectoryName($jobId);
+        return QueuePaths::isJobDirectoryName($jobId);
     }
 }

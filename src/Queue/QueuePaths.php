@@ -274,11 +274,15 @@ final readonly class QueuePaths
      * scan and the drain's discovery, so a hostile or foreign directory name is skipped before any
      * read or claim against the same pattern the path builders validate every transition with.
      *
+     * Static because it inspects only the candidate name and never reads the queue root, so a caller
+     * that needs only the path-safety predicate (e.g. {@see RestPendingLedger}) can reuse the single
+     * authoritative pattern without constructing a root-bound instance.
+     *
      * @param string $entry The raw directory entry from a state-directory scan.
      *
      * @return bool True when the entry is a valid job directory name, false otherwise.
      */
-    public function isJobDirectoryName(string $entry): bool
+    public static function isJobDirectoryName(string $entry): bool
     {
         if (
             ($entry === '.')

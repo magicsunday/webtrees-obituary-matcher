@@ -284,7 +284,7 @@ final readonly class FileJobTransport implements JobTransport
             return [];
         }
 
-        return array_values(array_filter($entries, $this->paths->isJobDirectoryName(...)));
+        return array_values(array_filter($entries, QueuePaths::isJobDirectoryName(...)));
     }
 
     /**

@@ -20,7 +20,9 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\Attributes\UsesClass;
+use RuntimeException;
 
+use function array_fill;
 use function file_put_contents;
 use function iterator_to_array;
 use function mkdir;
@@ -143,6 +145,63 @@ final class RestPendingLedgerTest extends TempDirTestCase
     }
 
     /**
+     * A file whose basename passes the guard but whose payload jobId disagrees with that basename — a
+     * corrupt or planted file — is skipped, so the yielded jobId is always the authoritative path-safe
+     * basename and never an unvalidated content string (which could be a traversal sink). A valid sibling
+     * still surfaces.
+     *
+     * @return void
+     */
+    #[Test]
+    public function aPayloadJobIdDisagreeingWithItsFilenameIsSkipped(): void
+    {
+        $root = $this->tmp . '/rest-pending';
+        mkdir($root, 0o700, true);
+
+        // Basename "aaa" passes the guard, but the payload claims to be a different (valid) id.
+        file_put_contents($root . '/aaa.json', '{"jobId":"bbb","treeId":1,"requestedPersonIds":[],"submittedAt":"t"}');
+
+        // Basename "ccc" passes the guard, but the payload jobId is a path-traversal string that the
+        // basename guard would never have admitted — it must never be yielded as an entry's identity.
+        file_put_contents($root . '/ccc.json', '{"jobId":"../../evil","treeId":1,"requestedPersonIds":[],"submittedAt":"t"}');
+
+        $ledger = new RestPendingLedger($root);
+        $ledger->record('good-job', 3, ['I9'], '2024-01-01T00:00:00Z');
+
+        $entries = iterator_to_array($ledger->entries());
+
+        self::assertCount(1, $entries);
+        self::assertSame('good-job', $entries[0]['jobId']);
+        self::assertSame(['good-job'], $ledger->jobIds());
+    }
+
+    /**
+     * Recording an entry whose encoded payload would exceed the read-back byte cap is rejected loudly
+     * BEFORE any file is written, so a job that the capped scan could never read back can never be
+     * silently orphaned on disk. No entry is created under the root afterwards.
+     *
+     * @return void
+     */
+    #[Test]
+    public function recordRejectsAnOversizedEntry(): void
+    {
+        $ledger = new RestPendingLedger($this->tmp . '/rest-pending');
+
+        // ~132 KiB of person ids, well past the 64 KiB ENTRY_MAX_BYTES read-back cap.
+        $requestedPersonIds = array_fill(0, 12_000, 'I1234567');
+
+        try {
+            $ledger->record('huge', 7, $requestedPersonIds, '2024-01-01T00:00:00Z');
+            self::fail('Expected a RuntimeException for an oversized ledger entry.');
+        } catch (RuntimeException) {
+            // Expected: the oversized entry is rejected before the write.
+        }
+
+        self::assertSame([], iterator_to_array($ledger->entries()));
+        self::assertSame([], $ledger->jobIds());
+    }
+
+    /**
      * Recording a job under a path-traversal-unsafe jobId is rejected before any file is written.
      *
      * @return void
@@ -214,12 +273,15 @@ final class RestPendingLedgerTest extends TempDirTestCase
      */
     public static function structurallyInvalidEntries(): array
     {
+        // The payload jobId matches the "bad" basename in every row except the "jobId not a string"
+        // row (where the jobId field itself is the malformed one), so each row isolates the DISTINCT
+        // narrow() rejection branch it names rather than all collapsing onto the basename-mismatch check.
         return [
-            'treeId not an int'                       => ['{"jobId":"x","treeId":"7","requestedPersonIds":[],"submittedAt":"t"}'],
+            'treeId not an int'                       => ['{"jobId":"bad","treeId":"7","requestedPersonIds":[],"submittedAt":"t"}'],
             'jobId not a string'                      => ['{"jobId":7,"treeId":1,"requestedPersonIds":[],"submittedAt":"t"}'],
-            'submittedAt not a string'                => ['{"jobId":"x","treeId":1,"requestedPersonIds":[],"submittedAt":5}'],
-            'requestedPersonIds not an array'         => ['{"jobId":"x","treeId":1,"requestedPersonIds":"nope","submittedAt":"t"}'],
-            'a non-string requestedPersonIds element' => ['{"jobId":"x","treeId":1,"requestedPersonIds":[1],"submittedAt":"t"}'],
+            'submittedAt not a string'                => ['{"jobId":"bad","treeId":1,"requestedPersonIds":[],"submittedAt":5}'],
+            'requestedPersonIds not an array'         => ['{"jobId":"bad","treeId":1,"requestedPersonIds":"nope","submittedAt":"t"}'],
+            'a non-string requestedPersonIds element' => ['{"jobId":"bad","treeId":1,"requestedPersonIds":[1],"submittedAt":"t"}'],
         ];
     }
 }

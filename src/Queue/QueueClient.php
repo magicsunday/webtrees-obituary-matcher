@@ -469,7 +469,7 @@ final readonly class QueueClient
                 if (
                     ($entry instanceof SplFileInfo)
                     && $entry->isDir()
-                    && $this->paths->isJobDirectoryName($entry->getFilename())
+                    && QueuePaths::isJobDirectoryName($entry->getFilename())
                 ) {
                     // Dedupe: a job id should live in exactly one state dir, but a torn move could
                     // surface the same id in two — hydrate it once.
