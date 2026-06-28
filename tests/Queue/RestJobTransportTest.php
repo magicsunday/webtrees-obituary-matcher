@@ -58,7 +58,7 @@ use const JSON_THROW_ON_ERROR;
  * Tests the REST job transport against a scriptable PSR-18 client double: the queued->running->done
  * poll lifecycle, the 404/5xx/connect-error branches, the malformed-done -> response_invalid mapping,
  * the bearer-header-without-token-leak contract, the release no-op, idempotent finalisation even when
- * the remote DELETE fails, and the Variante-B parity that the shared validator ignores a top-level
+ * the remote DELETE fails, and the Variant-B parity that the shared validator ignores a top-level
  * `state` field.
  *
  * @author  Rico Sonntag <mail@ricosonntag.de>
@@ -605,7 +605,7 @@ final class RestJobTransportTest extends TempDirTestCase
     }
 
     /**
-     * Variante-B parity pin: a #56 job-response carrying a top-level `state` validates unchanged
+     * Variant-B parity pin: a #56 job-response carrying a top-level `state` validates unchanged
      * through the shared ResponseValidator, which reads only schemaVersion/jobId/results.
      *
      * @return void
@@ -671,7 +671,7 @@ final class RestJobTransportTest extends TempDirTestCase
     }
 
     /**
-     * A minimal valid #56 done job-response carrying a top-level `state` (Variante B): one person with
+     * A minimal valid #56 done job-response carrying a top-level `state` (Variant B): one person with
      * a single well-formed notice. Mirrors ResponseValidatorTest's valid payload plus the state field.
      *
      * @param string $jobId    The job identifier the response echoes.
