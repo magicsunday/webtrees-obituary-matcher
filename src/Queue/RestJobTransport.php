@@ -135,11 +135,15 @@ final readonly class RestJobTransport implements JobTransport
         // it (202). A drain may run concurrently with this submission (the enqueue side is a web request,
         // the drain a scheduled task, with no shared lock); recording before the POST would let that
         // drain observe a not-yet-accepted entry, poll it, get a 404 and phantom-remove it as
-        // finder_job_missing — silently dropping a job the remote then runs. A failed POST therefore
-        // simply propagates with nothing recorded.
-        $this->postJob($request);
+        // finder_job_missing — silently dropping a job the remote then runs. A POST that the remote never
+        // accepts (a connect fault or a non-202 status) propagates with nothing recorded.
+        $response = $this->sendSubmission($request);
 
+        // From here the remote has ACCEPTED the job (202). Every subsequent failure — an unconfirmable
+        // acknowledgement OR an entry too large to record — must delete the accepted remote job so it
+        // never runs untracked (no orphan), then surface the failure to the caller.
         try {
+            $this->assertAcknowledged($response, $request);
             $this->ledger->record(
                 $request->jobId,
                 $request->treeId,
@@ -147,9 +151,6 @@ final readonly class RestJobTransport implements JobTransport
                 $request->createdAt->format(DateTimeInterface::ATOM)
             );
         } catch (Throwable $exception) {
-            // The remote accepted the job but it is too large to track locally (an entry beyond the
-            // read-back byte cap). Delete it remotely so it never runs untracked (no orphan), then
-            // surface the failure to the caller.
             $this->forget($request->jobId);
 
             throw $exception;
@@ -318,18 +319,17 @@ final readonly class RestJobTransport implements JobTransport
     }
 
     /**
-     * Sends the `POST {baseUrl}/jobs` submission and verifies the remote accepted exactly this job: a
-     * 202 whose acknowledged jobId matches the submitted one. Every failure — unreachable, refused, or
-     * an unreadable/mismatched acknowledgement — is reported with the base URL only, never the token.
+     * Sends the `POST {baseUrl}/jobs` submission and returns the response once the remote has ACCEPTED
+     * the job (HTTP 202). A connect fault or a non-202 status means the remote did not accept the job —
+     * there is nothing to compensate — and is reported with the base URL only, never the token.
      *
      * @param FeederRequest $request The request being submitted.
      *
-     * @return void
+     * @return ResponseInterface The accepted (202) response, for acknowledgement verification.
      *
-     * @throws RuntimeException When the remote is unreachable, refuses the submission, or acknowledges a
-     *                          different or unreadable job.
+     * @throws RuntimeException When the remote is unreachable or refuses the submission.
      */
-    private function postJob(FeederRequest $request): void
+    private function sendSubmission(FeederRequest $request): ResponseInterface
     {
         $httpRequest = $this->request('POST', $this->baseUrl . '/jobs')
             ->withHeader('Content-Type', 'application/json')
@@ -354,6 +354,23 @@ final readonly class RestJobTransport implements JobTransport
             );
         }
 
+        return $response;
+    }
+
+    /**
+     * Verifies the remote acknowledged exactly the submitted job: a 202 body that reads back and whose
+     * jobId matches. A failure here is raised AFTER the remote accepted the job, so the caller deletes
+     * the accepted remote job before surfacing it. Reported with the base URL only, never the token.
+     *
+     * @param ResponseInterface $response The accepted (202) response to verify.
+     * @param FeederRequest     $request  The request whose jobId the acknowledgement must echo.
+     *
+     * @return void
+     *
+     * @throws RuntimeException When the acknowledgement body is unreadable or names a different job.
+     */
+    private function assertAcknowledged(ResponseInterface $response, FeederRequest $request): void
+    {
         $body = $this->decodeBody($response);
 
         if (($body === null) || (($body['jobId'] ?? null) !== $request->jobId)) {

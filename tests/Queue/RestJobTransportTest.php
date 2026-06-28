@@ -287,6 +287,26 @@ final class RestJobTransportTest extends TempDirTestCase
     }
 
     /**
+     * A 200 body that is valid JSON but NOT an object (a bare scalar such as `42`) is skipped, leaving
+     * the job in flight — covering the non-object decode guard that keeps a scalar from being treated as
+     * a lifecycle envelope.
+     *
+     * @return void
+     */
+    #[Test]
+    public function aNonObjectBodyLeavesTheJobInFlight(): void
+    {
+        $ledger = new RestPendingLedger($this->tmp . '/rp');
+        $ledger->record('job-1', 7, ['I1'], '2024-05-21T08:29:55Z');
+
+        $http      = $this->http([static fn (): ResponseInterface => self::raw(200, '42')]);
+        $transport = $this->newRest($http, $ledger);
+
+        self::assertSame([], iterator_to_array($transport->fetchCompleted()));
+        self::assertSame(['job-1'], $ledger->jobIds());
+    }
+
+    /**
      * A connection dropped MID-BODY (the PSR-7 stream throws on read, as a lazily-streaming client does)
      * is isolated to ITS OWN entry: that job is skipped and kept in the ledger, while a SECOND pending
      * job in the same drain still completes — the fault does not abort the loop. The response is routed
@@ -346,8 +366,9 @@ final class RestJobTransportTest extends TempDirTestCase
     }
 
     /**
-     * A 202 acknowledging a DIFFERENT job than submitted fails the submission and records nothing, so the
-     * ledger never holds a job the remote did not confirm under the submitted id.
+     * A 202 acknowledging a DIFFERENT job than submitted fails the submission, records nothing, and (since
+     * the remote already accepted under our id per the contract) issues a best-effort compensating DELETE
+     * so no untracked remote job is left behind.
      *
      * @return void
      */
@@ -357,6 +378,7 @@ final class RestJobTransportTest extends TempDirTestCase
         $ledger = new RestPendingLedger($this->tmp . '/rp');
         $http   = $this->http([
             static fn (): ResponseInterface => self::json(202, ['schemaVersion' => 1, 'jobId' => 'OTHER', 'state' => 'queued']),
+            static fn (): ResponseInterface => self::json(200, []),
         ]);
 
         try {
@@ -370,16 +392,20 @@ final class RestJobTransportTest extends TempDirTestCase
     }
 
     /**
-     * A 202 whose body is unreadable (the remote accepted then returned garbage) fails the submission and
-     * records nothing — covering the unreadable-acknowledgement operand of the postJob guard.
+     * A 202 whose body is unreadable (the remote accepted the job, then a proxy truncated the success
+     * body) DELETES the accepted remote job so it never runs untracked — the exact orphan class the
+     * record-failure path also compensates. Nothing is recorded and the failure is surfaced.
      *
      * @return void
      */
     #[Test]
-    public function submitOnAnUnreadableAcknowledgementRecordsNothing(): void
+    public function submitDeletesTheRemoteJobWhenTheAcknowledgementIsUnreadable(): void
     {
         $ledger = new RestPendingLedger($this->tmp . '/rp');
-        $http   = $this->http([static fn (): ResponseInterface => self::raw(202, '{not json')]);
+        $http   = $this->http([
+            static fn (): ResponseInterface => self::raw(202, '{not json'),
+            static fn (): ResponseInterface => self::json(200, []),
+        ]);
 
         try {
             $this->newRest($http, $ledger)->submit($this->feederRequest('job-1', 7, ['I1']));
@@ -389,6 +415,9 @@ final class RestJobTransportTest extends TempDirTestCase
         }
 
         self::assertSame([], $ledger->jobIds());
+        self::assertCount(2, $http->sent);
+        self::assertSame('DELETE', $http->sent[1]->getMethod());
+        self::assertStringContainsString('/jobs/job-1', (string) $http->sent[1]->getUri());
     }
 
     /**
