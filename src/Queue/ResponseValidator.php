@@ -249,12 +249,14 @@ final readonly class ResponseValidator
         // DateTimeImmutable constructor accepts leniently ("now", "yesterday", "+1 week", "noon")
         // is rejected at the untrusted boundary. The end anchor is essential: an unanchored prefix
         // would let trailing content ("...T10:00:00 +1 week") through, and DateTimeImmutable would
-        // then APPLY the relative modifier, silently shifting the timestamp. Every real ISO-8601 form
-        // still passes through: optional fractional seconds and either a "Z" zulu suffix or a numeric
-        // offset whose hours are required and whose minutes are optional ("+02", "+02:00", "+0200").
-        // Keeping the minutes optional does not loosen the anti-garbage guard, as the offset stays
-        // fully end-anchored.
-        if (preg_match('/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}(?::?\d{2})?)?$/', $raw) !== 1) {
+        // then APPLY the relative modifier, silently shifting the timestamp. The `D`
+        // (PCRE_DOLLAR_ENDONLY) modifier anchors `$` to the true subject end, so a value with a
+        // trailing newline ("...T10:00:00Z\n") cannot slip past the guard either. Every real ISO-8601
+        // form still passes through: optional fractional seconds and either a "Z" zulu suffix or a
+        // numeric offset whose hours are required and whose minutes are optional ("+02", "+02:00",
+        // "+0200"). Keeping the minutes optional does not loosen the anti-garbage guard, as the offset
+        // stays fully end-anchored.
+        if (preg_match('/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}(?::?\d{2})?)?$/D', $raw) !== 1) {
             throw new ResponseValidationException(
                 sprintf('Notice fetchedAt is not a parseable timestamp: %s', $raw)
             );
