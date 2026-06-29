@@ -124,4 +124,23 @@ final class FinderConnectionTest extends TestCase
 
         FinderConnection::rest('file:///etc/passwd', null);
     }
+
+    /**
+     * A base URL embedding credentials (a `user:pass@host` userinfo component) is rejected, so a secret
+     * can never travel in the base URL — where it would be echoed verbatim into a transport error
+     * message — instead of the Authorization header. The message must not echo the embedded credentials.
+     *
+     * @return void
+     */
+    #[Test]
+    public function aBaseUrlEmbeddingCredentialsIsRejectedWithoutEchoingThem(): void
+    {
+        try {
+            FinderConnection::rest('https://user:s3cr3t@finder.example', null);
+            self::fail('Expected an InvalidArgumentException for a credentials-embedding base URL.');
+        } catch (InvalidArgumentException $exception) {
+            self::assertStringNotContainsString('s3cr3t', $exception->getMessage());
+            self::assertStringNotContainsString('user', $exception->getMessage());
+        }
+    }
 }
