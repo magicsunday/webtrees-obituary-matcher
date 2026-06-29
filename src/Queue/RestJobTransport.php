@@ -240,11 +240,12 @@ final readonly class RestJobTransport implements JobTransport
     /**
      * {@inheritDoc}
      *
-     * Forgets the job locally and asks the remote to delete it (best effort). The ledger removal is the
-     * authoritative local state, so it happens first and unconditionally; the remote DELETE is wrapped
-     * so a failure or error response can never resurrect the entry. The ingest counts and warnings are
-     * the file transport's status bookkeeping and have no REST equivalent — the remote already holds
-     * the job's own result.
+     * Forgets the job locally and asks the remote to delete it (best effort). This is the ONLY path that
+     * deletes the remote job: the result has been ingested successfully, so the remote copy is no longer
+     * needed (a failed ingest takes {@see self::markFailed()}, which preserves the remote job). The ledger
+     * removal is the authoritative local state, so it happens first and unconditionally; the remote DELETE
+     * is wrapped so a failure or error response can never resurrect the entry. The ingest counts and
+     * warnings are the file transport's status bookkeeping and have no REST equivalent.
      *
      * @param string             $jobId    The job identifier to finalise.
      * @param array<string, int> $counts   The per-metric ingest counts (unused by the REST transport).
@@ -260,9 +261,14 @@ final readonly class RestJobTransport implements JobTransport
     /**
      * {@inheritDoc}
      *
-     * Forgets the job locally and asks the remote to delete it (best effort), exactly as
-     * {@see self::markIngested()} — a REST job carries no local failure bookkeeping, so the category
-     * and warnings have nowhere to persist and the entry is simply dropped from the poll set.
+     * Drops the job from the local poll set but PRESERVES it on the remote: a failed job is removed from
+     * the ledger (so it is never re-polled — no head-of-line starvation) yet deliberately NOT deleted
+     * remotely. This mirrors the file transport, which parks a failed job in `failed-ingest/` with its
+     * payload retained rather than discarding it, so a transient local fault that surfaces as
+     * `ingest_failed` (a disk-full or permission error while persisting the matches) does not destroy the
+     * only copy of the finder's result — the remote keeps the job for manual recovery. Only a SUCCESSFUL
+     * ingest ({@see self::markIngested()}) deletes the remote job. The category and warnings have no REST
+     * equivalent and are unused.
      *
      * @param string       $jobId          The job identifier to fail.
      * @param string       $reasonCategory The snake_case category classifying the failure (unused here).
@@ -272,7 +278,9 @@ final readonly class RestJobTransport implements JobTransport
      */
     public function markFailed(string $jobId, string $reasonCategory, array $warnings = []): void
     {
-        $this->forget($jobId);
+        // Remove from the ledger only — never DELETE. The remote retains the failed job so its result is
+        // recoverable, exactly as the file transport preserves a failed job's payload in failed-ingest/.
+        $this->ledger->remove($jobId);
     }
 
     /**
@@ -373,7 +381,10 @@ final readonly class RestJobTransport implements JobTransport
     {
         $body = $this->decodeBody($response);
 
-        if (($body === null) || (($body['jobId'] ?? null) !== $request->jobId)) {
+        if (
+            ($body === null)
+            || (($body['jobId'] ?? null) !== $request->jobId)
+        ) {
             throw new RuntimeException(
                 sprintf('Obituary finder returned an unreadable or mismatched acknowledgement at %s.', $this->baseUrl)
             );
@@ -393,9 +404,10 @@ final readonly class RestJobTransport implements JobTransport
     {
         $this->ledger->remove($jobId);
 
-        // Never build a request URL from an unvalidated jobId. The ledger removal above already no-ops on
-        // an invalid id; this guard keeps the DELETE path-safe too, so the class never trusts its caller
-        // for a URL path component (defence-in-depth, consistent with the validated poll URL).
+        // Never build a request URL from an unvalidated jobId. Every jobId reaching this sink already
+        // originates from a path-safe source — a minted id or a ledger entry the RestPendingLedger
+        // narrowed to its validated filename basename — so this guard is defence-in-depth, mirroring the
+        // same path-safety the poll URL gets from the ledger rather than from a sink-local check.
         if (!QueuePaths::isJobDirectoryName($jobId)) {
             return;
         }

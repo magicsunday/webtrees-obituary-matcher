@@ -23,12 +23,16 @@ use Throwable;
 
 /**
  * The Phase-2e orchestration boundary: it drains finished feeder jobs into the per-tree match stores.
- * The transport ({@see JobTransport}) yields each completed job already claimed — a {@see CompletedJob}
- * carrying its validated notices, or a {@see FailedJob} carrying a per-job read fault category — so this
- * service stays oblivious to where the jobs live (the on-disk file queue or the future REST ledger). For
- * each completed job it resolves the target tree, rebuilds the requested candidates and hands the notices
- * to the store-agnostic {@see IngestService::ingest()} against the tree-scoped store, then finalises the
- * job through the transport (ingested / failed / released).
+ * The transport ({@see JobTransport}) yields each completed job — a {@see CompletedJob} carrying its
+ * validated notices, or a {@see FailedJob} carrying a per-job read fault category — so this service stays
+ * oblivious to where the jobs live (the on-disk file queue or the REST ledger). The file transport yields
+ * each job already atomically claimed (`done` → `ingesting`), so overlapping drains never double-process;
+ * the REST transport polls its ledger without a claim, so two overlapping drains over the same REST
+ * ledger can each process the same job (a known limitation tracked in issue #71 — non-corrupting today
+ * because the per-row atomic store is last-writer-wins). For each completed job it resolves the target
+ * tree, rebuilds the requested candidates and hands the notices to the store-agnostic
+ * {@see IngestService::ingest()} against the tree-scoped store, then finalises the job through the
+ * transport (ingested / failed / released).
  *
  * The class lives in the {@see \MagicSunday\ObituaryMatcher\Webtrees} adapter layer because it
  * orchestrates {@see TreeService}, {@see CandidateRepository} and {@see MatchStoreFactory}, all of

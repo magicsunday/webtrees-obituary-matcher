@@ -522,20 +522,24 @@ final class RestJobTransportTest extends TempDirTestCase
     }
 
     /**
-     * markFailed also drops the ledger entry (a REST job carries no local failure bookkeeping).
+     * markFailed drops the ledger entry but PRESERVES the remote job — it sends NO DELETE, so a transient
+     * local ingest fault (surfacing as `ingest_failed`) does not destroy the only copy of the finder's
+     * result. This mirrors the file transport, which parks a failed job in failed-ingest/ with its payload
+     * retained; only a successful markIngested deletes the remote.
      *
      * @return void
      */
     #[Test]
-    public function markFailedRemovesTheLedgerEntry(): void
+    public function markFailedRemovesTheLedgerEntryButPreservesTheRemoteJob(): void
     {
         $ledger = new RestPendingLedger($this->tmp . '/rp');
         $ledger->record('job-1', 7, ['I1'], '2024-05-21T08:29:55Z');
 
-        $http = $this->http([static fn (): ResponseInterface => self::json(500, [])]);
+        $http = $this->http([]);
         $this->newRest($http, $ledger)->markFailed('job-1', 'ingest_failed');
 
         self::assertSame([], $ledger->jobIds());
+        self::assertCount(0, $http->sent);
     }
 
     /**
@@ -587,9 +591,9 @@ final class RestJobTransportTest extends TempDirTestCase
     }
 
     /**
-     * Finalising a job whose id is not a path-safe filename removes the (already absent) ledger entry but
-     * sends NO remote DELETE, so the guarded delete path never builds a request URL from an unvalidated
-     * id.
+     * Finalising a successful job whose id is not a path-safe filename removes the (already absent) ledger
+     * entry but sends NO remote DELETE, so the guarded delete path in markIngested never builds a request
+     * URL from an unvalidated id.
      *
      * @return void
      */
@@ -599,7 +603,7 @@ final class RestJobTransportTest extends TempDirTestCase
         $ledger = new RestPendingLedger($this->tmp . '/rp');
         $http   = $this->http([]);
 
-        $this->newRest($http, $ledger)->markFailed('../evil', 'finder_failed');
+        $this->newRest($http, $ledger)->markIngested('../evil', ['matchesStored' => 0]);
 
         self::assertCount(0, $http->sent);
     }
