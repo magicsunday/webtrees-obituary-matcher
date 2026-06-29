@@ -263,6 +263,10 @@ final class ResponseReaderTest extends QueueTempDirTestCase
             'trailing modifier' => ['response-fetchedat-trailing-modifier.json', 'not a parseable timestamp'],
             'trailing word'     => ['response-fetchedat-trailing-word.json', 'not a parseable timestamp'],
             'trailing garbage'  => ['response-fetchedat-trailing-garbage.json', 'not a parseable timestamp'],
+            // A trailing newline must be rejected too: DateTimeImmutable parses "...Z\n" leniently
+            // (ignoring the newline), so without the regex's `D` (PCRE_DOLLAR_ENDONLY) anchor the
+            // garbage value would slip through the guard the anchored pattern exists to enforce.
+            'trailing newline' => ['response-fetchedat-trailing-newline.json', 'not a parseable timestamp'],
             // An out-of-range component (a "00" month and/or day) passes the digit-count regex but the
             // DateTimeImmutable constructor SILENTLY ROLLS IT BACKWARD ("2024-00-00" → 2023-11-30)
             // instead of throwing, so it must be rejected by the post-parse date-part reproduction check

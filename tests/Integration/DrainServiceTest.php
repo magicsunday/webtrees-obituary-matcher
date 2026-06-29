@@ -17,21 +17,28 @@ use Fisharebest\Webtrees\Registry;
 use Fisharebest\Webtrees\Tree;
 use MagicSunday\ObituaryMatcher\Matching\FileMatchStore;
 use MagicSunday\ObituaryMatcher\Matching\IngestService;
+use MagicSunday\ObituaryMatcher\Matching\MatchStore;
+use MagicSunday\ObituaryMatcher\Matching\StoredMatch;
+use MagicSunday\ObituaryMatcher\Matching\WriteBack;
 use MagicSunday\ObituaryMatcher\Queue\AtomicFile;
+use MagicSunday\ObituaryMatcher\Queue\FailedJob;
 use MagicSunday\ObituaryMatcher\Queue\FeederRequestReader;
 use MagicSunday\ObituaryMatcher\Queue\JobState;
+use MagicSunday\ObituaryMatcher\Queue\JobTransport;
 use MagicSunday\ObituaryMatcher\Queue\QueueClient;
 use MagicSunday\ObituaryMatcher\Queue\QueueLimits;
 use MagicSunday\ObituaryMatcher\Queue\QueuePaths;
 use MagicSunday\ObituaryMatcher\Queue\ResponseReader;
 use MagicSunday\ObituaryMatcher\Scoring\Classifier;
 use MagicSunday\ObituaryMatcher\Scoring\EnrichedMatchEngine;
+use MagicSunday\ObituaryMatcher\Support\FeederRequest;
 use MagicSunday\ObituaryMatcher\Webtrees\CandidateRepository;
 use MagicSunday\ObituaryMatcher\Webtrees\DrainService;
 use MagicSunday\ObituaryMatcher\Webtrees\MatchStoreFactory;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\Attributes\UsesClass;
+use RuntimeException;
 
 use function file_put_contents;
 use function json_encode;
@@ -53,6 +60,8 @@ use const JSON_THROW_ON_ERROR;
  */
 #[CoversClass(DrainService::class)]
 #[UsesClass(\MagicSunday\ObituaryMatcher\Webtrees\DrainSummary::class)]
+#[UsesClass(\MagicSunday\ObituaryMatcher\Webtrees\DrainOutcome::class)]
+#[UsesClass(\MagicSunday\ObituaryMatcher\Queue\FileJobTransport::class)]
 #[UsesClass(CandidateRepository::class)]
 #[UsesClass(MatchStoreFactory::class)]
 #[UsesClass(\MagicSunday\ObituaryMatcher\Webtrees\PersonCandidateAdapter::class)]
@@ -60,15 +69,17 @@ use const JSON_THROW_ON_ERROR;
 #[UsesClass(IngestService::class)]
 #[UsesClass(FileMatchStore::class)]
 #[UsesClass(\MagicSunday\ObituaryMatcher\Matching\IngestResult::class)]
-#[UsesClass(\MagicSunday\ObituaryMatcher\Matching\StoredMatch::class)]
+#[UsesClass(StoredMatch::class)]
 #[UsesClass(QueueClient::class)]
 #[UsesClass(QueuePaths::class)]
 #[UsesClass(FeederRequestReader::class)]
 #[UsesClass(ResponseReader::class)]
 #[UsesClass(AtomicFile::class)]
+#[UsesClass(FailedJob::class)]
 #[UsesClass(EnrichedMatchEngine::class)]
 #[UsesClass(Classifier::class)]
 #[UsesClass(\MagicSunday\ObituaryMatcher\Queue\ResponseValidationException::class)]
+#[UsesClass(\MagicSunday\ObituaryMatcher\Queue\JobStatus::class)]
 final class DrainServiceTest extends AbstractDrainTestCase
 {
     /**
@@ -258,14 +269,7 @@ final class DrainServiceTest extends AbstractDrainTestCase
             ],
         );
 
-        $summary = $this->drainService()->drain(null, 20);
-
-        self::assertSame(0, $summary->ingested);
-        self::assertSame(1, $summary->failed);
-        self::assertSame(0, $summary->stored);
-
-        self::assertSame(JobState::FailedIngest, $this->paths()->stateOf('job-001'));
-        self::assertSame([], $this->storeFor($tree)->allPending());
+        $this->assertJobOneParkedInFailedIngestWithEmptyStore($tree);
     }
 
     /**
@@ -281,17 +285,7 @@ final class DrainServiceTest extends AbstractDrainTestCase
 
         // job-001 carries a valid request but a schema-invalid response.json (wrong version), so the
         // ingest step's ResponseReader throws ResponseValidationException only once ingest runs.
-        $corruptDir = $this->paths()->doneDir('job-001');
-        mkdir($corruptDir, 0o700, true);
-        AtomicFile::writeJson(
-            $corruptDir . '/request.json',
-            [
-                'schemaVersion' => 3,
-                'jobId'         => 'job-001',
-                'treeId'        => $tree->id(),
-                'candidates'    => [['personId' => 'I1']],
-            ],
-        );
+        $corruptDir = $this->seedDoneJobWithValidRequest($tree);
         AtomicFile::writeJson(
             $corruptDir . '/response.json',
             [
@@ -303,6 +297,265 @@ final class DrainServiceTest extends AbstractDrainTestCase
 
         // The corrupt job is parked in failed-ingest while a valid sibling still ingests.
         $this->assertBadJobParkedWhileValidJobIngests($tree, 'job-001');
+    }
+
+    /**
+     * A TORN response.json (malformed/truncated JSON) is parked as ingest_failed, NOT request_failed:
+     * the read of the response shares the SAME try block as the ingest, so the plain RuntimeException
+     * {@see AtomicFile::readJsonCapped()} throws on a decode failure
+     * (a converted JsonException, which is NOT a ResponseValidationException) is caught by the Throwable
+     * arm and recorded under the ingest_failed reason category. This preserves the file path's original
+     * behaviour — before the slice that split the response read into its own catch, a torn-response IO
+     * failure surfaced from inside ingest() and was caught as ingest_failed — and pins that a
+     * RESPONSE-read fault is never mislabelled as a request fault.
+     */
+    #[Test]
+    public function aTornResponseJobIsParkedAsIngestFailed(): void
+    {
+        $tree = $this->ottoTree('fixture-a');
+
+        // A valid request.json (schema v3) but a TORN response.json: the JSON is truncated, so
+        // readJsonCapped() throws a plain RuntimeException (a converted JsonException), NOT a
+        // ResponseValidationException. The job is claimed (done -> ingesting) before the read runs.
+        $jobDir = $this->seedDoneJobWithValidRequest($tree);
+
+        // Deliberately malformed (truncated) JSON so the decode throws — written raw because
+        // AtomicFile::writeJson would only ever produce well-formed JSON.
+        file_put_contents($jobDir . '/response.json', '{"schemaVersion": 1, "jobId": "job-001", "results":');
+
+        // The torn-response job is parked in failed-ingest, counted failed, and persisted no row.
+        $this->assertJobOneParkedInFailedIngestWithEmptyStore($tree);
+
+        // The reason CATEGORY is ingest_failed (a RESPONSE-read IO fault routed through the shared
+        // ingest try block), NOT request_failed — a response-read failure must never be mislabelled as
+        // a request fault.
+        self::assertSame('ingest_failed', (new QueueClient($this->paths()))->status('job-001')->error);
+    }
+
+    /**
+     * A throw from the ingest STEP itself (as opposed to a transport read fault) terminally parks the
+     * job as ingest_failed rather than releasing it: a job whose {@see IngestService::ingest()} throws
+     * mid-flight — here because the per-tree store's persist step fails — must not be re-claimed every
+     * drain (head-of-line starvation), so {@see DrainService} catches the {@see Throwable} and routes
+     * the job to failed-ingest. This pins {@see DrainService::ingestCompleted()}'s catch arm directly:
+     * a valid request + valid response reaches ingest, the store throws on upsert, and the job lands in
+     * failed-ingest counted failed with nothing stored. Distinct from the torn/oversize/schema-invalid
+     * scenarios, where the fault surfaces from the transport READ before the ingest runs.
+     */
+    #[Test]
+    public function anIngestThrowParksTheJobAsIngestFailed(): void
+    {
+        $tree = $this->ottoTree('fixture-a');
+        $job  = $this->seedDoneJob('job-001', $tree->id(), 'I1', 'Otto Searchable');
+
+        // A store whose persist step deterministically throws: ingest() scores the held I1's notice and
+        // calls upsertPending(), whose RuntimeException propagates out of ingest() into ingestCompleted's
+        // catch(Throwable) arm. The other methods are unused by this scenario.
+        $throwingStore = new class implements MatchStore {
+            /**
+             * Throws to simulate the persistence layer failing mid-ingest.
+             *
+             * @param StoredMatch $match The suggestion the ingest tried to persist.
+             *
+             * @return bool Never returns; always throws in this fault double.
+             */
+            public function upsertPending(StoredMatch $match): bool
+            {
+                throw new RuntimeException('persist failed');
+            }
+
+            /**
+             * Unused by this scenario; returns no rows.
+             *
+             * @param string $personId The candidate identifier.
+             *
+             * @return list<StoredMatch> The empty result.
+             */
+            public function findByPerson(string $personId): array
+            {
+                return [];
+            }
+
+            /**
+             * Unused by this scenario; returns no pending rows.
+             *
+             * @return list<StoredMatch> The empty result.
+             */
+            public function allPending(): array
+            {
+                return [];
+            }
+
+            /**
+             * Unused by this scenario; returns no rows.
+             *
+             * @return list<StoredMatch> The empty result.
+             */
+            public function all(): array
+            {
+                return [];
+            }
+
+            /**
+             * Unused by this scenario; resolves no row.
+             *
+             * @param string $personId The candidate identifier.
+             * @param string $rowKey   The canonical row key.
+             *
+             * @return StoredMatch|null Always null.
+             */
+            public function findOne(string $personId, string $rowKey): ?StoredMatch
+            {
+                return null;
+            }
+
+            /**
+             * Unused by this scenario; accepts the call as a no-op.
+             *
+             * @param string      $personId    The candidate identifier.
+             * @param string      $obituaryUrl The source URL.
+             * @param string|null $reason      The rejection reason.
+             *
+             * @return void
+             */
+            public function markRejected(string $personId, string $obituaryUrl, ?string $reason): void
+            {
+            }
+
+            /**
+             * Unused by this scenario; accepts the call as a no-op.
+             *
+             * @param string      $personId    The candidate identifier.
+             * @param string      $obituaryUrl The source URL.
+             * @param string|null $reason      The reviewer note.
+             *
+             * @return void
+             */
+            public function markUncertain(string $personId, string $obituaryUrl, ?string $reason): void
+            {
+            }
+
+            /**
+             * Unused by this scenario; reports no transition.
+             *
+             * @param string    $personId    The candidate identifier.
+             * @param string    $obituaryUrl The source URL.
+             * @param WriteBack $writeBack   The write-back IDs.
+             *
+             * @return bool Always false.
+             */
+            public function markConfirmed(string $personId, string $obituaryUrl, WriteBack $writeBack): bool
+            {
+                return false;
+            }
+
+            /**
+             * Unused by this scenario; accepts the call as a no-op.
+             *
+             * @param string $personId    The candidate identifier.
+             * @param string $obituaryUrl The source URL.
+             *
+             * @return void
+             */
+            public function revert(string $personId, string $obituaryUrl): void
+            {
+            }
+        };
+
+        $summary = $this->drainService($throwingStore)->drain(null, 20);
+
+        // The job failed at the ingest step, persisted nothing, and was counted failed (not released).
+        self::assertSame(0, $summary->ingested);
+        self::assertSame(0, $summary->stored);
+        self::assertSame(1, $summary->failed);
+
+        // Queue end-state: the job is terminally parked in failed-ingest (NOT stranded in ingesting/,
+        // NOT released back to done where it would be re-claimed forever).
+        self::assertSame(JobState::FailedIngest, $this->paths()->stateOf($job));
+
+        // The recorded reason CATEGORY is ingest_failed — the ingest-step throw, not a read fault.
+        self::assertSame('ingest_failed', (new QueueClient($this->paths()))->status($job)->error);
+
+        // Store delta: the real per-tree store (separate from the throwing double) holds no row.
+        self::assertSame([], $this->storeFor($tree)->allPending());
+    }
+
+    /**
+     * A failure of the PARK itself (markFailed throwing, e.g. the file transport's failed-ingest rename
+     * failing on a read-only/permission-denied queue filesystem) must NOT abort the whole drain. Two
+     * jobs are yielded by a transport whose markFailed always throws; the drain must still process BOTH
+     * (counting them failed) rather than crashing on the first and starving the second — the head-of-line
+     * starvation the parkFailed() guard prevents. Without the guard the first markFailed throw propagates
+     * out of the drain loop and the second job is never seen.
+     *
+     * @return void
+     */
+    #[Test]
+    public function aParkFailureDoesNotAbortTheDrainOrStarveTheNextJob(): void
+    {
+        $transport = new class implements JobTransport {
+            /**
+             * {@inheritDoc}
+             */
+            public function submit(FeederRequest $request): string
+            {
+                return $request->jobId;
+            }
+
+            /**
+             * {@inheritDoc}
+             */
+            public function fetchCompleted(): iterable
+            {
+                yield new FailedJob('job-a', 1, ['I1'], 'finder_failed');
+                yield new FailedJob('job-b', 1, ['I1'], 'finder_failed');
+            }
+
+            /**
+             * {@inheritDoc}
+             */
+            public function markIngested(string $jobId, array $counts, array $warnings = []): void
+            {
+            }
+
+            /**
+             * {@inheritDoc}
+             */
+            public function markFailed(string $jobId, string $reasonCategory, array $warnings = []): void
+            {
+                throw new RuntimeException('park failed');
+            }
+
+            /**
+             * {@inheritDoc}
+             */
+            public function release(string $jobId): void
+            {
+            }
+
+            /**
+             * {@inheritDoc}
+             */
+            public function inFlightRequests(): iterable
+            {
+                return [];
+            }
+
+            /**
+             * {@inheritDoc}
+             */
+            public function staleCount(): int
+            {
+                return 0;
+            }
+        };
+
+        $summary = $this->drainService(null, $transport)->drain(null, 20);
+
+        // Both jobs were processed and counted failed: the first job's throwing park did not abort the
+        // drain, so the second job behind it was not starved.
+        self::assertSame(2, $summary->failed);
+        self::assertSame(0, $summary->ingested);
     }
 
     /**
@@ -529,6 +782,55 @@ final class DrainServiceTest extends AbstractDrainTestCase
         self::assertInstanceOf(Individual::class, $individual);
 
         return $individual;
+    }
+
+    /**
+     * Drain the whole batch and assert the single-job failure outcome shared by the "one bad job, no
+     * valid sibling" scenarios: nothing ingested or stored, exactly one job counted failed, job-001
+     * parked in failed-ingest (not stranded in ingesting/) and the store left empty. The caller may
+     * additionally assert the recorded failure reason category.
+     *
+     * @param Tree $tree The tree whose (empty) store is checked.
+     *
+     * @return void
+     */
+    private function assertJobOneParkedInFailedIngestWithEmptyStore(Tree $tree): void
+    {
+        $summary = $this->drainService()->drain(null, 20);
+
+        self::assertSame(0, $summary->ingested);
+        self::assertSame(1, $summary->failed);
+        self::assertSame(0, $summary->stored);
+
+        self::assertSame(JobState::FailedIngest, $this->paths()->stateOf('job-001'));
+        self::assertSame([], $this->storeFor($tree)->allPending());
+    }
+
+    /**
+     * Seed a done job ('job-001') carrying ONLY a valid request.json (schema v3, the single held
+     * candidate I1) and return its directory, so the caller can drop in its own response.json shape
+     * (a schema-invalid one, a torn one, …). Shared by the response-fault scenarios whose request half
+     * is byte-identical, keeping the duplicate seeding out of each test body.
+     *
+     * @param Tree $tree The tree the request belongs to.
+     *
+     * @return string The seeded done job directory (absolute path).
+     */
+    private function seedDoneJobWithValidRequest(Tree $tree): string
+    {
+        $jobDir = $this->paths()->doneDir('job-001');
+        mkdir($jobDir, 0o700, true);
+        AtomicFile::writeJson(
+            $jobDir . '/request.json',
+            [
+                'schemaVersion' => 3,
+                'jobId'         => 'job-001',
+                'treeId'        => $tree->id(),
+                'candidates'    => [['personId' => 'I1']],
+            ],
+        );
+
+        return $jobDir;
     }
 
     /**

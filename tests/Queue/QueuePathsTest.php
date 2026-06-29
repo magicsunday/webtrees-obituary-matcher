@@ -65,6 +65,7 @@ final class QueuePathsTest extends TempDirTestCase
             'a path-traversal name'       => ['../escape', false],
             'a slash-bearing name'        => ['a/b', false],
             'an over-long name'           => ['x' . str_repeat('y', 64), false],
+            'a trailing-newline name'     => ["job-1\n", false],
             'an empty name'               => ['', false],
         ];
     }
@@ -79,7 +80,7 @@ final class QueuePathsTest extends TempDirTestCase
     #[DataProvider('jobDirectoryNames')]
     public function isJobDirectoryNameClassifiesAnEntry(string $entry, bool $expected): void
     {
-        self::assertSame($expected, (new QueuePaths($this->tmp))->isJobDirectoryName($entry));
+        self::assertSame($expected, QueuePaths::isJobDirectoryName($entry));
     }
 
     /**

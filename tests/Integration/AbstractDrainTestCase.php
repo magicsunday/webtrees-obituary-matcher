@@ -20,10 +20,12 @@ use MagicSunday\ObituaryMatcher\Matching\IngestServiceFactory;
 use MagicSunday\ObituaryMatcher\Matching\MatchStore;
 use MagicSunday\ObituaryMatcher\Queue\AtomicFile;
 use MagicSunday\ObituaryMatcher\Queue\FeederRequestReader;
+use MagicSunday\ObituaryMatcher\Queue\FileJobTransport;
 use MagicSunday\ObituaryMatcher\Queue\JobState;
+use MagicSunday\ObituaryMatcher\Queue\JobTransport;
 use MagicSunday\ObituaryMatcher\Queue\QueueClient;
 use MagicSunday\ObituaryMatcher\Queue\QueueLimits;
-use MagicSunday\ObituaryMatcher\Queue\QueuePaths;
+use MagicSunday\ObituaryMatcher\Queue\ResponseReader;
 use MagicSunday\ObituaryMatcher\Webtrees\CandidateRepository;
 use MagicSunday\ObituaryMatcher\Webtrees\DrainService;
 use MagicSunday\ObituaryMatcher\Webtrees\DrainSummary;
@@ -65,45 +67,62 @@ abstract class AbstractDrainTestCase extends AbstractQueueStoreTestCase
      * isolated per-tree store under this test's throwaway root so the assertions read that store
      * rather than the live webtrees data dir.
      *
+     * When $storeOverride is non-null the per-tree store seam yields exactly that store instead of the
+     * isolated file store, so a scenario can drive a store whose persist step throws — exercising the
+     * ingest-throw branch the file store never triggers.
+     *
+     * @param MatchStore|null $storeOverride The store every {@see DrainService::storeForTree()} call
+     *                                       returns, or null to use the isolated per-tree file store.
+     *
      * @return DrainService
      */
-    protected function drainService(): DrainService
+    protected function drainService(?MatchStore $storeOverride = null, ?JobTransport $transport = null): DrainService
     {
         $paths    = $this->paths();
         $storeDir = $this->storeRoot;
 
-        return new class($paths, new QueueClient($paths), new FeederRequestReader($paths, QueueLimits::FEEDER_FILE_MAX_BYTES), new CandidateRepository(), IngestServiceFactory::create($paths), new TreeService(new GedcomImportService()), $storeDir) extends DrainService {
+        // Build the file transport over this test's throwaway queue exactly as DrainServiceFactory does,
+        // so the test drives the real composition root; only the per-tree store seam is redirected below.
+        // A caller can inject an alternate transport (e.g. the REST transport for the parity test).
+        $transport ??= new FileJobTransport(
+            new QueueClient($paths),
+            new ResponseReader($paths, QueueLimits::FEEDER_FILE_MAX_BYTES),
+            new FeederRequestReader($paths, QueueLimits::FEEDER_FILE_MAX_BYTES),
+            $paths,
+        );
+
+        return new class(new CandidateRepository(), IngestServiceFactory::create(), new TreeService(new GedcomImportService()), $transport, $storeDir, $storeOverride) extends DrainService {
             /**
-             * @param QueuePaths          $paths       The queue path builder.
-             * @param QueueClient         $client      The queue state-machine driver.
-             * @param FeederRequestReader $reader      The validating request reader.
-             * @param CandidateRepository $repository  The candidate repository.
-             * @param IngestService       $ingest      The enriched ingest pipeline.
-             * @param TreeService         $treeService The tree lookup.
-             * @param string              $storeRoot   The isolated per-tree store base directory.
+             * @param CandidateRepository $repository    The candidate repository.
+             * @param IngestService       $ingest        The enriched ingest pipeline.
+             * @param TreeService         $treeService   The tree lookup.
+             * @param JobTransport        $transport     The file-drop job transport.
+             * @param string              $storeRoot     The isolated per-tree store base directory.
+             * @param MatchStore|null     $storeOverride The store every storeForTree() call returns, or
+             *                                           null to build the isolated per-tree file store.
              */
             public function __construct(
-                QueuePaths $paths,
-                QueueClient $client,
-                FeederRequestReader $reader,
                 CandidateRepository $repository,
                 IngestService $ingest,
                 TreeService $treeService,
+                JobTransport $transport,
                 private readonly string $storeRoot,
+                private readonly ?MatchStore $storeOverride,
             ) {
-                parent::__construct($paths, $client, $reader, $repository, $ingest, $treeService);
+                parent::__construct($repository, $ingest, $treeService, $transport);
             }
 
             /**
-             * Redirect the per-tree store to an isolated directory under the test root.
+             * Redirect the per-tree store to an isolated directory under the test root, or to the
+             * injected override store when one was supplied.
              *
              * @param Tree $tree The tree whose store is requested.
              *
-             * @return MatchStore The isolated, tree-scoped store.
+             * @return MatchStore The isolated, tree-scoped store (or the injected override).
              */
             protected function storeForTree(Tree $tree): MatchStore
             {
-                return new FileMatchStore(
+                return $this->storeOverride ?? new FileMatchStore(
                     MatchStoreFactory::pathForTree($this->storeRoot, $tree)
                 );
             }
@@ -261,7 +280,7 @@ abstract class AbstractDrainTestCase extends AbstractQueueStoreTestCase
     }
 
     /**
-     * Build one untrusted-shape notice the {@see \MagicSunday\ObituaryMatcher\Queue\ResponseReader} decodes into a death notice: a name,
+     * Build one untrusted-shape notice the {@see ResponseReader} decodes into a death notice: a name,
      * an exact birth + death date, a cemetery and an exact funeral date so the harvest carries both
      * burial facts.
      *

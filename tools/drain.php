@@ -20,10 +20,14 @@ declare(strict_types=1);
  * `--tree` is the NUMERIC webtrees tree id (the integer primary key); when omitted every tree is
  * drained. `--queue` is the queue root directory (defaults to the running instance's
  * `data/obituary-matcher/queue`, resolved relative to this module's install location). `--limit` caps
- * the number of done jobs processed this run (default 20). All three are `=`-form long options.
+ * the number of done jobs processed this run (default 20). `--transport` selects the finder transport
+ * (`file`, the default, or `rest`); for `rest`, `--base-url` is REQUIRED and `--token` is the optional
+ * bearer token, and the REST in-flight ledger is read from beside the queue dir. All are `=`-form long
+ * options.
  *
  * Usage:
  *   php tools/drain.php [--tree=1] [--queue=/path/to/queue] [--limit=20]
+ *   php tools/drain.php --transport=rest --base-url=https://finder.example [--token=secret]
  *
  * Exit codes: 0 when no job failed, 1 when the boot fails or any job moved to failed-ingest.
  *
@@ -33,6 +37,7 @@ declare(strict_types=1);
  */
 
 use MagicSunday\ObituaryMatcher\Queue\QueuePaths;
+use MagicSunday\ObituaryMatcher\Support\FinderConnection;
 use MagicSunday\ObituaryMatcher\Support\WebtreesInstallLocator;
 use MagicSunday\ObituaryMatcher\Webtrees\DrainServiceFactory;
 use MagicSunday\ObituaryMatcher\Webtrees\HeadlessBootstrap;
@@ -52,13 +57,16 @@ $options = getopt('', [
     'tree::',
     'queue::',
     'limit::',
+    'transport::',
+    'base-url::',
+    'token::',
 ]);
 $options = $options === false ? [] : $options;
 
 // The optional-value (`::`) long options parse as `false` when passed without the `=` form
 // (`--tree 1`); reject that explicitly so a malformed flag gets a precise hint rather than being
 // silently coerced to its default below.
-foreach (['tree', 'queue', 'limit'] as $flag) {
+foreach (['tree', 'queue', 'limit', 'transport', 'base-url', 'token'] as $flag) {
     if (
         array_key_exists($flag, $options)
         && !is_string($options[$flag])
@@ -69,9 +77,36 @@ foreach (['tree', 'queue', 'limit'] as $flag) {
     }
 }
 
-$treeOption  = $options['tree'] ?? null;
-$queueOption = $options['queue'] ?? null;
-$limitOption = $options['limit'] ?? null;
+$treeOption      = $options['tree'] ?? null;
+$queueOption     = $options['queue'] ?? null;
+$limitOption     = $options['limit'] ?? null;
+$transportOption = $options['transport'] ?? null;
+$baseUrlOption   = $options['base-url'] ?? null;
+$tokenOption     = $options['token'] ?? null;
+
+// --transport selects the finder transport: the default file-drop queue, or the REST endpoint. Any
+// other value is a misuse; fail loud rather than silently falling back to file.
+if (
+    is_string($transportOption)
+    && !in_array($transportOption, ['file', 'rest'], true)
+) {
+    fwrite(STDERR, '--transport must be "file" or "rest".' . PHP_EOL);
+
+    exit(1);
+}
+
+$transport = $transportOption === 'rest' ? 'rest' : 'file';
+
+// --base-url is REQUIRED for the REST transport (the file transport ignores it). A missing/empty base
+// URL is a misuse; fail loud.
+if (
+    $transport === 'rest'
+    && (!is_string($baseUrlOption) || ($baseUrlOption === ''))
+) {
+    fwrite(STDERR, '--base-url=<url> is required when --transport=rest.' . PHP_EOL);
+
+    exit(1);
+}
 
 // A non-numeric --tree is a typo (or a `../`-style segment); fail loud instead of coercing it to
 // tree-0 via the (int) cast. An absent --tree means "every tree".
@@ -120,10 +155,30 @@ if (is_string($queueOption) && !is_dir($queueOption)) {
     exit(1);
 }
 
+// Build the finder connection and, for the REST transport, the in-flight ledger root as a sibling of
+// the queue dir. A malformed --base-url (not http(s), or carrying a control character) is rejected by
+// FinderConnection::rest(); catch it and fail loud rather than letting the stack trace (with the token
+// in a header build's frame) reach STDERR.
+$token = (is_string($tokenOption) && ($tokenOption !== '')) ? $tokenOption : null;
+
+try {
+    $connection = $transport === 'rest'
+        ? FinderConnection::rest($baseUrlOption, $token)
+        : FinderConnection::file();
+} catch (InvalidArgumentException) {
+    fwrite(STDERR, 'Invalid REST connection: --base-url must be an http(s) URL and neither --base-url nor --token may contain control characters.' . PHP_EOL);
+
+    exit(1);
+}
+
+$restPendingRoot = $transport === 'rest'
+    ? dirname(rtrim($queueRoot, '/')) . '/rest-pending'
+    : null;
+
 // Assemble the drain graph via its composition root (the per-job store is wired inside DrainService).
 $paths = new QueuePaths($queueRoot);
 
-$drainService = DrainServiceFactory::create($paths);
+$drainService = DrainServiceFactory::create($paths, $connection, $restPendingRoot);
 
 $summary = $drainService->drain($onlyTreeId, $limit);
 

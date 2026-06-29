@@ -31,11 +31,14 @@ use Fisharebest\Webtrees\View;
 use LogicException;
 use MagicSunday\ObituaryMatcher\Queue\AtomicFile;
 use MagicSunday\ObituaryMatcher\Queue\FeederRequestReader;
+use MagicSunday\ObituaryMatcher\Queue\FileJobTransport;
 use MagicSunday\ObituaryMatcher\Queue\JobState;
 use MagicSunday\ObituaryMatcher\Queue\QueueClient;
 use MagicSunday\ObituaryMatcher\Queue\QueueLimits;
 use MagicSunday\ObituaryMatcher\Queue\QueuePaths;
+use MagicSunday\ObituaryMatcher\Queue\ResponseReader;
 use MagicSunday\ObituaryMatcher\Support\FeederRequestFactory;
+use MagicSunday\ObituaryMatcher\Support\FinderConnection;
 use MagicSunday\ObituaryMatcher\Support\QueryGenerator;
 use MagicSunday\ObituaryMatcher\Support\UrlHostNormalizer;
 use MagicSunday\ObituaryMatcher\Ui\ControlPanelPresenter;
@@ -79,6 +82,7 @@ use function substr_count;
 #[UsesClass(ControlPanelPresenter::class)]
 #[UsesClass(ControlPanelView::class)]
 #[UsesClass(JobStatusRowView::class)]
+#[UsesClass(FinderConnection::class)]
 final class ObituaryControlPanelHandlerTest extends AbstractEnqueueTestCase
 {
     /**
@@ -385,6 +389,60 @@ final class ObituaryControlPanelHandlerTest extends AbstractEnqueueTestCase
     }
 
     /**
+     * With no finder preferences set (the #58 config UI has not run), the connection the enqueue path
+     * builds is the default file-drop transport, so the control panel behaves byte-for-byte as before.
+     *
+     * @return void
+     */
+    #[Test]
+    public function theDefaultFinderPreferencesSelectTheFileTransport(): void
+    {
+        $handler = new class($this->module) extends ObituaryControlPanelHandler {
+            /**
+             * Exposes the persisted finder connection for assertion.
+             *
+             * @return FinderConnection The connection the module preferences select.
+             */
+            public function exposedConnection(): FinderConnection
+            {
+                return $this->finderConnection();
+            }
+        };
+
+        self::assertSame('file', $handler->exposedConnection()->transport());
+    }
+
+    /**
+     * Once `finder_transport=rest` (and the base URL) are persisted, the enqueue path builds the REST
+     * connection — the #58 plumbing the control panel honours once the config UI sets it.
+     *
+     * @return void
+     */
+    #[Test]
+    public function theRestFinderPreferenceSelectsTheRestTransport(): void
+    {
+        $this->module->setPreference('finder_transport', 'rest');
+        $this->module->setPreference('finder_base_url', 'http://finder:8080');
+
+        $handler = new class($this->module) extends ObituaryControlPanelHandler {
+            /**
+             * Exposes the persisted finder connection for assertion.
+             *
+             * @return FinderConnection The connection the module preferences select.
+             */
+            public function exposedConnection(): FinderConnection
+            {
+                return $this->finderConnection();
+            }
+        };
+
+        $connection = $handler->exposedConnection();
+
+        self::assertSame('rest', $connection->transport());
+        self::assertSame('http://finder:8080', $connection->baseUrl());
+    }
+
+    /**
      * Builds the handler under test, seamed onto the throwaway test queue root so the trigger path runs
      * the REAL EnqueueService wiring against the isolated queue.
      *
@@ -451,13 +509,16 @@ final class ObituaryControlPanelHandlerTest extends AbstractEnqueueTestCase
                     public function __construct(QueuePaths $paths, private readonly Throwable $exception)
                     {
                         parent::__construct(
-                            $paths,
-                            new QueueClient($paths),
-                            new FeederRequestReader($paths, QueueLimits::FEEDER_FILE_MAX_BYTES),
                             new CandidateRepository(),
                             new FeederRequestFactory(new QueryGenerator()),
                             new UrlHostNormalizer(),
                             new TreeService(new GedcomImportService()),
+                            new FileJobTransport(
+                                new QueueClient($paths),
+                                new ResponseReader($paths, QueueLimits::FEEDER_FILE_MAX_BYTES),
+                                new FeederRequestReader($paths, QueueLimits::FEEDER_FILE_MAX_BYTES),
+                                $paths,
+                            ),
                         );
                     }
 

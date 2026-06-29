@@ -21,6 +21,7 @@ use MagicSunday\ObituaryMatcher\Domain\Place;
 use MagicSunday\ObituaryMatcher\Matching\FileMatchStore;
 use MagicSunday\ObituaryMatcher\Matching\IngestService;
 use MagicSunday\ObituaryMatcher\Queue\AtomicFile;
+use MagicSunday\ObituaryMatcher\Queue\JobState;
 use MagicSunday\ObituaryMatcher\Queue\QueueClient;
 use MagicSunday\ObituaryMatcher\Queue\QueuePaths;
 use MagicSunday\ObituaryMatcher\Queue\ResponseReader;
@@ -177,14 +178,13 @@ final class FeederWorkerContractTest extends TempDirTestCase
         //    response, so the claim must win before the ingest can find it.
         self::assertTrue($client->claimForIngest($jobId));
 
-        // 5. The production read + ingest pipeline consumes the untrusted response.json.
+        // 5. The production read + ingest pipeline consumes the untrusted response.json: the reader
+        //    validates the CLAIMED job's response into notices, which the ingest then scores — the same
+        //    two-step seam the drain drives.
         $store   = new FileMatchStore($this->tmp . '/store');
-        $service = new IngestService(
-            new ResponseReader($paths),
-            new EnrichedMatchEngine(),
-            new Classifier(),
-        );
-        $result = $service->ingest($jobId, [$candidate->id], [$candidate->id => $candidate], $store);
+        $notices = (new ResponseReader($paths))->read($jobId, [$candidate->id], JobState::Ingesting);
+        $service = new IngestService(new EnrichedMatchEngine(), new Classifier());
+        $result  = $service->ingest($notices, [$candidate->id => $candidate], $store);
 
         // 6. The fixture pins exactly two notices (Erika with dates, Max without), so the chain
         //    persists exactly two pending suggestions for the requested person — a dropped or

@@ -64,6 +64,38 @@ final class AtomicFileTest extends TempDirTestCase
     }
 
     /**
+     * writeJson with a byte cap rejects an oversized payload BEFORE writing, so a file a capped reader
+     * could never read back is never created on disk (a loud failure instead of a silent orphan).
+     */
+    #[Test]
+    public function writeJsonRejectsAnOversizedPayloadBeforeWriting(): void
+    {
+        $path = $this->tmp . '/capped.json';
+
+        try {
+            AtomicFile::writeJson($path, ['x' => str_repeat('y', 200)], 50);
+            self::fail('writeJson must reject a payload that exceeds the byte cap.');
+        } catch (RuntimeException) {
+            // Expected: the oversized payload is rejected.
+        }
+
+        self::assertFileDoesNotExist($path);
+        self::assertSame([], glob($this->tmp . '/*'));
+    }
+
+    /**
+     * writeJson with a byte cap accepts a payload within the cap and reads back identically, so the
+     * cap rejects only genuinely oversized payloads.
+     */
+    #[Test]
+    public function writeJsonAcceptsAPayloadWithinTheCap(): void
+    {
+        $path = $this->tmp . '/within.json';
+        AtomicFile::writeJson($path, ['a' => 1], 1024);
+        self::assertSame(['a' => 1], AtomicFile::readJsonCapped($path, 1024));
+    }
+
+    /**
      * A symlinked path is refused so a hostile queue entry cannot escape the queue via a link.
      */
     #[Test]

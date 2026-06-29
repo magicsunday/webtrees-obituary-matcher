@@ -11,8 +11,6 @@ declare(strict_types=1);
 
 namespace MagicSunday\ObituaryMatcher\Matching;
 
-use MagicSunday\ObituaryMatcher\Queue\QueuePaths;
-use MagicSunday\ObituaryMatcher\Queue\ResponseReader;
 use MagicSunday\ObituaryMatcher\Scoring\Classifier;
 use MagicSunday\ObituaryMatcher\Scoring\EnrichedMatchEngine;
 
@@ -36,21 +34,14 @@ final class IngestServiceFactory
     }
 
     /**
-     * Wires the ingest apex over the given queue paths, composing the enriched scoring engine and the
-     * band classifier behind the Matching boundary. The same {@see QueuePaths} instance is threaded
-     * into the {@see ResponseReader} so it reads and writes the SAME queue root as the rest of the
-     * drain graph.
-     *
-     * @param QueuePaths $paths The queue path builder rooted at the resolved queue root.
+     * Wires the ingest apex, composing the enriched scoring engine and the band classifier behind the
+     * Matching boundary. The ingest is transport-agnostic and is handed already-validated notices by the
+     * caller, so it no longer reads the response itself and needs no queue paths.
      *
      * @return IngestService The wired ingest apex.
      */
-    public static function create(QueuePaths $paths): IngestService
+    public static function create(): IngestService
     {
-        return new IngestService(
-            new ResponseReader($paths),
-            new EnrichedMatchEngine(),
-            new Classifier(),
-        );
+        return new IngestService(new EnrichedMatchEngine(), new Classifier());
     }
 }

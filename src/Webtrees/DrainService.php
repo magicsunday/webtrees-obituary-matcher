@@ -16,37 +16,28 @@ use Fisharebest\Webtrees\Services\TreeService;
 use Fisharebest\Webtrees\Tree;
 use MagicSunday\ObituaryMatcher\Matching\IngestService;
 use MagicSunday\ObituaryMatcher\Matching\MatchStore;
-use MagicSunday\ObituaryMatcher\Queue\FeederRequestReader;
-use MagicSunday\ObituaryMatcher\Queue\JobState;
-use MagicSunday\ObituaryMatcher\Queue\QueueClient;
-use MagicSunday\ObituaryMatcher\Queue\QueuePaths;
-use MagicSunday\ObituaryMatcher\Queue\ResponseValidationException;
-use RuntimeException;
+use MagicSunday\ObituaryMatcher\Queue\CompletedJob;
+use MagicSunday\ObituaryMatcher\Queue\FailedJob;
+use MagicSunday\ObituaryMatcher\Queue\JobTransport;
 use Throwable;
 
-use function array_filter;
-use function array_slice;
-use function array_values;
-use function count;
-use function is_dir;
-use function scandir;
-use function sort;
-
-use const SCANDIR_SORT_NONE;
-use const SORT_NATURAL;
-
 /**
- * The Phase-2e orchestration boundary: it drains finished feeder jobs (done state) into the per-tree
- * match stores. For every discovered done job it CLAIMS the job first (an atomic done → ingesting
- * rename, so at most one drain process wins it), then reads the CLAIMED request, resolves the target
- * tree, rebuilds the requested candidates and hands the claimed response to the store-agnostic
- * {@see IngestService::ingest()} against the tree-scoped store. Each transition uses the VALIDATED
- * directory job id, never the untrusted JSON job id.
+ * The Phase-2e orchestration boundary: it drains finished feeder jobs into the per-tree match stores.
+ * The transport ({@see JobTransport}) yields each completed job — a {@see CompletedJob} carrying its
+ * validated notices, or a {@see FailedJob} carrying a per-job read fault category — so this service stays
+ * oblivious to where the jobs live (the on-disk file queue or the REST ledger). The file transport yields
+ * each job already atomically claimed (`done` → `ingesting`), so overlapping drains never double-process;
+ * the REST transport polls its ledger without a claim, so two overlapping drains over the same REST
+ * ledger can each process the same job (a known limitation tracked in issue #71 — non-corrupting today
+ * because the per-row atomic store is last-writer-wins). For each completed job it resolves the target
+ * tree, rebuilds the requested candidates and hands the notices to the store-agnostic
+ * {@see IngestService::ingest()} against the tree-scoped store, then finalises the job through the
+ * transport (ingested / failed / released).
  *
  * The class lives in the {@see \MagicSunday\ObituaryMatcher\Webtrees} adapter layer because it
  * orchestrates {@see TreeService}, {@see CandidateRepository} and {@see MatchStoreFactory}, all of
  * which speak the `Fisharebest\Webtrees\*` runtime; the pure engine ({@see IngestService} and below)
- * stays webtrees-free and is injected.
+ * and the transport stay webtrees-free and are injected.
  *
  * @author  Rico Sonntag <mail@ricosonntag.de>
  * @license https://opensource.org/licenses/GPL-3.0 GNU General Public License v3.0
@@ -57,151 +48,164 @@ class DrainService
     /**
      * Constructor.
      *
-     * @param QueuePaths          $paths       The queue path builder used for discovery and roots.
-     * @param QueueClient         $client      The queue state-machine driver (claim/finalize/release).
-     * @param FeederRequestReader $reader      The validating reader for the claimed request.json.
      * @param CandidateRepository $repository  The repository that rebuilds the requested candidates.
      * @param IngestService       $ingest      The store-agnostic enriched ingest pipeline.
      * @param TreeService         $treeService The webtrees tree lookup (throws on an unknown id).
+     * @param JobTransport        $transport   The transport that yields and finalises completed jobs.
      */
     public function __construct(
-        private readonly QueuePaths $paths,
-        private readonly QueueClient $client,
-        private readonly FeederRequestReader $reader,
         private readonly CandidateRepository $repository,
         private readonly IngestService $ingest,
         private readonly TreeService $treeService,
+        private readonly JobTransport $transport,
     ) {
     }
 
     /**
-     * Drains up to $limit oldest-first done jobs into their per-tree match stores. When $onlyTreeId
-     * is non-null only jobs for that tree are ingested; a job for any other tree is released back to
-     * the done state (so a tree-scoped drain leaves foreign jobs untouched for another run). After
-     * the run the still-ingesting directory is counted into the summary's stale tally — a crashed or
-     * concurrently-claimed ingest. This slice does NOT auto-reclaim such a job: it is only counted
-     * and reported, and recovery is manual (the operator moves the job back to done). Automatic
-     * reclaim is a documented future/optional hardening.
+     * Drains up to $limit oldest-first completed jobs into their per-tree match stores. When
+     * $onlyTreeId is non-null only jobs for that tree are ingested; a job for any other tree is
+     * released back to the completed pool (so a tree-scoped drain leaves foreign jobs untouched for
+     * another run). A job whose ingest throws mid-flight is terminally parked as `ingest_failed` — a
+     * deterministically-throwing job must not be released and re-claimed every drain (head-of-line
+     * starvation). After the run the transport's stale tally (the
+     * file transport's still-ingesting directories; 0 for the REST transport) is reported in the
+     * summary; this slice does NOT auto-reclaim such a job (recovery is manual/a future hardening).
+     *
+     * The $limit bounds the number of CLAIMED jobs processed: the loop breaks after the $limit-th, so
+     * the (unbounded) transport iterator is never advanced past it — the file transport therefore never
+     * claims a job beyond the cap.
      *
      * @param int|null $onlyTreeId The single tree to ingest, or null to ingest every tree.
-     * @param int      $limit      The maximum number of done jobs to process this run.
+     * @param int      $limit      The maximum number of completed jobs to process this run.
      *
      * @return DrainSummary The aggregated per-job tallies of this run.
      */
     public function drain(?int $onlyTreeId, int $limit): DrainSummary
     {
+        // Contract symmetry with EnqueueService: a non-positive cap processes nothing (the break-AFTER
+        // loop would otherwise still process one job). The stale tally is still reported.
+        if ($limit < 1) {
+            return new DrainSummary(0, 0, 0, 0, $this->transport->staleCount());
+        }
+
         $ingested = 0;
         $skipped  = 0;
         $failed   = 0;
         $stored   = 0;
+        $seen     = 0;
 
-        foreach ($this->discover($limit) as $jobId) {
-            // The claim is the synchronisation point: a job another drain already claimed (or a job
-            // that vanished between discovery and now) returns false and is simply skipped.
-            if (!$this->client->claimForIngest($jobId)) {
-                continue;
+        foreach ($this->transport->fetchCompleted() as $job) {
+            ++$seen;
+
+            if ($job instanceof FailedJob) {
+                // A per-job read fault the transport already classified: park it under its category.
+                $this->parkFailed($job->jobId, $job->reasonCategory);
+                ++$failed;
+            } else {
+                $outcome = $this->ingestCompleted($job, $onlyTreeId);
+                $ingested += $outcome->ingested;
+                $skipped  += $outcome->skipped;
+                $failed   += $outcome->failed;
+                $stored   += $outcome->stored;
             }
 
-            try {
-                $request = $this->reader->read($jobId, JobState::Ingesting);
-            } catch (ResponseValidationException) {
-                // A corrupt or hand-edited request is not retryable: park the claimed job in the
-                // failed-ingest state and move on rather than aborting the whole drain.
-                $this->client->markFailedIngest($jobId, 'schema_invalid');
-                ++$failed;
-
-                continue;
-            } catch (RuntimeException) {
-                // ResponseValidationException (a RuntimeException subclass) is matched above, so this
-                // arm catches a PLAIN RuntimeException: an IO/system failure from readJsonCapped() (a
-                // symlink, an unreadable, an oversize or a torn request.json). Isolate it the same
-                // way — park the claimed job in failed-ingest and move on rather than aborting the
-                // whole drain. Order is REQUIRED: the specific validation type must stay first.
-                $this->client->markFailedIngest($jobId, 'request_failed');
-                ++$failed;
-
-                continue;
-            }
-
-            $treeId = $request['treeId'];
-
-            try {
-                $tree = $this->treeService->find($treeId);
-            } catch (DomainException) {
-                $this->client->markFailedIngest($jobId, 'tree_unknown');
-                ++$failed;
-
-                continue;
-            }
-
-            if (
-                ($onlyTreeId !== null)
-                && ($treeId !== $onlyTreeId)
-            ) {
-                // A tree-scoped drain leaves a foreign job for another run: release it back to done.
-                if ($this->client->releaseIngesting($jobId)) {
-                    ++$skipped;
-                } else {
-                    // The release lost a concurrent race (another drain already moved/claimed the dir,
-                    // or it vanished). We no longer own the dir, so we must NOT attempt another state
-                    // transition on it (markFailedIngest would write into the missing ingesting dir and
-                    // throw, crashing the drain). Count it failed and move on; the other actor owns its
-                    // disposition.
-                    ++$failed;
-                }
-
-                continue;
-            }
-
-            // The store is built PER JOB so a multi-tree drain persists each job to its own
-            // tree-scoped store; the ingest stays store-agnostic.
-            $store = $this->storeForTree($tree);
-
-            $candidatesById = $this->repository->findByXrefs($tree, $request['requestedPersonIds']);
-
-            try {
-                // The ingest reads the untrusted response.json via the ResponseReader, which throws
-                // on a corrupt or hand-edited response. Isolate the failure per job: park the claimed
-                // job in failed-ingest and move on rather than aborting the whole drain. markIngested
-                // and the ingested tally stay INSIDE the try, applied only on a successful ingest.
-                $result = $this->ingest->ingest(
-                    $jobId,
-                    $request['requestedPersonIds'],
-                    $candidatesById,
-                    $store,
-                );
-
-                $stored += $result->matchesStored;
-
-                $this->client->markIngested(
-                    $jobId,
-                    [
-                        'noticesRead'     => $result->noticesRead,
-                        'candidatesFound' => $result->candidatesFound,
-                        'matchesStored'   => $result->matchesStored,
-                    ],
-                    $result->warnings,
-                );
-
-                ++$ingested;
-            } catch (ResponseValidationException) {
-                // A corrupt or hand-edited response is not retryable: park the claimed job in the
-                // failed-ingest state and move on rather than aborting the whole drain.
-                $this->client->markFailedIngest($jobId, 'response_invalid');
-                ++$failed;
-
-                continue;
-            } catch (Throwable) {
-                // Any other ingest failure is isolated the same way: the one bad job is parked and
-                // the drain continues with the next, so a single failure never strands the batch.
-                $this->client->markFailedIngest($jobId, 'ingest_failed');
-                ++$failed;
-
-                continue;
+            // Break AFTER processing so the transport iterator is never advanced past the cap (the file
+            // transport claims a job as it is yielded, so an early advance would strand an over-claimed
+            // job in the ingesting state).
+            if ($seen >= $limit) {
+                break;
             }
         }
 
-        return new DrainSummary($ingested, $skipped, $failed, $stored, $this->countStale());
+        return new DrainSummary($ingested, $skipped, $failed, $stored, $this->transport->staleCount());
+    }
+
+    /**
+     * Ingests a single claimed {@see CompletedJob} and finalises it through the transport, returning the
+     * tally deltas this one job contributes. The tree is resolved first (an unknown id is parked as
+     * `tree_unknown`); a tree-scoped drain releases a foreign job; otherwise the notices are ingested
+     * into the tree-scoped store and the job marked ingested. A throw from the ingest (or its
+     * markIngested finalisation) parks the job as `ingest_failed` rather than releasing it.
+     *
+     * @param CompletedJob $job        The claimed completed job to ingest.
+     * @param int|null     $onlyTreeId The single tree to ingest, or null to ingest every tree.
+     *
+     * @return DrainOutcome The tally deltas this job contributes.
+     */
+    private function ingestCompleted(CompletedJob $job, ?int $onlyTreeId): DrainOutcome
+    {
+        try {
+            $tree = $this->treeService->find($job->treeId);
+        } catch (DomainException) {
+            $this->parkFailed($job->jobId, 'tree_unknown');
+
+            return DrainOutcome::failed();
+        }
+
+        if (
+            ($onlyTreeId !== null)
+            && ($job->treeId !== $onlyTreeId)
+        ) {
+            // A tree-scoped drain leaves a foreign job for another run: release it back to the pool.
+            $this->transport->release($job->jobId);
+
+            return DrainOutcome::skipped();
+        }
+
+        // The store is built PER JOB so a multi-tree drain persists each job to its own tree-scoped
+        // store; the ingest stays store-agnostic.
+        $store          = $this->storeForTree($tree);
+        $candidatesById = $this->repository->findByXrefs($tree, $job->requestedPersonIds);
+
+        // The ingest AND the markIngested finalisation share ONE try so a deterministically-throwing job
+        // is parked rather than released back to done — otherwise it would be re-processed every drain
+        // (head-of-line starvation). markIngested() itself throws on a failed ingesting -> ingested
+        // rename, so it must sit inside the guard too rather than crash the whole drain. The park goes
+        // through parkFailed(), which likewise tolerates a park failure for the same reason.
+        try {
+            $result = $this->ingest->ingest($job->notices, $candidatesById, $store);
+            $this->transport->markIngested(
+                $job->jobId,
+                [
+                    'noticesRead'     => $result->noticesRead,
+                    'candidatesFound' => $result->candidatesFound,
+                    'matchesStored'   => $result->matchesStored,
+                ],
+                $result->warnings,
+            );
+
+            return DrainOutcome::ingested($result->matchesStored);
+        } catch (Throwable) {
+            $this->parkFailed($job->jobId, 'ingest_failed');
+
+            return DrainOutcome::failed();
+        }
+    }
+
+    /**
+     * Parks a job under its failure category through the transport, tolerating a failure of the park
+     * itself. A park is a finalisation step that can throw: the file transport renames `ingesting/` ->
+     * `failed-ingest/` (a {@see \RuntimeException} when the rename fails), and any transport's park
+     * touches the queue filesystem. Swallowing a park failure here keeps one un-parkable job from
+     * aborting the whole drain — head-of-line starvation of the still-healthy jobs queued behind it.
+     * The un-parked job simply stays claimed for the next run or manual recovery (file: left in
+     * `ingesting/`, reported by staleCount; REST: the ledger entry survives and re-polls), a bounded,
+     * non-corrupting, self-healing degradation tracked in issue #71. This mirrors why the markIngested
+     * finalisation sits inside the ingest guard rather than crashing the drain.
+     *
+     * @param string $jobId          The job to park.
+     * @param string $reasonCategory The snake_case category classifying the failure.
+     *
+     * @return void
+     */
+    private function parkFailed(string $jobId, string $reasonCategory): void
+    {
+        try {
+            $this->transport->markFailed($jobId, $reasonCategory);
+        } catch (Throwable) {
+            // A park-rename/unlink fault must not abort the drain; the job stays claimed for the next
+            // run or manual recovery (file: counted by staleCount; REST: re-polls). Bounded — see #71.
+        }
     }
 
     /**
@@ -216,75 +220,5 @@ class DrainService
     protected function storeForTree(Tree $tree): MatchStore
     {
         return MatchStoreFactory::forTree($tree);
-    }
-
-    /**
-     * Discovers the claimable done jobs, oldest-first and capped at $limit. A reserved temporary
-     * directory (the {@see QueueClient} enqueue prefix) and any entry failing the job-id pattern are
-     * skipped before a claim is ever attempted.
-     *
-     * @param int $limit The maximum number of job ids to return.
-     *
-     * @return list<string> The discovered job ids, oldest-first, capped at $limit.
-     */
-    private function discover(int $limit): array
-    {
-        $doneRoot = $this->paths->stateRoot(JobState::Done->value);
-
-        if (!is_dir($doneRoot)) {
-            return [];
-        }
-
-        $entries = scandir($doneRoot, SCANDIR_SORT_NONE);
-
-        if ($entries === false) {
-            return [];
-        }
-
-        $jobIds = array_filter(
-            $entries,
-            $this->paths->isJobDirectoryName(...),
-        );
-
-        // Oldest-first by job id: the producer mints time-prefixed ids (a fixed-width UTC
-        // timestamp prefix), so a NATURAL name sort is an oldest-first ordering without reading
-        // the wall clock. Same-second order is unspecified (a random tiebreak) and the drain does
-        // not depend on it — each job ingests independently. A natural (not lexicographic) sort
-        // keeps unpadded ids ordered correctly, which also governs the array_slice cap below.
-        $jobIds = array_values($jobIds);
-        sort($jobIds, SORT_NATURAL);
-
-        return array_slice($jobIds, 0, $limit);
-    }
-
-    /**
-     * Counts the directories still sitting in the ingesting state after the drain finished. Each is a
-     * job whose ingest never completed (a crash) or one a concurrent drain is mid-claim on. This
-     * slice does NOT auto-reclaim them: the count is surfaced as the summary's stale tally and
-     * reported, but recovery is manual (the operator moves the job back to done). Automatic reclaim
-     * is a documented future/optional hardening, not done here.
-     *
-     * @return int The number of still-ingesting job directories.
-     */
-    private function countStale(): int
-    {
-        $ingestingRoot = $this->paths->stateRoot(JobState::Ingesting->value);
-
-        if (!is_dir($ingestingRoot)) {
-            return 0;
-        }
-
-        $entries = scandir($ingestingRoot, SCANDIR_SORT_NONE);
-
-        if ($entries === false) {
-            return 0;
-        }
-
-        $jobs = array_filter(
-            $entries,
-            $this->paths->isJobDirectoryName(...),
-        );
-
-        return count($jobs);
     }
 }

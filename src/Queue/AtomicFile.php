@@ -54,6 +54,13 @@ use const JSON_UNESCAPED_UNICODE;
 final class AtomicFile
 {
     /**
+     * @var int The json_encode flags every queue-layer writer uses, so the on-disk and on-the-wire JSON
+     *          bytes stay identical across the file and REST transports (throw on error, keep slashes and
+     *          unicode raw). The single source of truth for the queue's JSON write-byte contract.
+     */
+    public const int JSON_ENCODE_FLAGS = JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE;
+
+    /**
      * Constructor. Private to enforce static-only use.
      */
     private function __construct()
@@ -109,19 +116,30 @@ final class AtomicFile
      * never observes a half-written file (the replacement is tear-free; it is not crash-durable, as
      * no fsync is issued). The caller guarantees the parent directory already exists.
      *
-     * @param string               $path The absolute target path.
-     * @param array<string, mixed> $data The data to encode and store.
+     * @param string               $path     The absolute target path.
+     * @param array<string, mixed> $data     The data to encode and store.
+     * @param int|null             $maxBytes The maximum accepted encoded size in bytes, or null for no
+     *                                       cap. When set, an oversized payload is rejected BEFORE the
+     *                                       write, so a file that a capped reader could never read back
+     *                                       is never written (a loud failure instead of a silent orphan).
      *
      * @return void
      *
-     * @throws RuntimeException When encoding, the temporary write or the rename fails.
+     * @throws RuntimeException When encoding fails, the encoded payload exceeds $maxBytes, or the
+     *                          temporary write or the rename fails.
      */
-    public static function writeJson(string $path, array $data): void
+    public static function writeJson(string $path, array $data, ?int $maxBytes = null): void
     {
-        $json = json_encode(
-            $data,
-            JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE
-        );
+        $json = json_encode($data, self::JSON_ENCODE_FLAGS);
+
+        if (
+            ($maxBytes !== null)
+            && (strlen($json) > $maxBytes)
+        ) {
+            throw new RuntimeException(
+                sprintf('Refusing to write a queue file that exceeds the %d-byte cap: %s', $maxBytes, $path)
+            );
+        }
 
         $tmpPath = $path . '.tmp.' . uniqid('', true);
 

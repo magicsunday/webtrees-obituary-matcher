@@ -69,9 +69,11 @@ final readonly class QueuePaths
     private const string STATE_FAILED_INGEST = 'failed-ingest';
 
     /**
-     * @var string Regular expression a jobId must match to be accepted (path-traversal guard).
+     * @var string Regular expression a jobId must match to be accepted (path-traversal guard). The `D`
+     *             (PCRE_DOLLAR_ENDONLY) modifier anchors `$` to the true end of subject, so a trailing
+     *             newline (e.g. "job-1\n") can never slip past the guard into a filename.
      */
-    private const string JOB_ID_PATTERN = '/^[A-Za-z0-9_-]{1,64}$/';
+    private const string JOB_ID_PATTERN = '/^[A-Za-z0-9_-]{1,64}$/D';
 
     /**
      * Constructor.
@@ -272,11 +274,15 @@ final readonly class QueuePaths
      * scan and the drain's discovery, so a hostile or foreign directory name is skipped before any
      * read or claim against the same pattern the path builders validate every transition with.
      *
+     * Static because it inspects only the candidate name and never reads the queue root, so a caller
+     * that needs only the path-safety predicate (e.g. {@see RestPendingLedger}) can reuse the single
+     * authoritative pattern without constructing a root-bound instance.
+     *
      * @param string $entry The raw directory entry from a state-directory scan.
      *
      * @return bool True when the entry is a valid job directory name, false otherwise.
      */
-    public function isJobDirectoryName(string $entry): bool
+    public static function isJobDirectoryName(string $entry): bool
     {
         if (
             ($entry === '.')

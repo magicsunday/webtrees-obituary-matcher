@@ -14,24 +14,16 @@ namespace MagicSunday\ObituaryMatcher\Webtrees;
 use DateTimeImmutable;
 use Fisharebest\Webtrees\Services\TreeService;
 use Fisharebest\Webtrees\Tree;
-use InvalidArgumentException;
 use MagicSunday\ObituaryMatcher\Matching\MatchStore;
-use MagicSunday\ObituaryMatcher\Queue\FeederRequestReader;
-use MagicSunday\ObituaryMatcher\Queue\JobState;
-use MagicSunday\ObituaryMatcher\Queue\QueueClient;
-use MagicSunday\ObituaryMatcher\Queue\QueuePaths;
+use MagicSunday\ObituaryMatcher\Queue\JobTransport;
 use MagicSunday\ObituaryMatcher\Support\FeederRequestFactory;
 use MagicSunday\ObituaryMatcher\Support\JobId;
 use MagicSunday\ObituaryMatcher\Support\UrlHostNormalizer;
-use RuntimeException;
 
 use function array_keys;
 use function count;
-use function is_dir;
-use function scandir;
 use function sort;
 
-use const SCANDIR_SORT_NONE;
 use const SORT_STRING;
 
 /**
@@ -41,7 +33,7 @@ use const SORT_STRING;
  *
  * Lives in the {@see \MagicSunday\ObituaryMatcher\Webtrees} adapter layer (it orchestrates
  * {@see TreeService}, {@see CandidateRepository}, the per-tree {@see MatchStore} and the
- * {@see QueueClient}); the pure {@see FeederRequestFactory}/{@see UrlHostNormalizer}/{@see JobId}
+ * {@see JobTransport}); the pure {@see FeederRequestFactory}/{@see UrlHostNormalizer}/{@see JobId}
  * are injected. The in-flight scan + the excludedHosts are advisory dedup hints — the slice stays
  * correct (and the drain idempotent) even if the feeder ignores them.
  *
@@ -54,22 +46,18 @@ class EnqueueService
     /**
      * Constructor.
      *
-     * @param QueuePaths           $paths          The queue path builder used for the in-flight scan.
-     * @param QueueClient          $client         The queue state-machine driver (enqueue).
-     * @param FeederRequestReader  $reader         The validating reader for an in-flight request.json.
      * @param CandidateRepository  $repository     The candidate selector.
      * @param FeederRequestFactory $requestFactory The pure request assembler.
      * @param UrlHostNormalizer    $hostNormalizer The canonical-host helper for excludedHosts.
      * @param TreeService          $treeService    The webtrees tree lookup (throws on an unknown id).
+     * @param JobTransport         $transport      The transport that submits the job and exposes the in-flight set.
      */
     public function __construct(
-        private readonly QueuePaths $paths,
-        private readonly QueueClient $client,
-        private readonly FeederRequestReader $reader,
         private readonly CandidateRepository $repository,
         private readonly FeederRequestFactory $requestFactory,
         private readonly UrlHostNormalizer $hostNormalizer,
         private readonly TreeService $treeService,
+        private readonly JobTransport $transport,
     ) {
     }
 
@@ -160,7 +148,7 @@ class EnqueueService
             $excludedHostsByPersonId,
         );
 
-        $this->client->enqueue($request);
+        $this->transport->submit($request);
 
         return new EnqueueSummary($jobId, count($eligible), $skipped, $excludedHostTotal);
     }
@@ -223,28 +211,11 @@ class EnqueueService
     }
 
     /**
-     * The states in which a person counts as already in-flight. Done = the feeder produced a result
-     * not yet persisted; Ingesting = the drain is mid-transition. A method (not a class constant) so
-     * the enum-case list never relies on constant-expression edge cases.
-     *
-     * @return list<JobState> The in-flight states.
-     */
-    private function inFlightStates(): array
-    {
-        return [
-            JobState::Queued,
-            JobState::Running,
-            JobState::Done,
-            JobState::Ingesting,
-        ];
-    }
-
-    /**
-     * Scans every in-flight job's request FOR THIS TREE and returns the union of its requested person
-     * ids as a set. Tree-filtered on the request's own `treeId`, so a shared xref across trees never
-     * causes a cross-tree false-positive skip. Best-effort: a malformed in-flight request (the reader
-     * throws a validation, IO or path-guard exception) is skipped, never fatal, so one corrupt foreign
-     * job cannot block the producer.
+     * Iterates every in-flight job's request through the transport and returns the union of its
+     * requested person ids as a set, FILTERED to this tree. Tree-filtered on the request's own
+     * `treeId`, so a shared xref across trees never causes a cross-tree false-positive skip. The
+     * transport is best-effort: a malformed in-flight request is already skipped at the source, so one
+     * corrupt foreign job cannot block the producer.
      *
      * @param int $treeId The tree being enqueued; only same-tree jobs block a re-enqueue.
      *
@@ -254,45 +225,15 @@ class EnqueueService
     {
         $inFlight = [];
 
-        foreach ($this->inFlightStates() as $state) {
-            $root = $this->paths->stateRoot($state->value);
-
-            if (!is_dir($root)) {
+        foreach ($this->transport->inFlightRequests() as $request) {
+            // Only a job for THIS tree blocks a re-enqueue (a shared xref in another tree's job is a
+            // different person). request.json carries treeId since 2e-1, so this is reliable.
+            if ($request['treeId'] !== $treeId) {
                 continue;
             }
 
-            $entries = scandir($root, SCANDIR_SORT_NONE);
-
-            if ($entries === false) {
-                continue;
-            }
-
-            foreach ($entries as $entry) {
-                if (!$this->paths->isJobDirectoryName($entry)) {
-                    continue;
-                }
-
-                try {
-                    $request = $this->reader->read($entry, $state);
-                } catch (RuntimeException|InvalidArgumentException) {
-                    // Warn-and-ignore: a corrupt/foreign/path-hostile in-flight job must never block
-                    // the producer. A schema-invalid request surfaces as a ResponseValidationException
-                    // and a broken-JSON / IO failure as a plain RuntimeException — both are
-                    // RuntimeException subclasses, so the one arm covers them; the path-traversal guard
-                    // throws InvalidArgumentException, which is NOT a RuntimeException, so it needs its
-                    // own arm. (A logger could record $entry here; the CLI surfaces the scan as advisory.)
-                    continue;
-                }
-
-                // Only a job for THIS tree blocks a re-enqueue (a shared xref in another tree's job
-                // is a different person). request.json carries treeId since 2e-1, so this is reliable.
-                if ($request['treeId'] !== $treeId) {
-                    continue;
-                }
-
-                foreach ($request['requestedPersonIds'] as $personId) {
-                    $inFlight[$personId] = true;
-                }
+            foreach ($request['requestedPersonIds'] as $personId) {
+                $inFlight[$personId] = true;
             }
         }
 

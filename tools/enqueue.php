@@ -21,10 +21,14 @@ declare(strict_types=1);
  * tree to enqueue. `--queue` is the queue root directory (defaults to the running instance's
  * `data/obituary-matcher/queue`, resolved relative to this module's install location). `--limit` caps
  * the number of candidates written into the request (default 50). `--min-age` is the minimum age (in
- * years) a candidate must have reached for inclusion (default 90). All four are `=`-form long options.
+ * years) a candidate must have reached for inclusion (default 90). `--transport` selects the finder
+ * transport (`file`, the default, or `rest`); for `rest`, `--base-url` is REQUIRED and `--token` is the
+ * optional bearer token, and the REST in-flight ledger is placed beside the queue dir. All are `=`-form
+ * long options.
  *
  * Usage:
  *   php tools/enqueue.php --tree=1 [--queue=/path/to/queue] [--limit=50] [--min-age=90]
+ *   php tools/enqueue.php --tree=1 --transport=rest --base-url=https://finder.example [--token=secret]
  *
  * Exit codes: 0 on a completed run (including a run that finds zero candidates), 1 when the boot
  * fails, the DB is unreachable, `--tree` is missing/non-numeric, the tree id is unknown, or the
@@ -37,6 +41,7 @@ declare(strict_types=1);
 
 use Fisharebest\Webtrees\I18N;
 use MagicSunday\ObituaryMatcher\Queue\QueuePaths;
+use MagicSunday\ObituaryMatcher\Support\FinderConnection;
 use MagicSunday\ObituaryMatcher\Support\WebtreesInstallLocator;
 use MagicSunday\ObituaryMatcher\Webtrees\EnqueueService;
 use MagicSunday\ObituaryMatcher\Webtrees\EnqueueServiceFactory;
@@ -58,13 +63,16 @@ $options = getopt('', [
     'queue::',
     'limit::',
     'min-age::',
+    'transport::',
+    'base-url::',
+    'token::',
 ]);
 $options = $options === false ? [] : $options;
 
 // The optional-value (`::`) long options parse as `false` when passed without the `=` form
 // (`--queue /path`); reject that explicitly so a malformed flag gets a precise hint rather than being
 // silently coerced to its default below.
-foreach (['queue', 'limit', 'min-age'] as $flag) {
+foreach (['queue', 'limit', 'min-age', 'transport', 'base-url', 'token'] as $flag) {
     if (
         array_key_exists($flag, $options)
         && !is_string($options[$flag])
@@ -75,10 +83,37 @@ foreach (['queue', 'limit', 'min-age'] as $flag) {
     }
 }
 
-$treeOption   = $options['tree'] ?? null;
-$queueOption  = $options['queue'] ?? null;
-$limitOption  = $options['limit'] ?? null;
-$minAgeOption = $options['min-age'] ?? null;
+$treeOption      = $options['tree'] ?? null;
+$queueOption     = $options['queue'] ?? null;
+$limitOption     = $options['limit'] ?? null;
+$minAgeOption    = $options['min-age'] ?? null;
+$transportOption = $options['transport'] ?? null;
+$baseUrlOption   = $options['base-url'] ?? null;
+$tokenOption     = $options['token'] ?? null;
+
+// --transport selects the finder transport: the default file-drop queue, or the REST endpoint. Any
+// other value is a misuse; fail loud rather than silently falling back to file.
+if (
+    is_string($transportOption)
+    && !in_array($transportOption, ['file', 'rest'], true)
+) {
+    fwrite(STDERR, '--transport must be "file" or "rest".' . PHP_EOL);
+
+    exit(1);
+}
+
+$transport = $transportOption === 'rest' ? 'rest' : 'file';
+
+// --base-url is REQUIRED for the REST transport (the file transport ignores it). A missing/empty base
+// URL is a misuse; fail loud.
+if (
+    $transport === 'rest'
+    && (!is_string($baseUrlOption) || ($baseUrlOption === ''))
+) {
+    fwrite(STDERR, '--base-url=<url> is required when --transport=rest.' . PHP_EOL);
+
+    exit(1);
+}
 
 // --tree is REQUIRED and must be numeric: the producer enqueues exactly one tree per run. A missing,
 // non-string (the required-value `:` form passed without `=`), or non-numeric --tree is a misuse;
@@ -136,11 +171,31 @@ if (is_string($queueOption) && !is_dir($queueOption)) {
 // configured language tag.
 $locale = I18N::languageTag();
 
+// Build the finder connection and, for the REST transport, the in-flight ledger root as a sibling of
+// the queue dir. A malformed --base-url (not http(s), or carrying a control character) is rejected by
+// FinderConnection::rest(); catch it and fail loud rather than letting the stack trace (with the token
+// in a header build's frame) reach STDERR.
+$token = (is_string($tokenOption) && ($tokenOption !== '')) ? $tokenOption : null;
+
+try {
+    $connection = $transport === 'rest'
+        ? FinderConnection::rest($baseUrlOption, $token)
+        : FinderConnection::file();
+} catch (InvalidArgumentException) {
+    fwrite(STDERR, 'Invalid REST connection: --base-url must be an http(s) URL and neither --base-url nor --token may contain control characters.' . PHP_EOL);
+
+    exit(1);
+}
+
+$restPendingRoot = $transport === 'rest'
+    ? dirname(rtrim($queueRoot, '/')) . '/rest-pending'
+    : null;
+
 // Assemble the producer object graph. The reference year defaults to null (the current year) — it is a
 // service-only seam with no CLI flag.
 $paths = new QueuePaths($queueRoot);
 
-$enqueueService = EnqueueServiceFactory::create($paths);
+$enqueueService = EnqueueServiceFactory::create($paths, $connection, $restPendingRoot);
 
 try {
     $summary = $enqueueService->enqueue($treeId, $limit, $minAge, $locale);
