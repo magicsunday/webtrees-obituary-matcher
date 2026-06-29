@@ -21,13 +21,20 @@ use Fisharebest\Webtrees\I18N;
 use Fisharebest\Webtrees\Services\GedcomImportService;
 use Fisharebest\Webtrees\Services\TreeService;
 use Fisharebest\Webtrees\Validator;
+use GuzzleHttp\Client;
+use GuzzleHttp\Psr7\HttpFactory;
 use InvalidArgumentException;
+use MagicSunday\ObituaryMatcher\Queue\CapabilitiesProbeResult;
+use MagicSunday\ObituaryMatcher\Queue\FinderCapabilities;
+use MagicSunday\ObituaryMatcher\Queue\FinderCapabilitiesProbe;
+use MagicSunday\ObituaryMatcher\Queue\ProbeStatus;
 use MagicSunday\ObituaryMatcher\Queue\QueueClient;
 use MagicSunday\ObituaryMatcher\Queue\QueuePaths;
 use MagicSunday\ObituaryMatcher\Support\FinderConnection;
 use MagicSunday\ObituaryMatcher\Support\WebtreesInstallLocator;
 use MagicSunday\ObituaryMatcher\Ui\ControlPanelPresenter;
 use MagicSunday\ObituaryMatcher\Ui\FinderConnectionView;
+use MagicSunday\ObituaryMatcher\Ui\ProbeReadoutView;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use Psr\Http\Server\RequestHandlerInterface;
@@ -41,10 +48,13 @@ use function strlen;
 
 /**
  * The admin-only control-panel route handler. A GET renders the slim panel — the persisted age/limit
- * settings, the trees offered for a feeder trigger and the recent queue-job status. A POST carries one
- * of two actions: `save` persists the settings STRICTLY (both validate in range or NEITHER is written,
- * never coercing a malformed value to a default), and `trigger` enqueues one bounded feeder job for a
- * single tree using the PERSISTED settings. Both POST actions PRG-redirect with a flash. Admin access
+ * settings, the finder connection, the trees offered for a feeder trigger and the recent queue-job
+ * status. A POST carries one action: `save` persists the settings STRICTLY (both validate in range or
+ * NEITHER is written, never coercing a malformed value to a default), `save-finder` persists the finder
+ * connection STRICTLY, and `trigger` enqueues one bounded feeder job for a single tree using the
+ * PERSISTED settings — these three PRG-redirect with a flash. The `test` action is the deliberate
+ * exception: it runs a read-only capabilities probe against the SUBMITTED finder connection and
+ * RE-RENDERS the panel with a transient readout (no redirect, no flash, no persistence). Admin access
  * is enforced here because the route is directly callable.
  *
  * The settings are READ leniently (a corrupt/out-of-range stored preference falls back to the default,
@@ -107,6 +117,19 @@ class ObituaryControlPanelHandler implements RequestHandlerInterface
     private const int RECENT_JOBS = 20;
 
     /**
+     * The seconds to wait for the TCP connection to the finder before the capabilities probe treats it
+     * as unreachable. Mirrors {@see JobTransportFactory}'s bound so the admin probe and the live
+     * transport share the same reachability budget.
+     */
+    private const int PROBE_CONNECT_TIMEOUT_SECONDS = 5;
+
+    /**
+     * The seconds to wait for a finder response before the capabilities probe treats the request as a
+     * transient fault. Mirrors {@see JobTransportFactory}'s request bound.
+     */
+    private const int PROBE_REQUEST_TIMEOUT_SECONDS = 30;
+
+    /**
      * Constructor.
      *
      * @param ObituaryMatcherModule $module The module instance, for its setPreference/getPreference and
@@ -145,11 +168,14 @@ class ObituaryControlPanelHandler implements RequestHandlerInterface
     }
 
     /**
-     * Dispatches a POST action. An unknown/missing action simply PRG-redirects back to the panel.
+     * Dispatches a POST action. The `save`/`save-finder`/`trigger` actions all PRG-redirect; the `test`
+     * action is the deliberate exception — it runs a read-only reachability probe and RE-RENDERS the
+     * panel with a transient readout (no redirect). An unknown/missing action simply PRG-redirects back
+     * to the panel.
      *
      * @param ServerRequestInterface $request The incoming POST request.
      *
-     * @return ResponseInterface The redirect response.
+     * @return ResponseInterface The redirect response, or the re-rendered panel for the `test` action.
      */
     private function handlePost(ServerRequestInterface $request): ResponseInterface
     {
@@ -158,6 +184,7 @@ class ObituaryControlPanelHandler implements RequestHandlerInterface
         return match ($action) {
             'save'        => $this->saveSettings($request),
             'save-finder' => $this->saveFinder($request),
+            'test'        => $this->testConnection($request),
             'trigger'     => $this->triggerFeeder($request),
             default       => redirect(route(self::ROUTE_NAME)),
         };
@@ -247,6 +274,131 @@ class ObituaryControlPanelHandler implements RequestHandlerInterface
     }
 
     /**
+     * Runs a read-only capabilities probe against the SUBMITTED (not necessarily persisted) finder
+     * connection and RE-RENDERS the panel with a transient readout — the deliberate exception to the
+     * POST-redirect-GET contract, because a reachability test produces a result to show, not a state
+     * change to redirect past. The `file` transport is not probed at all (it has no endpoint), yielding
+     * a not-applicable readout. The token precedence is fixed: a non-empty submitted token wins, else an
+     * explicit remove flag forces an unauthenticated probe, else the persisted token is reused — so the
+     * admin can test a typed-but-unsaved token, or the stored one, without re-entering it. A base URL or
+     * token the {@see FinderConnection::rest()} source rejects yields an invalid readout WITHOUT probing.
+     * The probe never throws, but the seam wiring is still guarded so no probe fault escapes as a 500.
+     * The token VALUE is never logged, flashed or echoed — only the `tokenIsSet` boolean (from the
+     * PERSISTED preference) reaches the view.
+     *
+     * @param ServerRequestInterface $request The incoming POST request.
+     *
+     * @return ResponseInterface The re-rendered panel carrying the probe readout.
+     */
+    private function testConnection(ServerRequestInterface $request): ResponseInterface
+    {
+        $transport = Validator::parsedBody($request)->string('transport', 'file');
+        $baseUrl   = Validator::parsedBody($request)->string('base_url', '');
+
+        if ($transport !== 'rest') {
+            return $this->renderTestResult($transport, $baseUrl, CapabilitiesProbeResult::notApplicable());
+        }
+
+        $tokenRaw = Validator::parsedBody($request)->string('token', '');
+        $remove   = Validator::parsedBody($request)->boolean('remove_token', false);
+
+        if ($tokenRaw !== '') {
+            $token = $tokenRaw;
+        } elseif ($remove) {
+            $token = null;
+        } else {
+            $persisted = $this->module->getPreference('finder_token', '');
+            $token     = $persisted === '' ? null : $persisted;
+        }
+
+        try {
+            $connection = FinderConnection::rest($baseUrl, $token);
+        } catch (InvalidArgumentException) {
+            // A malformed base URL or a control-character token is rejected at the single source before
+            // any HTTP is attempted, so the readout reports the invalid configuration without probing.
+            return $this->renderTestResult($transport, $baseUrl, CapabilitiesProbeResult::invalid());
+        }
+
+        try {
+            $result = $this->capabilitiesProbe($connection)->probe();
+        } catch (Throwable) {
+            // The probe is contractually non-throwing, but constructing the seam's HTTP stack must never
+            // 500 the panel: a wiring fault degrades to an unreachable readout like any transport fault.
+            $result = CapabilitiesProbeResult::unreachable();
+        }
+
+        return $this->renderTestResult($transport, $baseUrl, $result);
+    }
+
+    /**
+     * Builds the finder view echoing the SUBMITTED transport and base URL plus the persisted
+     * token-is-set flag, maps the probe result to its plain readout and re-renders the panel.
+     *
+     * @param string                  $transport The submitted transport, echoed back into the form.
+     * @param string                  $baseUrl   The submitted base URL, echoed back into the form.
+     * @param CapabilitiesProbeResult $result    The probe outcome to project into the readout.
+     *
+     * @return ResponseInterface The re-rendered panel.
+     */
+    private function renderTestResult(string $transport, string $baseUrl, CapabilitiesProbeResult $result): ResponseInterface
+    {
+        return $this->renderPanelWith(new FinderConnectionView(
+            $transport,
+            $baseUrl,
+            $this->module->getPreference('finder_token', '') !== '',
+            $this->probeReadout($result),
+        ));
+    }
+
+    /**
+     * Maps a probe result onto the plain {@see ProbeReadoutView} the template consumes: the status enum
+     * becomes a string key and the narrowed capabilities are copied into plain arrays (each portal a
+     * plain record with empty-string/empty-list defaults for its optional fields). The mapper emits
+     * PLAIN strings — escaping every sink is the template's job.
+     *
+     * @param CapabilitiesProbeResult $result The probe outcome.
+     *
+     * @return ProbeReadoutView The plain readout view model.
+     */
+    private function probeReadout(CapabilitiesProbeResult $result): ProbeReadoutView
+    {
+        $statusKey = match ($result->status) {
+            ProbeStatus::Reachable     => 'reachable',
+            ProbeStatus::Unreachable   => 'unreachable',
+            ProbeStatus::Invalid       => 'invalid',
+            ProbeStatus::NotApplicable => 'not-applicable',
+        };
+
+        $capabilities = $result->capabilities;
+
+        if (!$capabilities instanceof FinderCapabilities) {
+            return new ProbeReadoutView($statusKey, $result->httpStatus, null, null, [], [], [], []);
+        }
+
+        $portals = [];
+
+        foreach ($capabilities->portals as $portal) {
+            $portals[] = [
+                'id'      => $portal->id,
+                'name'    => $portal->name ?? '',
+                'country' => $portal->country ?? '',
+                'regions' => $portal->regions,
+            ];
+        }
+
+        return new ProbeReadoutView(
+            $statusKey,
+            $result->httpStatus,
+            $capabilities->finderId,
+            $capabilities->finderVersion,
+            $capabilities->schemaVersions,
+            $portals,
+            $capabilities->noticeFields,
+            $capabilities->features,
+        );
+    }
+
+    /**
      * Triggers a per-tree feeder run with the PERSISTED settings: an unknown tree id flashes and
      * redirects; otherwise the real EnqueueService is wired over the resolved queue root and one bounded
      * job is enqueued. A null jobId (no candidate matched) flashes a distinct warning; a queue failure
@@ -320,13 +472,29 @@ class ObituaryControlPanelHandler implements RequestHandlerInterface
     }
 
     /**
-     * Renders the read-only panel: the prefilled settings, the trees offered for a trigger and the
-     * recent queue-job rows. A null/missing queue root yields an empty job list WITHOUT creating the
-     * queue layout (a GET is read-only).
+     * Renders the read-only panel for a plain GET: the persisted-finder view carries no probe (a
+     * reachability test is the later `test` POST action). Delegates the shared tree/settings/jobs
+     * assembly to {@see self::renderPanelWith()}.
      *
      * @return ResponseInterface The rendered panel response.
      */
     private function renderPanel(): ResponseInterface
+    {
+        return $this->renderPanelWith($this->finderConnectionView());
+    }
+
+    /**
+     * Renders the panel around the given finder view: the prefilled settings, the trees offered for a
+     * trigger and the recent queue-job rows. Both the GET render and the `test` re-render share this
+     * assembly, differing only in the finder view they pass (a probe-less GET view vs a test view
+     * carrying the readout). A null/missing queue root yields an empty job list WITHOUT creating the
+     * queue layout (a render is read-only). Protected so a test can capture the finder view it receives.
+     *
+     * @param FinderConnectionView $finder The finder view (with or without a probe readout) to render.
+     *
+     * @return ResponseInterface The rendered panel response.
+     */
+    protected function renderPanelWith(FinderConnectionView $finder): ResponseInterface
     {
         $trees = [];
 
@@ -342,7 +510,7 @@ class ObituaryControlPanelHandler implements RequestHandlerInterface
             $this->readLimit(),
             $trees,
             $this->recentJobTuples(),
-            $this->finderConnectionView(),
+            $finder,
         );
 
         return $this->viewResponse($this->module->name() . '::control-panel', [
@@ -524,6 +692,28 @@ class ObituaryControlPanelHandler implements RequestHandlerInterface
         return FinderConnection::rest(
             $this->module->getPreference('finder_base_url', ''),
             $token === '' ? null : $token,
+        );
+    }
+
+    /**
+     * Builds the capabilities probe over a bounded Guzzle client, mirroring {@see JobTransportFactory}'s
+     * REST wiring so the admin probe and the live transport share the same connect/request budget. A
+     * protected seam so a test can drive the probe over a scripted PSR-18 double (the
+     * {@see FinderCapabilitiesProbe} is a final readonly class and cannot be stubbed directly).
+     *
+     * @param FinderConnection $connection The REST connection to probe.
+     *
+     * @return FinderCapabilitiesProbe The wired capabilities probe.
+     */
+    protected function capabilitiesProbe(FinderConnection $connection): FinderCapabilitiesProbe
+    {
+        return new FinderCapabilitiesProbe(
+            new Client([
+                'connect_timeout' => self::PROBE_CONNECT_TIMEOUT_SECONDS,
+                'timeout'         => self::PROBE_REQUEST_TIMEOUT_SECONDS,
+            ]),
+            new HttpFactory(),
+            $connection,
         );
     }
 

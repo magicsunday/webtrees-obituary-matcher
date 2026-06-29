@@ -28,11 +28,19 @@ use Fisharebest\Webtrees\Services\ModuleService;
 use Fisharebest\Webtrees\Services\TreeService;
 use Fisharebest\Webtrees\Services\UserService;
 use Fisharebest\Webtrees\View;
+use GuzzleHttp\Psr7\HttpFactory;
+use GuzzleHttp\Psr7\Response;
 use LogicException;
 use MagicSunday\ObituaryMatcher\Queue\AtomicFile;
+use MagicSunday\ObituaryMatcher\Queue\CapabilitiesProbeResult;
+use MagicSunday\ObituaryMatcher\Queue\CappedJsonBodyReader;
 use MagicSunday\ObituaryMatcher\Queue\FeederRequestReader;
 use MagicSunday\ObituaryMatcher\Queue\FileJobTransport;
+use MagicSunday\ObituaryMatcher\Queue\FinderCapabilities;
+use MagicSunday\ObituaryMatcher\Queue\FinderCapabilitiesProbe;
+use MagicSunday\ObituaryMatcher\Queue\FinderPortal;
 use MagicSunday\ObituaryMatcher\Queue\JobState;
+use MagicSunday\ObituaryMatcher\Queue\ProbeStatus;
 use MagicSunday\ObituaryMatcher\Queue\QueueClient;
 use MagicSunday\ObituaryMatcher\Queue\QueueLimits;
 use MagicSunday\ObituaryMatcher\Queue\QueuePaths;
@@ -41,9 +49,12 @@ use MagicSunday\ObituaryMatcher\Support\FeederRequestFactory;
 use MagicSunday\ObituaryMatcher\Support\FinderConnection;
 use MagicSunday\ObituaryMatcher\Support\QueryGenerator;
 use MagicSunday\ObituaryMatcher\Support\UrlHostNormalizer;
+use MagicSunday\ObituaryMatcher\Test\Queue\ScriptablePsr18Client;
 use MagicSunday\ObituaryMatcher\Ui\ControlPanelPresenter;
 use MagicSunday\ObituaryMatcher\Ui\ControlPanelView;
+use MagicSunday\ObituaryMatcher\Ui\FinderConnectionView;
 use MagicSunday\ObituaryMatcher\Ui\JobStatusRowView;
+use MagicSunday\ObituaryMatcher\Ui\ProbeReadoutView;
 use MagicSunday\ObituaryMatcher\Webtrees\CandidateRepository;
 use MagicSunday\ObituaryMatcher\Webtrees\EnqueueService;
 use MagicSunday\ObituaryMatcher\Webtrees\EnqueueSummary;
@@ -52,6 +63,8 @@ use MagicSunday\ObituaryMatcher\Webtrees\ObituaryMatcherModule;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\Attributes\UsesClass;
+use Psr\Http\Message\RequestInterface;
+use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestFactoryInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use Psr\Http\Message\StreamFactoryInterface;
@@ -62,7 +75,10 @@ use Throwable;
 use function count;
 use function dirname;
 use function http_build_query;
+use function json_encode;
 use function substr_count;
+
+use const JSON_THROW_ON_ERROR;
 
 /**
  * Integration tests for the admin control-panel route: the admin gate, the GET render (prefilled
@@ -83,6 +99,15 @@ use function substr_count;
 #[UsesClass(ControlPanelView::class)]
 #[UsesClass(JobStatusRowView::class)]
 #[UsesClass(FinderConnection::class)]
+#[UsesClass(FinderConnectionView::class)]
+#[UsesClass(ProbeReadoutView::class)]
+#[UsesClass(CapabilitiesProbeResult::class)]
+#[UsesClass(ProbeStatus::class)]
+#[UsesClass(FinderCapabilitiesProbe::class)]
+#[UsesClass(FinderCapabilities::class)]
+#[UsesClass(FinderPortal::class)]
+#[UsesClass(CappedJsonBodyReader::class)]
+#[UsesClass(QueueLimits::class)]
 final class ObituaryControlPanelHandlerTest extends AbstractEnqueueTestCase
 {
     /**
@@ -552,6 +577,248 @@ final class ObituaryControlPanelHandlerTest extends AbstractEnqueueTestCase
         self::assertSame('file', $this->module->getPreference('finder_transport'));
         self::assertSame('https://finder.example', $this->module->getPreference('finder_base_url'));
         self::assertSame('old', $this->module->getPreference('finder_token'));
+    }
+
+    /**
+     * The `test` action probes a valid REST finder and re-renders (NOT redirects) with a reachable
+     * readout carrying the advertised finder id: the scripted client answers the capabilities request
+     * with a valid document, and the captured finder view carries the mapped readout.
+     *
+     * @return void
+     */
+    #[Test]
+    public function testActionRendersAReachableReadout(): void
+    {
+        $handler = $this->capturingHandler([
+            static fn (): ResponseInterface => self::jsonResponse(self::validCapabilitiesBody()),
+        ]);
+
+        $response = $handler->handle($this->panelPost([
+            'action'    => 'test',
+            'transport' => 'rest',
+            'base_url'  => 'https://finder.example',
+        ]));
+
+        // The action re-renders rather than PRG-redirecting (a 302 would signal the wrong contract).
+        self::assertNotSame(StatusCodeInterface::STATUS_FOUND, $response->getStatusCode());
+        self::assertNotNull($handler->capturedProbe);
+        self::assertSame('reachable', $handler->capturedProbe->statusKey);
+        self::assertSame('finder-x', $handler->capturedProbe->finderId);
+    }
+
+    /**
+     * In file mode the `test` action does NOT probe at all: the readout is not-applicable, the probe seam
+     * was never invoked and the injected client recorded zero sent requests.
+     *
+     * @return void
+     */
+    #[Test]
+    public function testActionInFileModeIsNotApplicableAndDoesNotProbe(): void
+    {
+        $handler = $this->capturingHandler([]);
+
+        $handler->handle($this->panelPost([
+            'action'    => 'test',
+            'transport' => 'file',
+        ]));
+
+        self::assertNotNull($handler->capturedProbe);
+        self::assertSame('not-applicable', $handler->capturedProbe->statusKey);
+        self::assertSame(0, $handler->probeInvocations);
+        self::assertSame([], $handler->client->sent);
+    }
+
+    /**
+     * A non-empty submitted token wins the precedence: the connection the probe seam receives carries the
+     * typed token, not any persisted one.
+     *
+     * @return void
+     */
+    #[Test]
+    public function testActionUsesTheSubmittedTokenWhenPresent(): void
+    {
+        $this->module->setPreference('finder_token', 'saved');
+
+        $handler = $this->capturingHandler([
+            static fn (): ResponseInterface => self::jsonResponse(self::validCapabilitiesBody()),
+        ]);
+
+        $handler->handle($this->panelPost([
+            'action'    => 'test',
+            'transport' => 'rest',
+            'base_url'  => 'https://finder.example',
+            'token'     => 'typed',
+        ]));
+
+        self::assertNotNull($handler->capturedConnection);
+        self::assertSame('typed', $handler->capturedConnection->token());
+    }
+
+    /**
+     * A blank submitted token with the remove flag unset falls back to the persisted token: the probe
+     * connection carries the saved token so the admin can re-test without re-entering it.
+     *
+     * @return void
+     */
+    #[Test]
+    public function testActionFallsBackToThePersistedTokenWhenBlank(): void
+    {
+        $this->module->setPreference('finder_token', 'saved');
+
+        $handler = $this->capturingHandler([
+            static fn (): ResponseInterface => self::jsonResponse(self::validCapabilitiesBody()),
+        ]);
+
+        $handler->handle($this->panelPost([
+            'action'    => 'test',
+            'transport' => 'rest',
+            'base_url'  => 'https://finder.example',
+            'token'     => '',
+        ]));
+
+        self::assertNotNull($handler->capturedConnection);
+        self::assertSame('saved', $handler->capturedConnection->token());
+    }
+
+    /**
+     * The explicit remove-token flag forces an unauthenticated probe even when a token is persisted: the
+     * probe connection carries no token.
+     *
+     * @return void
+     */
+    #[Test]
+    public function testActionWithoutTokenWhenRemoveChecked(): void
+    {
+        $this->module->setPreference('finder_token', 'saved');
+
+        $handler = $this->capturingHandler([
+            static fn (): ResponseInterface => self::jsonResponse(self::validCapabilitiesBody()),
+        ]);
+
+        $handler->handle($this->panelPost([
+            'action'       => 'test',
+            'transport'    => 'rest',
+            'base_url'     => 'https://finder.example',
+            'token'        => '',
+            'remove_token' => '1',
+        ]));
+
+        self::assertNotNull($handler->capturedConnection);
+        self::assertNull($handler->capturedConnection->token());
+    }
+
+    /**
+     * An invalid base URL renders an invalid readout WITHOUT probing: the connection is rejected at the
+     * single {@see FinderConnection::rest()} source, so the probe seam is never invoked and the client
+     * recorded zero sent requests.
+     *
+     * @return void
+     */
+    #[Test]
+    public function testActionInvalidBaseUrlRendersInvalidWithoutProbing(): void
+    {
+        $handler = $this->capturingHandler([]);
+
+        $handler->handle($this->panelPost([
+            'action'    => 'test',
+            'transport' => 'rest',
+            'base_url'  => 'nope',
+        ]));
+
+        self::assertNotNull($handler->capturedProbe);
+        self::assertSame('invalid', $handler->capturedProbe->statusKey);
+        self::assertSame(0, $handler->probeInvocations);
+        self::assertSame([], $handler->client->sent);
+    }
+
+    /**
+     * Builds a handler that drives the capabilities probe over a SCRIPTED PSR-18 double rather than a
+     * real HTTP client (the probe is final readonly and cannot be stubbed), capturing the
+     * {@see FinderConnection} the seam receives (for the token-precedence asserts), counting the probe
+     * invocations and capturing the {@see FinderConnectionView} the re-render receives — so the tests
+     * assert on the mapped readout without depending on the Task 7 template.
+     *
+     * @param list<callable(RequestInterface): ResponseInterface> $script The scripted probe responders.
+     *
+     * @return ObituaryControlPanelHandler&object{capturedProbe: ?ProbeReadoutView, capturedConnection: ?FinderConnection, probeInvocations: int, client: ScriptablePsr18Client} The capturing handler.
+     */
+    private function capturingHandler(array $script): ObituaryControlPanelHandler
+    {
+        return new class($this->module, new ScriptablePsr18Client($script)) extends ObituaryControlPanelHandler {
+            /**
+             * @var ProbeReadoutView|null The readout the re-render received, captured for assertions.
+             */
+            public ?ProbeReadoutView $capturedProbe = null;
+
+            /**
+             * @var FinderConnection|null The connection the probe seam received, captured for assertions.
+             */
+            public ?FinderConnection $capturedConnection = null;
+
+            /**
+             * @var int The number of times the probe seam was invoked.
+             */
+            public int $probeInvocations = 0;
+
+            /**
+             * @param ObituaryMatcherModule $module The module instance.
+             * @param ScriptablePsr18Client $client The scripted client the probe sends through.
+             */
+            public function __construct(
+                ObituaryMatcherModule $module,
+                public ScriptablePsr18Client $client,
+            ) {
+                parent::__construct($module);
+            }
+
+            protected function capabilitiesProbe(FinderConnection $connection): FinderCapabilitiesProbe
+            {
+                ++$this->probeInvocations;
+                $this->capturedConnection = $connection;
+
+                return new FinderCapabilitiesProbe($this->client, new HttpFactory(), $connection);
+            }
+
+            protected function renderPanelWith(FinderConnectionView $finder): ResponseInterface
+            {
+                $this->capturedProbe = $finder->probe;
+
+                return new Response(StatusCodeInterface::STATUS_OK);
+            }
+        };
+    }
+
+    /**
+     * A valid capabilities document the scripted client answers a reachable probe with, built from the
+     * #56 contract shape: the required finder id, retention window, schema versions and a single portal.
+     *
+     * @return array<string, mixed> The valid capabilities body.
+     */
+    private static function validCapabilitiesBody(): array
+    {
+        return [
+            'finderId'         => 'finder-x',
+            'finderVersion'    => '1.2.3',
+            'retentionSeconds' => 86_400,
+            'schemaVersions'   => [1],
+            'portals'          => [['id' => 'p']],
+        ];
+    }
+
+    /**
+     * Builds a 200 JSON response carrying the given decoded body, for the scripted probe responder.
+     *
+     * @param array<string, mixed> $data The body to JSON-encode.
+     *
+     * @return ResponseInterface The JSON response.
+     */
+    private static function jsonResponse(array $data): ResponseInterface
+    {
+        return new Response(
+            StatusCodeInterface::STATUS_OK,
+            ['Content-Type' => 'application/json'],
+            json_encode($data, JSON_THROW_ON_ERROR),
+        );
     }
 
     /**
