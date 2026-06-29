@@ -262,8 +262,9 @@ final readonly class RestJobTransport implements JobTransport
      * {@inheritDoc}
      *
      * Drops the job from the local poll set but PRESERVES it on the remote: a failed job is removed from
-     * the ledger (so it is never re-polled — no head-of-line starvation) yet deliberately NOT deleted
-     * remotely. This mirrors the file transport, which parks a failed job in `failed-ingest/` with its
+     * the ledger (so it is not re-polled — unless the unlink itself fails on a read-only/permission-denied
+     * ledger filesystem, a bounded self-healing degradation tracked in issue #71) yet deliberately NOT
+     * deleted remotely. This mirrors the file transport, which parks a failed job in `failed-ingest/` with its
      * payload retained rather than discarding it, so a transient local fault that surfaces as
      * `ingest_failed` (a disk-full or permission error while persisting the matches) does not destroy the
      * only copy of the finder's result — the remote keeps the job for manual recovery. Only a SUCCESSFUL
