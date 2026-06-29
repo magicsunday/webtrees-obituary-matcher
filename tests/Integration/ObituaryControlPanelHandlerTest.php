@@ -607,6 +607,96 @@ final class ObituaryControlPanelHandlerTest extends AbstractEnqueueTestCase
     }
 
     /**
+     * The `test` action drives the REAL panel template and escapes a hostile portal name once: a finder
+     * advertising a portal named `<b>x</b>` renders the entity-encoded `&lt;b&gt;x&lt;/b&gt;` and never
+     * the raw `<b>x</b>` markup, proving the readout table e()-escapes every portal cell.
+     *
+     * @return void
+     */
+    #[Test]
+    public function testActionEscapesAHostilePortalNameInTheRenderedReadout(): void
+    {
+        $this->searchableTree('panel-escape', 1);
+
+        $handler = $this->renderingProbeHandler([
+            static fn (): ResponseInterface => self::jsonResponse([
+                'finderId'         => 'finder-x',
+                'finderVersion'    => '1.2.3',
+                'retentionSeconds' => 86_400,
+                'schemaVersions'   => [1],
+                'portals'          => [['id' => 'p', 'name' => '<b>x</b>']],
+            ]),
+        ]);
+
+        $html = (string) $handler->handle($this->panelPost([
+            'action'    => 'test',
+            'transport' => 'rest',
+            'base_url'  => 'https://finder.example',
+        ]))->getBody();
+
+        self::assertStringContainsString('&lt;b&gt;x&lt;/b&gt;', $html);
+        self::assertStringNotContainsString('<b>x</b>', $html);
+    }
+
+    /**
+     * The re-rendered panel echoes the SUBMITTED base URL back into the form value and reflects the
+     * PERSISTED token state: a `test` POST carrying `https://finder.example` renders that value attribute
+     * and, with a token already stored, shows the "A token is set." hint (the token value itself is never
+     * rendered).
+     *
+     * @return void
+     */
+    #[Test]
+    public function testActionReRenderEchoesSubmittedBaseUrlAndPersistedTokenState(): void
+    {
+        $this->searchableTree('panel-echo', 1);
+        $this->module->setPreference('finder_token', 'secret');
+
+        $handler = $this->renderingProbeHandler([
+            static fn (): ResponseInterface => self::jsonResponse(self::validCapabilitiesBody()),
+        ]);
+
+        $html = (string) $handler->handle($this->panelPost([
+            'action'    => 'test',
+            'transport' => 'rest',
+            'base_url'  => 'https://finder.example',
+        ]))->getBody();
+
+        self::assertStringContainsString('value="https://finder.example"', $html);
+        self::assertStringContainsString('A token is set.', $html);
+        // The token VALUE is never echoed into the rendered panel.
+        self::assertStringNotContainsString('secret', $html);
+    }
+
+    /**
+     * A probe-seam wiring fault (the {@see ObituaryControlPanelHandler::capabilitiesProbe()} seam throws)
+     * degrades to an unreachable readout and STILL renders the panel rather than escaping handle() as an
+     * unhandled 500 — pinning the action's `catch (Throwable)` defence.
+     *
+     * @return void
+     */
+    #[Test]
+    public function testActionProbeSeamThrowableRendersUnreachableWithoutFailing(): void
+    {
+        $this->searchableTree('panel-probe-throw', 1);
+
+        $handler = $this->throwingProbeHandler();
+
+        $response = $handler->handle($this->panelPost([
+            'action'    => 'test',
+            'transport' => 'rest',
+            'base_url'  => 'https://finder.example',
+        ]));
+
+        // The action re-renders rather than PRG-redirecting, and no exception escaped to a 500.
+        self::assertNotSame(StatusCodeInterface::STATUS_FOUND, $response->getStatusCode());
+        self::assertNotNull($handler->capturedProbe);
+        self::assertSame('unreachable', $handler->capturedProbe->statusKey);
+        // The panel still rendered a non-empty body.
+        self::assertNotSame('', (string) $response->getBody());
+    }
+
+    /**
      * In file mode the `test` action does NOT probe at all: the readout is not-applicable, the probe seam
      * was never invoked and the injected client recorded zero sent requests.
      *
@@ -784,6 +874,89 @@ final class ObituaryControlPanelHandlerTest extends AbstractEnqueueTestCase
                 $this->capturedProbe = $finder->probe;
 
                 return new Response(StatusCodeInterface::STATUS_OK);
+            }
+        };
+    }
+
+    /**
+     * Builds a handler that drives the capabilities probe over a SCRIPTED PSR-18 double but lets the REAL
+     * panel template render (it does NOT override renderPanelWith), so the tests assert on the actual
+     * rendered HTML — the readout escaping and the echoed form fields. The queue root is seamed onto the
+     * throwaway dir so the read-only render touches the isolated queue.
+     *
+     * @param list<callable(RequestInterface): ResponseInterface> $script The scripted probe responders.
+     *
+     * @return ObituaryControlPanelHandler The rendering handler.
+     */
+    private function renderingProbeHandler(array $script): ObituaryControlPanelHandler
+    {
+        return new class($this->module, $this->queueRoot, new ScriptablePsr18Client($script)) extends ObituaryControlPanelHandler {
+            /**
+             * @param ObituaryMatcherModule $module    The module instance.
+             * @param string                $queueRoot The throwaway queue root injected for the test.
+             * @param ScriptablePsr18Client $client    The scripted client the probe sends through.
+             */
+            public function __construct(
+                ObituaryMatcherModule $module,
+                private readonly string $queueRoot,
+                private readonly ScriptablePsr18Client $client,
+            ) {
+                parent::__construct($module);
+            }
+
+            protected function queueRoot(): string
+            {
+                return $this->queueRoot;
+            }
+
+            protected function capabilitiesProbe(FinderConnection $connection): FinderCapabilitiesProbe
+            {
+                return new FinderCapabilitiesProbe($this->client, new HttpFactory(), $connection);
+            }
+        };
+    }
+
+    /**
+     * Builds a handler whose capabilities-probe seam THROWS (a wiring fault) and lets the REAL template
+     * render, capturing the readout the re-render receives so a test can assert the action degraded the
+     * fault to an unreachable readout. The queue root is seamed onto the throwaway dir.
+     *
+     * @return ObituaryControlPanelHandler&object{capturedProbe: ?ProbeReadoutView} The throwing handler.
+     */
+    private function throwingProbeHandler(): ObituaryControlPanelHandler
+    {
+        return new class($this->module, $this->queueRoot) extends ObituaryControlPanelHandler {
+            /**
+             * @var ProbeReadoutView|null The readout the re-render received, captured for assertions.
+             */
+            public ?ProbeReadoutView $capturedProbe = null;
+
+            /**
+             * @param ObituaryMatcherModule $module    The module instance.
+             * @param string                $queueRoot The throwaway queue root injected for the test.
+             */
+            public function __construct(
+                ObituaryMatcherModule $module,
+                private readonly string $queueRoot,
+            ) {
+                parent::__construct($module);
+            }
+
+            protected function queueRoot(): string
+            {
+                return $this->queueRoot;
+            }
+
+            protected function capabilitiesProbe(FinderConnection $connection): FinderCapabilitiesProbe
+            {
+                throw new RuntimeException('probe wiring fault');
+            }
+
+            protected function renderPanelWith(FinderConnectionView $finder): ResponseInterface
+            {
+                $this->capturedProbe = $finder->probe;
+
+                return parent::renderPanelWith($finder);
             }
         };
     }
