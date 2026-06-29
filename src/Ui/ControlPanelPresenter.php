@@ -31,10 +31,11 @@ final readonly class ControlPanelPresenter
      * @param int                                                                                               $limit  The persisted per-run candidate limit.
      * @param list<array{id: int, name: string}>                                                                $trees  The trees offered for a feeder trigger.
      * @param list<array{jobId: string, stateKey: string, counts: array<string, int>, finishedAt: string|null}> $jobs   The recent-job tuples (handler-built from JobStatus).
+     * @param FinderConnectionView                                                                              $finder The handler-built finder-connection view model.
      *
      * @return ControlPanelView The view-ready model.
      */
-    public function build(int $minAge, int $limit, array $trees, array $jobs): ControlPanelView
+    public function build(int $minAge, int $limit, array $trees, array $jobs, FinderConnectionView $finder): ControlPanelView
     {
         $rows = [];
 
@@ -47,6 +48,6 @@ final readonly class ControlPanelPresenter
             );
         }
 
-        return new ControlPanelView($minAge, $limit, $trees, $rows);
+        return new ControlPanelView($minAge, $limit, $trees, $rows, $finder);
     }
 }

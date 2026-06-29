@@ -26,6 +26,7 @@ use MagicSunday\ObituaryMatcher\Queue\QueuePaths;
 use MagicSunday\ObituaryMatcher\Support\FinderConnection;
 use MagicSunday\ObituaryMatcher\Support\WebtreesInstallLocator;
 use MagicSunday\ObituaryMatcher\Ui\ControlPanelPresenter;
+use MagicSunday\ObituaryMatcher\Ui\FinderConnectionView;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use Psr\Http\Server\RequestHandlerInterface;
@@ -286,6 +287,7 @@ class ObituaryControlPanelHandler implements RequestHandlerInterface
             $this->readLimit(),
             $trees,
             $this->recentJobTuples(),
+            $this->finderConnectionView(),
         );
 
         return $this->viewResponse($this->module->name() . '::control-panel', [
@@ -324,6 +326,23 @@ class ObituaryControlPanelHandler implements RequestHandlerInterface
         }
 
         return $tuples;
+    }
+
+    /**
+     * Builds the finder-connection view model from the persisted preferences. A GET render carries no
+     * probe (a reachability test is a later POST action). The token VALUE never reaches the view — only
+     * a boolean recording whether one is configured.
+     *
+     * @return FinderConnectionView The finder-connection view model.
+     */
+    private function finderConnectionView(): FinderConnectionView
+    {
+        return new FinderConnectionView(
+            $this->module->getPreference('finder_transport', 'file'),
+            $this->module->getPreference('finder_base_url', ''),
+            $this->module->getPreference('finder_token', '') !== '',
+            null,
+        );
     }
 
     /**
