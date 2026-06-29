@@ -45,6 +45,16 @@ use MagicSunday\ObituaryMatcher\Support\FinderConnection;
 final class JobTransportFactory
 {
     /**
+     * @var int Seconds to wait for the TCP connection to the finder before treating it as unreachable.
+     */
+    private const int CONNECT_TIMEOUT_SECONDS = 5;
+
+    /**
+     * @var int Seconds to wait for a finder response before treating the request as a transient fault.
+     */
+    private const int REQUEST_TIMEOUT_SECONDS = 30;
+
+    /**
      * Static-only utility: no instances.
      */
     private function __construct()
@@ -75,8 +85,16 @@ final class JobTransportFactory
 
             $httpFactory = new HttpFactory();
 
+            // Bound the connect and request waits. Without them Guzzle waits forever (its defaults are
+            // 0 = infinite), so a finder that accepts the connection but stalls would hang the enqueue
+            // web request or the drain task indefinitely. With the bounds a stalled finder surfaces as a
+            // ClientExceptionInterface, which the transport already maps to a clean submission failure or
+            // a skip-and-retry — degrading into the existing transient-fault handling instead of blocking.
             return new RestJobTransport(
-                new Client(),
+                new Client([
+                    'connect_timeout' => self::CONNECT_TIMEOUT_SECONDS,
+                    'timeout'         => self::REQUEST_TIMEOUT_SECONDS,
+                ]),
                 $httpFactory,
                 $httpFactory,
                 new RestPendingLedger($restPendingRoot),
