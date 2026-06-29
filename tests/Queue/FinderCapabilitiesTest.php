@@ -123,4 +123,35 @@ final class FinderCapabilitiesTest extends TestCase
         self::assertNotNull($caps);
         self::assertSame(['pagination' => true], $caps->features);   // int key 0 + non-bool 'yes' dropped
     }
+
+    /** retentionSeconds is a REQUIRED bounded field: a zero (below the floor) or a wrong type invalidates the document. */
+    #[Test]
+    public function aRetentionSecondsOutOfRangeIsInvalid(): void
+    {
+        self::assertNull(FinderCapabilities::fromArray([
+            'finderId'         => 'f',
+            'retentionSeconds' => 0,                 // below the inclusive 1 floor
+            'schemaVersions'   => [1],
+            'portals'          => [['id' => 'p']],
+        ]));
+
+        self::assertNull(FinderCapabilities::fromArray([
+            'finderId'         => 'f',
+            'retentionSeconds' => '86400',           // wrong type (string, not int)
+            'schemaVersions'   => [1],
+            'portals'          => [['id' => 'p']],
+        ]));
+    }
+
+    /** schemaVersions is tolerant per-element but the FIELD is required: an all-dropped list (no surviving int) invalidates the document. */
+    #[Test]
+    public function aSchemaVersionsWithNoSurvivingIntIsInvalid(): void
+    {
+        self::assertNull(FinderCapabilities::fromArray([
+            'finderId'         => 'f',
+            'retentionSeconds' => 10,
+            'schemaVersions'   => ['x', 9999],       // 'x' non-int + 9999 out-of-range → none survive
+            'portals'          => [['id' => 'p']],
+        ]));
+    }
 }
