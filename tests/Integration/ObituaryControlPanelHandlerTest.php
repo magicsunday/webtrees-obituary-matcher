@@ -798,6 +798,34 @@ final class ObituaryControlPanelHandlerTest extends AbstractEnqueueTestCase
     }
 
     /**
+     * The explicit remove-token flag wins over a non-empty submitted token: ticking remove while also
+     * typing a token forces an unauthenticated probe (token null), so the `test` action probes exactly
+     * what {@see ObituaryControlPanelHandler::saveFinder()} would persist (REMOVE wins in both).
+     *
+     * @return void
+     */
+    #[Test]
+    public function testActionRemoveWinsOverASubmittedToken(): void
+    {
+        $this->module->setPreference('finder_token', 'saved');
+
+        $handler = $this->capturingHandler([
+            static fn (): ResponseInterface => self::jsonResponse(self::validCapabilitiesBody()),
+        ]);
+
+        $handler->handle($this->panelPost([
+            'action'       => 'test',
+            'transport'    => 'rest',
+            'base_url'     => 'https://finder.example',
+            'token'        => 'typed',
+            'remove_token' => '1',
+        ]));
+
+        self::assertNotNull($handler->capturedConnection);
+        self::assertNull($handler->capturedConnection->token());
+    }
+
+    /**
      * An invalid base URL renders an invalid readout WITHOUT probing: the connection is rejected at the
      * single {@see FinderConnection::rest()} source, so the probe seam is never invoked and the client
      * recorded zero sent requests.

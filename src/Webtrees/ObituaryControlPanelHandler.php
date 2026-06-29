@@ -278,9 +278,10 @@ class ObituaryControlPanelHandler implements RequestHandlerInterface
      * connection and RE-RENDERS the panel with a transient readout — the deliberate exception to the
      * POST-redirect-GET contract, because a reachability test produces a result to show, not a state
      * change to redirect past. The `file` transport is not probed at all (it has no endpoint), yielding
-     * a not-applicable readout. The token precedence is fixed: a non-empty submitted token wins, else an
-     * explicit remove flag forces an unauthenticated probe, else the persisted token is reused — so the
-     * admin can test a typed-but-unsaved token, or the stored one, without re-entering it. A base URL or
+     * a not-applicable readout. The token precedence matches {@see self::saveFinder()} (REMOVE wins): an
+     * explicit remove flag forces an unauthenticated probe, else a non-empty submitted token wins, else the
+     * persisted token is reused — so the admin can test a typed-but-unsaved token, or the stored one,
+     * without re-entering it, and ticking remove probes exactly what a save would persist. A base URL or
      * token the {@see FinderConnection::rest()} source rejects yields an invalid readout WITHOUT probing.
      * The probe never throws, but the seam wiring is still guarded so no probe fault escapes as a 500.
      * The token VALUE is never logged, flashed or echoed — only the `tokenIsSet` boolean (from the
@@ -302,10 +303,10 @@ class ObituaryControlPanelHandler implements RequestHandlerInterface
         $tokenRaw = Validator::parsedBody($request)->string('token', '');
         $remove   = Validator::parsedBody($request)->boolean('remove_token', false);
 
-        if ($tokenRaw !== '') {
-            $token = $tokenRaw;
-        } elseif ($remove) {
+        if ($remove) {
             $token = null;
+        } elseif ($tokenRaw !== '') {
+            $token = $tokenRaw;
         } else {
             $persisted = $this->module->getPreference('finder_token', '');
             $token     = $persisted === '' ? null : $persisted;
