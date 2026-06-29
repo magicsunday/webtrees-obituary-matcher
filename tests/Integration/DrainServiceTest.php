@@ -21,14 +21,17 @@ use MagicSunday\ObituaryMatcher\Matching\MatchStore;
 use MagicSunday\ObituaryMatcher\Matching\StoredMatch;
 use MagicSunday\ObituaryMatcher\Matching\WriteBack;
 use MagicSunday\ObituaryMatcher\Queue\AtomicFile;
+use MagicSunday\ObituaryMatcher\Queue\FailedJob;
 use MagicSunday\ObituaryMatcher\Queue\FeederRequestReader;
 use MagicSunday\ObituaryMatcher\Queue\JobState;
+use MagicSunday\ObituaryMatcher\Queue\JobTransport;
 use MagicSunday\ObituaryMatcher\Queue\QueueClient;
 use MagicSunday\ObituaryMatcher\Queue\QueueLimits;
 use MagicSunday\ObituaryMatcher\Queue\QueuePaths;
 use MagicSunday\ObituaryMatcher\Queue\ResponseReader;
 use MagicSunday\ObituaryMatcher\Scoring\Classifier;
 use MagicSunday\ObituaryMatcher\Scoring\EnrichedMatchEngine;
+use MagicSunday\ObituaryMatcher\Support\FeederRequest;
 use MagicSunday\ObituaryMatcher\Webtrees\CandidateRepository;
 use MagicSunday\ObituaryMatcher\Webtrees\DrainService;
 use MagicSunday\ObituaryMatcher\Webtrees\MatchStoreFactory;
@@ -72,6 +75,7 @@ use const JSON_THROW_ON_ERROR;
 #[UsesClass(FeederRequestReader::class)]
 #[UsesClass(ResponseReader::class)]
 #[UsesClass(AtomicFile::class)]
+#[UsesClass(FailedJob::class)]
 #[UsesClass(EnrichedMatchEngine::class)]
 #[UsesClass(Classifier::class)]
 #[UsesClass(\MagicSunday\ObituaryMatcher\Queue\ResponseValidationException::class)]
@@ -474,6 +478,84 @@ final class DrainServiceTest extends AbstractDrainTestCase
 
         // Store delta: the real per-tree store (separate from the throwing double) holds no row.
         self::assertSame([], $this->storeFor($tree)->allPending());
+    }
+
+    /**
+     * A failure of the PARK itself (markFailed throwing, e.g. the file transport's failed-ingest rename
+     * failing on a read-only/permission-denied queue filesystem) must NOT abort the whole drain. Two
+     * jobs are yielded by a transport whose markFailed always throws; the drain must still process BOTH
+     * (counting them failed) rather than crashing on the first and starving the second — the head-of-line
+     * starvation the parkFailed() guard prevents. Without the guard the first markFailed throw propagates
+     * out of the drain loop and the second job is never seen.
+     *
+     * @return void
+     */
+    #[Test]
+    public function aParkFailureDoesNotAbortTheDrainOrStarveTheNextJob(): void
+    {
+        $transport = new class implements JobTransport {
+            /**
+             * {@inheritDoc}
+             */
+            public function submit(FeederRequest $request): string
+            {
+                return $request->jobId;
+            }
+
+            /**
+             * {@inheritDoc}
+             */
+            public function fetchCompleted(): iterable
+            {
+                yield new FailedJob('job-a', 1, ['I1'], 'finder_failed');
+                yield new FailedJob('job-b', 1, ['I1'], 'finder_failed');
+            }
+
+            /**
+             * {@inheritDoc}
+             */
+            public function markIngested(string $jobId, array $counts, array $warnings = []): void
+            {
+            }
+
+            /**
+             * {@inheritDoc}
+             */
+            public function markFailed(string $jobId, string $reasonCategory, array $warnings = []): void
+            {
+                throw new RuntimeException('park failed');
+            }
+
+            /**
+             * {@inheritDoc}
+             */
+            public function release(string $jobId): void
+            {
+            }
+
+            /**
+             * {@inheritDoc}
+             */
+            public function inFlightRequests(): iterable
+            {
+                return [];
+            }
+
+            /**
+             * {@inheritDoc}
+             */
+            public function staleCount(): int
+            {
+                return 0;
+            }
+        };
+
+        $summary = $this->drainService(null, $transport)->drain(null, 20);
+
+        // Both jobs were processed and counted failed: the first job's throwing park did not abort the
+        // drain, so the second job behind it was not starved.
+        self::assertSame(2, $summary->failed);
+        self::assertSame(0, $summary->ingested);
     }
 
     /**

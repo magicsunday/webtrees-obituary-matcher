@@ -99,7 +99,7 @@ class DrainService
 
             if ($job instanceof FailedJob) {
                 // A per-job read fault the transport already classified: park it under its category.
-                $this->transport->markFailed($job->jobId, $job->reasonCategory);
+                $this->parkFailed($job->jobId, $job->reasonCategory);
                 ++$failed;
             } else {
                 $outcome = $this->ingestCompleted($job, $onlyTreeId);
@@ -125,7 +125,7 @@ class DrainService
      * tally deltas this one job contributes. The tree is resolved first (an unknown id is parked as
      * `tree_unknown`); a tree-scoped drain releases a foreign job; otherwise the notices are ingested
      * into the tree-scoped store and the job marked ingested. A throw from the ingest (or its
-     * markIngested finalisation) terminally parks the job as `ingest_failed` rather than releasing it.
+     * markIngested finalisation) parks the job as `ingest_failed` rather than releasing it.
      *
      * @param CompletedJob $job        The claimed completed job to ingest.
      * @param int|null     $onlyTreeId The single tree to ingest, or null to ingest every tree.
@@ -137,7 +137,7 @@ class DrainService
         try {
             $tree = $this->treeService->find($job->treeId);
         } catch (DomainException) {
-            $this->transport->markFailed($job->jobId, 'tree_unknown');
+            $this->parkFailed($job->jobId, 'tree_unknown');
 
             return DrainOutcome::failed();
         }
@@ -157,15 +157,11 @@ class DrainService
         $store          = $this->storeForTree($tree);
         $candidatesById = $this->repository->findByXrefs($tree, $job->requestedPersonIds);
 
-        // The ingest AND the markIngested finalisation share ONE try so a deterministically-throwing
-        // job is parked (markFailed), never released back to done — otherwise it would be re-processed
-        // every drain (head-of-line starvation). The park is terminal for the file transport (an atomic
-        // ingesting -> failed-ingest rename). For the REST transport markFailed removes the ledger entry,
-        // which is terminal too UNLESS the unlink itself fails (a read-only/permission-denied ledger
-        // filesystem — the same fault that triggered the ingest throw): the entry then survives and the
-        // job re-polls, a bounded, non-corrupting, self-healing degradation tracked in issue #71.
-        // markIngested() itself throws on a failed ingesting -> ingested rename, so it must sit inside
-        // the guard too rather than crash the whole drain when it propagates uncaught.
+        // The ingest AND the markIngested finalisation share ONE try so a deterministically-throwing job
+        // is parked rather than released back to done — otherwise it would be re-processed every drain
+        // (head-of-line starvation). markIngested() itself throws on a failed ingesting -> ingested
+        // rename, so it must sit inside the guard too rather than crash the whole drain. The park goes
+        // through parkFailed(), which likewise tolerates a park failure for the same reason.
         try {
             $result = $this->ingest->ingest($job->notices, $candidatesById, $store);
             $this->transport->markIngested(
@@ -180,9 +176,35 @@ class DrainService
 
             return DrainOutcome::ingested($result->matchesStored);
         } catch (Throwable) {
-            $this->transport->markFailed($job->jobId, 'ingest_failed');
+            $this->parkFailed($job->jobId, 'ingest_failed');
 
             return DrainOutcome::failed();
+        }
+    }
+
+    /**
+     * Parks a job under its failure category through the transport, tolerating a failure of the park
+     * itself. A park is a finalisation step that can throw: the file transport renames `ingesting/` ->
+     * `failed-ingest/` (a {@see \RuntimeException} when the rename fails), and any transport's park
+     * touches the queue filesystem. Swallowing a park failure here keeps one un-parkable job from
+     * aborting the whole drain — head-of-line starvation of the still-healthy jobs queued behind it.
+     * The un-parked job simply stays claimed for the next run or manual recovery (file: left in
+     * `ingesting/`, reported by staleCount; REST: the ledger entry survives and re-polls), a bounded,
+     * non-corrupting, self-healing degradation tracked in issue #71. This mirrors why the markIngested
+     * finalisation sits inside the ingest guard rather than crashing the drain.
+     *
+     * @param string $jobId          The job to park.
+     * @param string $reasonCategory The snake_case category classifying the failure.
+     *
+     * @return void
+     */
+    private function parkFailed(string $jobId, string $reasonCategory): void
+    {
+        try {
+            $this->transport->markFailed($jobId, $reasonCategory);
+        } catch (Throwable) {
+            // A park-rename/unlink fault must not abort the drain; the job stays claimed for the next
+            // run or manual recovery (file: counted by staleCount; REST: re-polls). Bounded — see #71.
         }
     }
 
