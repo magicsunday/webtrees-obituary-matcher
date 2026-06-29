@@ -12,9 +12,9 @@ declare(strict_types=1);
 namespace MagicSunday\ObituaryMatcher\Test\Queue;
 
 use DateTimeImmutable;
-use GuzzleHttp\Psr7\FnStream;
 use GuzzleHttp\Psr7\HttpFactory;
 use GuzzleHttp\Psr7\Response;
+use GuzzleHttp\Psr7\StreamDecoratorTrait;
 use GuzzleHttp\Psr7\Utils;
 use MagicSunday\ObituaryMatcher\Domain\DateRange;
 use MagicSunday\ObituaryMatcher\Domain\DeathNoticeRecord;
@@ -37,6 +37,7 @@ use MagicSunday\ObituaryMatcher\Support\FinderConnection;
 use MagicSunday\ObituaryMatcher\Support\ObituaryNameParser;
 use MagicSunday\ObituaryMatcher\Test\Support\TempDirTestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\Attributes\UsesClass;
 use Psr\Http\Client\ClientExceptionInterface;
@@ -50,6 +51,7 @@ use function array_fill;
 use function array_shift;
 use function iterator_to_array;
 use function json_encode;
+use function sort;
 use function str_contains;
 
 use const JSON_THROW_ON_ERROR;
@@ -268,6 +270,119 @@ final class RestJobTransportTest extends TempDirTestCase
     }
 
     /**
+     * The response body stream is released on its two value-returning read paths — the oversize-skip
+     * (read returns null) and the full read (read returns the contents) — rather than left open until
+     * garbage collection, so a long-running drain cannot accumulate sockets/file descriptors. A closed
+     * Guzzle stream reports `isReadable() === false`; the assertion runs while the test still holds the
+     * stream, so it reflects the transport's explicit close(), not a GC teardown. The third read exit
+     * path — a torn read — is pinned separately by {@see aTornBodyReadAlsoClosesTheStream()}.
+     *
+     * @param int $maxBytes         The response-body byte cap selecting the exit path.
+     * @param int $expectedOutcomes The number of outcomes the path is expected to yield.
+     *
+     * @return void
+     */
+    #[Test]
+    #[DataProvider('bodyStreamCloseScenarios')]
+    public function theResponseBodyStreamIsClosedAfterAnOversizeOrFullRead(int $maxBytes, int $expectedOutcomes): void
+    {
+        $ledger = new RestPendingLedger($this->tmp . '/rp');
+        $ledger->record('job-1', 7, ['I1'], '2024-05-21T08:29:55Z');
+
+        $stream = Utils::streamFor(json_encode($this->doneBody('job-1', 'I1'), JSON_THROW_ON_ERROR));
+        $http   = $this->http([
+            static fn (): ResponseInterface => new Response(200, ['Content-Type' => 'application/json'], $stream),
+        ]);
+
+        $outcomes = iterator_to_array($this->newRest($http, $ledger, $maxBytes)->fetchCompleted());
+
+        self::assertCount($expectedOutcomes, $outcomes);
+        self::assertFalse($stream->isReadable());
+    }
+
+    /**
+     * The two value-returning read exit paths of {@see RestJobTransport::fetchCompleted()}: an oversized
+     * body (cap below the body size) that is skipped, and a fully read body (production cap) that yields
+     * one CompletedJob.
+     *
+     * @return array<string, array{int, int}> The cap and the expected outcome count per path.
+     */
+    public static function bodyStreamCloseScenarios(): array
+    {
+        return [
+            'oversized body skipped (read returns null)'  => [50, 0],
+            'fully read body (read returns the contents)' => [5_242_880, 1],
+        ];
+    }
+
+    /**
+     * The third read exit path: a body read torn mid-stream (the PSR-7 stream throws on read) still
+     * closes the stream. This is the exact path the close was added for — a dropped connection a
+     * lazily-streaming client surfaces from read() — so the leak-prone branch is pinned explicitly. The
+     * recording stream counts close() calls without a destructor, so the count reflects only the
+     * transport's explicit close(), never a garbage-collection teardown.
+     *
+     * @return void
+     */
+    #[Test]
+    public function aTornBodyReadAlsoClosesTheStream(): void
+    {
+        $ledger = new RestPendingLedger($this->tmp . '/rp');
+        $ledger->record('job-1', 7, ['I1'], '2024-05-21T08:29:55Z');
+
+        $stream = $this->recordingStream('x', readThrows: true);
+        $http   = $this->http([
+            static fn (): ResponseInterface => new Response(200, ['Content-Type' => 'application/json'], $stream),
+        ]);
+
+        $outcomes = iterator_to_array($this->newRest($http, $ledger)->fetchCompleted());
+
+        self::assertCount(0, $outcomes);
+        self::assertSame(1, $stream->closeCalls);
+        self::assertSame(['job-1'], $ledger->jobIds());
+    }
+
+    /**
+     * A response body stream whose close() itself THROWS does not abort the drain: readCappedBody()
+     * guards the release so its documented no-throw isolation holds. A first job whose body reads back
+     * fully but whose close() throws still yields its CompletedJob (the swallowed close-fault never
+     * escapes), and a second pending job in the same drain still completes — proving the loop was not
+     * aborted. The response is routed by request URL so the assertion holds regardless of the unordered
+     * ledger scan.
+     *
+     * @return void
+     */
+    #[Test]
+    public function aThrowingStreamCloseDoesNotAbortTheDrain(): void
+    {
+        $ledger = new RestPendingLedger($this->tmp . '/rp');
+        $ledger->record('job-throwclose', 7, ['I1'], '2024-05-21T08:29:55Z');
+        $ledger->record('job-ok', 7, ['I1'], '2024-05-21T08:29:55Z');
+
+        $route = fn (RequestInterface $request): ResponseInterface => str_contains((string) $request->getUri(), 'job-throwclose')
+            ? new Response(
+                200,
+                ['Content-Type' => 'application/json'],
+                $this->recordingStream(json_encode($this->doneBody('job-throwclose', 'I1'), JSON_THROW_ON_ERROR), closeThrows: true)
+            )
+            : self::json(200, $this->doneBody('job-ok', 'I1'));
+
+        $transport = $this->newRest($this->http([$route, $route]), $ledger);
+        $outcomes  = iterator_to_array($transport->fetchCompleted());
+
+        $jobIds = [];
+
+        foreach ($outcomes as $outcome) {
+            self::assertInstanceOf(CompletedJob::class, $outcome);
+            $jobIds[] = $outcome->jobId;
+        }
+
+        sort($jobIds);
+
+        self::assertSame(['job-ok', 'job-throwclose'], $jobIds);
+    }
+
+    /**
      * A 200 whose `state` is not a string is skipped (it carries no usable lifecycle signal), leaving
      * the job in flight.
      *
@@ -322,7 +437,7 @@ final class RestJobTransportTest extends TempDirTestCase
         $ledger->record('job-ok', 7, ['I1'], '2024-05-21T08:29:55Z');
 
         $route = fn (RequestInterface $request): ResponseInterface => str_contains((string) $request->getUri(), 'job-torn')
-            ? new Response(200, [], $this->throwingStream())
+            ? new Response(200, [], $this->recordingStream('x', readThrows: true))
             : self::json(200, $this->doneBody('job-ok', 'I1'));
 
         $transport = $this->newRest($this->http([$route, $route]), $ledger);
@@ -770,19 +885,75 @@ final class RestJobTransportTest extends TempDirTestCase
     }
 
     /**
-     * Builds a body stream that throws on read, simulating a connection dropped mid-body (the fault a
-     * lazily-streaming PSR-18 client surfaces from read(), not from sendRequest()).
+     * Builds a PSR-7 body stream double that COUNTS close() calls (`$closeCalls`) and can be configured
+     * to throw on read (a torn mid-body read) or on close (a release fault). It decorates a real Guzzle
+     * stream via {@see StreamDecoratorTrait} and overrides only close()/read(); the trait supplies the
+     * remaining StreamInterface methods. The trait has NO `__destruct` (unlike
+     * {@see \GuzzleHttp\Psr7\FnStream}, whose destructor invokes the close handler), so `$closeCalls`
+     * reflects only the transport's EXPLICIT close(), never a garbage-collection teardown that would
+     * false-green a close assertion. A `readThrows: true` stream also serves the torn-read isolation
+     * test, so it is the suite's single throwing-read body double.
      *
-     * @return StreamInterface The throwing stream.
+     * @param string $body        The body bytes the stream serves.
+     * @param bool   $readThrows  Whether read() throws, simulating a connection dropped mid-body.
+     * @param bool   $closeThrows Whether close() throws, simulating a release fault.
+     *
+     * @return StreamInterface&object{closeCalls: int} The recording stream double.
      */
-    private function throwingStream(): StreamInterface
+    private function recordingStream(string $body, bool $readThrows = false, bool $closeThrows = false): StreamInterface
     {
-        return FnStream::decorate(
-            Utils::streamFor('payload'),
-            [
-                'eof'  => static fn (): bool => false,
-                'read' => static fn (): string => throw new RuntimeException('connection reset mid-body'),
-            ]
-        );
+        return new class(Utils::streamFor($body), $readThrows, $closeThrows) implements StreamInterface {
+            use StreamDecoratorTrait;
+
+            /**
+             * @var int The number of explicit close() calls the transport made.
+             */
+            public int $closeCalls = 0;
+
+            /**
+             * @param StreamInterface $stream      The real stream the trait delegates the unoverridden methods to.
+             * @param bool            $readThrows  Whether read() throws (a torn mid-body read).
+             * @param bool            $closeThrows Whether close() throws (a release fault).
+             */
+            public function __construct(
+                private StreamInterface $stream,
+                private bool $readThrows,
+                private bool $closeThrows,
+            ) {
+            }
+
+            /**
+             * Records the call, optionally throws to simulate a release fault, then releases the real
+             * stream.
+             *
+             * @return void
+             */
+            public function close(): void
+            {
+                ++$this->closeCalls;
+
+                if ($this->closeThrows) {
+                    throw new RuntimeException('stream close failed');
+                }
+
+                $this->stream->close();
+            }
+
+            /**
+             * Reads from the real stream, or throws to simulate a connection dropped mid-body.
+             *
+             * @param int $length The maximum number of bytes to read.
+             *
+             * @return string The next body chunk.
+             */
+            public function read(int $length): string
+            {
+                if ($this->readThrows) {
+                    throw new RuntimeException('connection reset mid-body');
+                }
+
+                return $this->stream->read($length);
+            }
+        };
     }
 }

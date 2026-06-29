@@ -508,6 +508,25 @@ final readonly class RestJobTransport implements JobTransport
         } catch (Throwable) {
             // A torn/interrupted body read is isolated like any other unusable body: skip, never abort.
             return null;
+        } finally {
+            // Release the body stream on every exit path — oversize, torn read, or full read. A
+            // lazily-streaming PSR-18 client holds the underlying socket open until the stream is
+            // closed, so leaving it to garbage collection would accumulate sockets/file descriptors
+            // across a long-running drain. $contents is already an in-memory copy, so closing here
+            // does not affect the returned value.
+            //
+            // The close() is itself guarded: it must NOT break this method's documented no-throw
+            // isolation. fetchCompleted() and submit()/assertAcknowledged() rely on readCappedBody()
+            // never throwing (a single bad body is skipped, never aborting the drain or failing an
+            // already-accepted submission). A client whose stream close() throws — or, under webtrees'
+            // warning-to-exception handler, warns — would otherwise escape the very catch above and
+            // defeat that isolation, so a close failure is swallowed (its only cost is the resource
+            // lifetime the close was added to bound).
+            try {
+                $stream->close();
+            } catch (Throwable) {
+                // Intentionally swallowed: a failed release must not abort the poll/submit loop.
+            }
         }
 
         return $contents;
