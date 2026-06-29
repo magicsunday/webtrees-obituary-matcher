@@ -15,7 +15,6 @@ use InvalidArgumentException;
 use SensitiveParameter;
 
 use function in_array;
-use function is_array;
 use function is_string;
 use function parse_url;
 use function preg_match;
@@ -69,16 +68,19 @@ final readonly class FinderConnection
      *
      * @return self The REST-transport connection.
      *
-     * @throws InvalidArgumentException When the base URL is not an http(s) URL, carries a control
-     *                                  character or embeds credentials (a userinfo component), or when
-     *                                  the token carries a control character. The base URL and token both
-     *                                  flow into an outbound request line, so a control character would
-     *                                  make a PSR-7 build throw (spilling a value into the throwing
+     * @throws InvalidArgumentException When the base URL is not an http(s) URL, has no host, carries a
+     *                                  control character or embeds credentials (a userinfo component), or
+     *                                  when the token carries a control character. The base URL and token
+     *                                  both flow into an outbound request line, so a control character
+     *                                  would make a PSR-7 build throw (spilling a value into the throwing
      *                                  frame's arguments) or, on a non-validating client, inject a CRLF
-     *                                  header; a `user:pass@host` userinfo component would carry a secret
-     *                                  the credentials belong only in the bearer header, and the base URL
-     *                                  is echoed into transport error messages. All rejected at this
-     *                                  single source. The message never echoes the token or the credentials.
+     *                                  header. A userinfo component embeds a secret in the base URL, which
+     *                                  is echoed into transport error messages — credentials belong only
+     *                                  in the bearer header. The host requirement also rejects the
+     *                                  scheme-opaque `https:user:pass@host` form (no authority), where the
+     *                                  credentials hide in the path and the userinfo check alone misses
+     *                                  them. All rejected at this single source; the message never echoes
+     *                                  the token or the credentials.
      */
     public static function rest(string $baseUrl, #[SensitiveParameter] ?string $token): self
     {
@@ -86,8 +88,13 @@ final readonly class FinderConnection
             throw new InvalidArgumentException('The finder base URL must not contain control characters.');
         }
 
-        $parts  = parse_url($baseUrl);
-        $scheme = is_array($parts) ? ($parts['scheme'] ?? null) : null;
+        $parts = parse_url($baseUrl);
+
+        if ($parts === false) {
+            throw new InvalidArgumentException('The finder base URL must be an http or https URL.');
+        }
+
+        $scheme = $parts['scheme'] ?? null;
 
         if (
             !is_string($scheme)
@@ -96,10 +103,23 @@ final readonly class FinderConnection
             throw new InvalidArgumentException('The finder base URL must be an http or https URL.');
         }
 
+        // A valid REST base URL must carry an explicit authority (host). Requiring it also rejects the
+        // scheme-opaque `https:user:pass@host` form (no `//`), where parse_url puts `user:pass@host` in
+        // the path with no host and no user/pass keys — a userinfo-smuggling gap the user/pass check
+        // alone would miss, letting the embedded credentials reach a transport error message.
+        $host = $parts['host'] ?? null;
+
+        if (
+            !is_string($host)
+            || ($host === '')
+        ) {
+            throw new InvalidArgumentException('The finder base URL must include a host.');
+        }
+
         // Credentials must travel only in the Authorization header. A userinfo component
         // (https://user:pass@host) embeds a secret in the base URL, which is echoed verbatim into a
         // transport error message (and thence a log line or cron mail) — reject it at the source so the
-        // credentials-in-URL anti-pattern can never reach the error path.
+        // canonical credentials-in-URL anti-pattern never reaches the error path.
         if (
             isset($parts['user'])
             || isset($parts['pass'])

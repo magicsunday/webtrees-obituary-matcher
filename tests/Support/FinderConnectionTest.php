@@ -143,4 +143,22 @@ final class FinderConnectionTest extends TestCase
             self::assertStringNotContainsString('user', $exception->getMessage());
         }
     }
+
+    /**
+     * The scheme-opaque `https:user:pass@host` form (no `//` authority) is rejected without echoing the
+     * credentials: parse_url puts `user:pass@host` in the path with no host and no user/pass keys, so the
+     * host requirement — not the userinfo check — is what closes this credentials-smuggling form.
+     *
+     * @return void
+     */
+    #[Test]
+    public function aSchemeOpaqueCredentialsFormIsRejectedWithoutEchoingThem(): void
+    {
+        try {
+            FinderConnection::rest('https:user:s3cr3t@finder.example', null);
+            self::fail('Expected an InvalidArgumentException for a scheme-opaque credentials base URL.');
+        } catch (InvalidArgumentException $exception) {
+            self::assertStringNotContainsString('s3cr3t', $exception->getMessage());
+        }
+    }
 }
