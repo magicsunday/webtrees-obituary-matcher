@@ -158,10 +158,14 @@ class DrainService
         $candidatesById = $this->repository->findByXrefs($tree, $job->requestedPersonIds);
 
         // The ingest AND the markIngested finalisation share ONE try so a deterministically-throwing
-        // job is terminally parked (markFailed), never released back to done — otherwise it would be
-        // re-claimed every drain forever (head-of-line starvation). markIngested() itself throws on a
-        // failed ingesting -> ingested rename, so it must sit inside the guard too rather than crash
-        // the whole drain when it propagates uncaught.
+        // job is parked (markFailed), never released back to done — otherwise it would be re-processed
+        // every drain (head-of-line starvation). The park is terminal for the file transport (an atomic
+        // ingesting -> failed-ingest rename). For the REST transport markFailed removes the ledger entry,
+        // which is terminal too UNLESS the unlink itself fails (a read-only/permission-denied ledger
+        // filesystem — the same fault that triggered the ingest throw): the entry then survives and the
+        // job re-polls, a bounded, non-corrupting, self-healing degradation tracked in issue #71.
+        // markIngested() itself throws on a failed ingesting -> ingested rename, so it must sit inside
+        // the guard too rather than crash the whole drain when it propagates uncaught.
         try {
             $result = $this->ingest->ingest($job->notices, $candidatesById, $store);
             $this->transport->markIngested(
