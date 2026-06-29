@@ -21,6 +21,7 @@ use Fisharebest\Webtrees\I18N;
 use Fisharebest\Webtrees\Services\GedcomImportService;
 use Fisharebest\Webtrees\Services\TreeService;
 use Fisharebest\Webtrees\Validator;
+use InvalidArgumentException;
 use MagicSunday\ObituaryMatcher\Queue\QueueClient;
 use MagicSunday\ObituaryMatcher\Queue\QueuePaths;
 use MagicSunday\ObituaryMatcher\Support\FinderConnection;
@@ -155,9 +156,10 @@ class ObituaryControlPanelHandler implements RequestHandlerInterface
         $action = Validator::parsedBody($request)->string('action', '');
 
         return match ($action) {
-            'save'    => $this->saveSettings($request),
-            'trigger' => $this->triggerFeeder($request),
-            default   => redirect(route(self::ROUTE_NAME)),
+            'save'        => $this->saveSettings($request),
+            'save-finder' => $this->saveFinder($request),
+            'trigger'     => $this->triggerFeeder($request),
+            default       => redirect(route(self::ROUTE_NAME)),
         };
     }
 
@@ -187,6 +189,59 @@ class ObituaryControlPanelHandler implements RequestHandlerInterface
         } else {
             FlashMessages::addMessage(I18N::translate('Settings could not be saved.'), 'danger');
         }
+
+        return redirect(route(self::ROUTE_NAME));
+    }
+
+    /**
+     * Strictly persists the one finder connection. The `file` transport writes only `finder_transport`
+     * and deliberately leaves any stored `finder_base_url`/`finder_token` intact, so a file↔rest toggle
+     * keeps the REST data. The `rest` transport validates the base URL and (when present) the token at
+     * the single {@see FinderConnection::rest()} source FIRST: on a validation failure NOTHING is
+     * persisted (both-or-neither) and a danger flash is shown; on success the transport and base URL are
+     * written, and the token is set only when one was supplied (a blank field keeps the existing token)
+     * or explicitly cleared by the remove flag. The token VALUE is never logged, flashed or echoed.
+     * Always PRG-redirects.
+     *
+     * @param ServerRequestInterface $request The incoming POST request.
+     *
+     * @return ResponseInterface The redirect response.
+     */
+    private function saveFinder(ServerRequestInterface $request): ResponseInterface
+    {
+        $transport = Validator::parsedBody($request)->string('transport', 'file');
+
+        if ($transport !== 'rest') {
+            $this->module->setPreference('finder_transport', 'file');
+            FlashMessages::addMessage(I18N::translate('Finder connection saved.'), 'success');
+
+            return redirect(route(self::ROUTE_NAME));
+        }
+
+        $baseUrl  = Validator::parsedBody($request)->string('base_url', '');
+        $tokenRaw = Validator::parsedBody($request)->string('token', '');
+        $remove   = Validator::parsedBody($request)->boolean('remove_token', false);
+
+        try {
+            // Validate BOTH the base URL and a non-empty token's control characters in one go; the
+            // returned object is not needed because persistence stores the flat preferences.
+            FinderConnection::rest($baseUrl, $tokenRaw === '' ? null : $tokenRaw);
+        } catch (InvalidArgumentException) {
+            FlashMessages::addMessage(I18N::translate('The finder connection could not be saved.'), 'danger');
+
+            return redirect(route(self::ROUTE_NAME));
+        }
+
+        $this->module->setPreference('finder_transport', 'rest');
+        $this->module->setPreference('finder_base_url', $baseUrl);
+
+        if ($remove) {
+            $this->module->setPreference('finder_token', '');
+        } elseif ($tokenRaw !== '') {
+            $this->module->setPreference('finder_token', $tokenRaw);
+        }
+
+        FlashMessages::addMessage(I18N::translate('Finder connection saved.'), 'success');
 
         return redirect(route(self::ROUTE_NAME));
     }

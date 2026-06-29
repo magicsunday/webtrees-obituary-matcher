@@ -443,6 +443,118 @@ final class ObituaryControlPanelHandlerTest extends AbstractEnqueueTestCase
     }
 
     /**
+     * The save-finder action persists a valid REST connection: the transport, the base URL and the
+     * token are all written and the handler PRG-redirects.
+     *
+     * @return void
+     */
+    #[Test]
+    public function saveFinderPersistsAValidRestConnection(): void
+    {
+        $response = $this->handler()->handle($this->panelPost([
+            'action'    => 'save-finder',
+            'transport' => 'rest',
+            'base_url'  => 'https://finder.example',
+            'token'     => 'secret',
+        ]));
+
+        self::assertSame(StatusCodeInterface::STATUS_FOUND, $response->getStatusCode());
+        self::assertSame('rest', $this->module->getPreference('finder_transport'));
+        self::assertSame('https://finder.example', $this->module->getPreference('finder_base_url'));
+        self::assertSame('secret', $this->module->getPreference('finder_token'));
+    }
+
+    /**
+     * The save-finder action rejects an invalid base URL strictly: NEITHER the transport, the base URL
+     * nor the token is written (both-or-neither), and the handler still PRG-redirects.
+     *
+     * @return void
+     */
+    #[Test]
+    public function saveFinderRejectsAnInvalidBaseUrlAndWritesNothing(): void
+    {
+        $response = $this->handler()->handle($this->panelPost([
+            'action'    => 'save-finder',
+            'transport' => 'rest',
+            'base_url'  => 'ftp://x',
+            'token'     => 'secret',
+        ]));
+
+        self::assertSame(StatusCodeInterface::STATUS_FOUND, $response->getStatusCode());
+        // Nothing persisted: every preference resolves to its unset default.
+        self::assertSame('', $this->module->getPreference('finder_transport'));
+        self::assertSame('', $this->module->getPreference('finder_base_url'));
+        self::assertSame('', $this->module->getPreference('finder_token'));
+    }
+
+    /**
+     * A blank token on a valid REST save leaves the existing token untouched (a blank field is "keep",
+     * not "clear").
+     *
+     * @return void
+     */
+    #[Test]
+    public function saveFinderBlankTokenKeepsTheExistingToken(): void
+    {
+        $this->module->setPreference('finder_token', 'old');
+
+        $this->handler()->handle($this->panelPost([
+            'action'    => 'save-finder',
+            'transport' => 'rest',
+            'base_url'  => 'https://finder.example',
+            'token'     => '',
+        ]));
+
+        self::assertSame('rest', $this->module->getPreference('finder_transport'));
+        self::assertSame('https://finder.example', $this->module->getPreference('finder_base_url'));
+        self::assertSame('old', $this->module->getPreference('finder_token'));
+    }
+
+    /**
+     * The explicit remove-token flag clears the stored token on a valid REST save.
+     *
+     * @return void
+     */
+    #[Test]
+    public function saveFinderRemoveTokenClearsIt(): void
+    {
+        $this->module->setPreference('finder_token', 'old');
+
+        $this->handler()->handle($this->panelPost([
+            'action'       => 'save-finder',
+            'transport'    => 'rest',
+            'base_url'     => 'https://finder.example',
+            'token'        => '',
+            'remove_token' => '1',
+        ]));
+
+        self::assertSame('rest', $this->module->getPreference('finder_transport'));
+        self::assertSame('', $this->module->getPreference('finder_token'));
+    }
+
+    /**
+     * Selecting the file transport persists `finder_transport=file` but leaves a previously stored REST
+     * base URL and token intact, so a file↔rest toggle keeps the REST data.
+     *
+     * @return void
+     */
+    #[Test]
+    public function saveFinderFileKeepsStoredRestData(): void
+    {
+        $this->module->setPreference('finder_base_url', 'https://finder.example');
+        $this->module->setPreference('finder_token', 'old');
+
+        $this->handler()->handle($this->panelPost([
+            'action'    => 'save-finder',
+            'transport' => 'file',
+        ]));
+
+        self::assertSame('file', $this->module->getPreference('finder_transport'));
+        self::assertSame('https://finder.example', $this->module->getPreference('finder_base_url'));
+        self::assertSame('old', $this->module->getPreference('finder_token'));
+    }
+
+    /**
      * Builds the handler under test, seamed onto the throwaway test queue root so the trigger path runs
      * the REAL EnqueueService wiring against the isolated queue.
      *
