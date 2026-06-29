@@ -14,7 +14,6 @@ namespace MagicSunday\ObituaryMatcher\Test\Queue;
 use DateTimeImmutable;
 use GuzzleHttp\Psr7\HttpFactory;
 use GuzzleHttp\Psr7\Response;
-use GuzzleHttp\Psr7\StreamDecoratorTrait;
 use GuzzleHttp\Psr7\Utils;
 use MagicSunday\ObituaryMatcher\Domain\DateRange;
 use MagicSunday\ObituaryMatcher\Domain\DeathNoticeRecord;
@@ -24,6 +23,7 @@ use MagicSunday\ObituaryMatcher\Domain\PersonName;
 use MagicSunday\ObituaryMatcher\Domain\Place;
 use MagicSunday\ObituaryMatcher\Parsing\ObituaryDateParser;
 use MagicSunday\ObituaryMatcher\Queue\AtomicFile;
+use MagicSunday\ObituaryMatcher\Queue\CappedJsonBodyReader;
 use MagicSunday\ObituaryMatcher\Queue\CompletedJob;
 use MagicSunday\ObituaryMatcher\Queue\FailedJob;
 use MagicSunday\ObituaryMatcher\Queue\QueuePaths;
@@ -44,11 +44,9 @@ use Psr\Http\Client\ClientExceptionInterface;
 use Psr\Http\Client\ClientInterface;
 use Psr\Http\Message\RequestInterface;
 use Psr\Http\Message\ResponseInterface;
-use Psr\Http\Message\StreamInterface;
 use RuntimeException;
 
 use function array_fill;
-use function array_shift;
 use function iterator_to_array;
 use function json_encode;
 use function sort;
@@ -69,6 +67,7 @@ use const JSON_THROW_ON_ERROR;
  */
 #[CoversClass(RestJobTransport::class)]
 #[UsesClass(RestPendingLedger::class)]
+#[UsesClass(CappedJsonBodyReader::class)]
 #[UsesClass(AtomicFile::class)]
 #[UsesClass(QueuePaths::class)]
 #[UsesClass(CompletedJob::class)]
@@ -88,6 +87,8 @@ use const JSON_THROW_ON_ERROR;
 #[UsesClass(ObituaryDateParser::class)]
 final class RestJobTransportTest extends TempDirTestCase
 {
+    use ScriptableHttpClientTrait;
+
     /**
      * A job submitted and then polled queued -> running -> done surfaces exactly one CompletedJob once
      * the remote reports `done`, and nothing while it is still running.
@@ -816,144 +817,5 @@ final class RestJobTransportTest extends TempDirTestCase
                 ],
             ],
         ];
-    }
-
-    /**
-     * A scriptable PSR-18 client: each scripted callable is consumed in order and produces (or throws)
-     * the next response, while every sent request is captured in the public $sent list for assertions.
-     *
-     * @param list<callable(RequestInterface): ResponseInterface> $script The scripted responders, in order.
-     *
-     * @return ClientInterface&object{sent: list<RequestInterface>} The capturing client double.
-     */
-    private function http(array $script): ClientInterface
-    {
-        return new class($script) implements ClientInterface {
-            /**
-             * @var list<RequestInterface> The requests the transport sent, in order.
-             */
-            public array $sent = [];
-
-            /**
-             * @param list<callable(RequestInterface): ResponseInterface> $script The scripted responders.
-             */
-            public function __construct(private array $script)
-            {
-            }
-
-            /**
-             * {@inheritDoc}
-             */
-            public function sendRequest(RequestInterface $request): ResponseInterface
-            {
-                $this->sent[] = $request;
-                $next         = array_shift($this->script);
-
-                if ($next === null) {
-                    throw new RuntimeException('Unexpected request: ' . $request->getMethod() . ' ' . $request->getUri());
-                }
-
-                return $next($request);
-            }
-        };
-    }
-
-    /**
-     * Builds a JSON response with the given status and decoded body.
-     *
-     * @param int                  $status The HTTP status code.
-     * @param array<string, mixed> $data   The body to JSON-encode.
-     *
-     * @return ResponseInterface The JSON response.
-     */
-    private static function json(int $status, array $data): ResponseInterface
-    {
-        return new Response($status, ['Content-Type' => 'application/json'], json_encode($data, JSON_THROW_ON_ERROR));
-    }
-
-    /**
-     * Builds a response with a raw (possibly non-JSON) body, for the undecodable-body path.
-     *
-     * @param int    $status The HTTP status code.
-     * @param string $body   The raw body bytes.
-     *
-     * @return ResponseInterface The response.
-     */
-    private static function raw(int $status, string $body): ResponseInterface
-    {
-        return new Response($status, ['Content-Type' => 'application/json'], $body);
-    }
-
-    /**
-     * Builds a PSR-7 body stream double that COUNTS close() calls (`$closeCalls`) and can be configured
-     * to throw on read (a torn mid-body read) or on close (a release fault). It decorates a real Guzzle
-     * stream via {@see StreamDecoratorTrait} and overrides only close()/read(); the trait supplies the
-     * remaining StreamInterface methods. The trait has NO `__destruct` (unlike
-     * {@see \GuzzleHttp\Psr7\FnStream}, whose destructor invokes the close handler), so `$closeCalls`
-     * reflects only the transport's EXPLICIT close(), never a garbage-collection teardown that would
-     * false-green a close assertion. A `readThrows: true` stream also serves the torn-read isolation
-     * test, so it is the suite's single throwing-read body double.
-     *
-     * @param string $body        The body bytes the stream serves.
-     * @param bool   $readThrows  Whether read() throws, simulating a connection dropped mid-body.
-     * @param bool   $closeThrows Whether close() throws, simulating a release fault.
-     *
-     * @return StreamInterface&object{closeCalls: int} The recording stream double.
-     */
-    private function recordingStream(string $body, bool $readThrows = false, bool $closeThrows = false): StreamInterface
-    {
-        return new class(Utils::streamFor($body), $readThrows, $closeThrows) implements StreamInterface {
-            use StreamDecoratorTrait;
-
-            /**
-             * @var int The number of explicit close() calls the transport made.
-             */
-            public int $closeCalls = 0;
-
-            /**
-             * @param StreamInterface $stream      The real stream the trait delegates the unoverridden methods to.
-             * @param bool            $readThrows  Whether read() throws (a torn mid-body read).
-             * @param bool            $closeThrows Whether close() throws (a release fault).
-             */
-            public function __construct(
-                private StreamInterface $stream,
-                private bool $readThrows,
-                private bool $closeThrows,
-            ) {
-            }
-
-            /**
-             * Records the call, optionally throws to simulate a release fault, then releases the real
-             * stream.
-             *
-             * @return void
-             */
-            public function close(): void
-            {
-                ++$this->closeCalls;
-
-                if ($this->closeThrows) {
-                    throw new RuntimeException('stream close failed');
-                }
-
-                $this->stream->close();
-            }
-
-            /**
-             * Reads from the real stream, or throws to simulate a connection dropped mid-body.
-             *
-             * @param int $length The maximum number of bytes to read.
-             *
-             * @return string The next body chunk.
-             */
-            public function read(int $length): string
-            {
-                if ($this->readThrows) {
-                    throw new RuntimeException('connection reset mid-body');
-                }
-
-                return $this->stream->read($length);
-            }
-        };
     }
 }
