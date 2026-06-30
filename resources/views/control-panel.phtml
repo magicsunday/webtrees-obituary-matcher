@@ -78,7 +78,7 @@ $statusLabels = [
         <input type="text" id="base_url" name="base_url" value="<?= e($finder->baseUrl) ?>">
 
         <label for="token"><?= e(I18N::translate('Access token')) ?></label>
-        <input type="password" id="token" name="token" autocomplete="off">
+        <input type="password" id="token" name="token" autocomplete="new-password">
         <p><?= $finder->tokenIsSet ? e(I18N::translate('A token is set.')) : e(I18N::translate('No token set.')) ?></p>
 
         <label>
