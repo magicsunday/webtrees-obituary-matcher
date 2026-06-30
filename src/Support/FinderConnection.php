@@ -11,6 +11,8 @@ declare(strict_types=1);
 
 namespace MagicSunday\ObituaryMatcher\Support;
 
+use GuzzleHttp\Psr7\Exception\MalformedUriException;
+use GuzzleHttp\Psr7\Uri;
 use InvalidArgumentException;
 use SensitiveParameter;
 
@@ -18,6 +20,7 @@ use function in_array;
 use function is_string;
 use function parse_url;
 use function preg_match;
+use function rtrim;
 use function strtolower;
 
 /**
@@ -69,8 +72,10 @@ final readonly class FinderConnection
      * @return self The REST-transport connection.
      *
      * @throws InvalidArgumentException When the base URL is not an http(s) URL, has no host, carries a
-     *                                  control character or embeds credentials (a userinfo component), or
-     *                                  when the token carries a control character. The base URL and token
+     *                                  control character, embeds credentials (a userinfo component) or is
+     *                                  not a buildable PSR-7 URI (an RFC-illegal host parse_url tolerates
+     *                                  but the request build rejects), or when the token carries a control
+     *                                  character. The base URL and token
      *                                  both flow into an outbound request line, so a control character
      *                                  would make a PSR-7 build throw (spilling a value into the throwing
      *                                  frame's arguments) or, on a non-validating client, inject a CRLF
@@ -132,6 +137,21 @@ final readonly class FinderConnection
             && (preg_match('/[\x00-\x1F\x7F]/', $token) === 1)
         ) {
             throw new InvalidArgumentException('The finder bearer token must not contain control characters.');
+        }
+
+        // parse_url is lenient: it accepts an RFC-illegal host such as `ho st` (an embedded space), so the
+        // checks above pass. The probe and the live transport, however, build their request URL as the base
+        // plus an endpoint path and feed it to the PSR-7 factory, whose stricter reparse then throws a
+        // MalformedUriException — an InvalidArgumentException that is NOT a ClientExceptionInterface, so it
+        // escapes the probe's catch and crashes the live drain once the connection is persisted. Validate
+        // the URL through the same PSR-7 builder here (over a representative endpoint path, mirroring how
+        // every consumer assembles it) so an unbuildable base URL is rejected at this single source and no
+        // consumer's request build can throw. The build is faithful by construction — no hand-rolled host
+        // regex that would diverge from what Guzzle actually accepts (it tolerates `_`, `|`, IDN hosts).
+        try {
+            new Uri(rtrim($baseUrl, '/') . '/capabilities');
+        } catch (MalformedUriException $exception) {
+            throw new InvalidArgumentException('The finder base URL is not a valid URI.', 0, $exception);
         }
 
         return new self('rest', $baseUrl, $token);
