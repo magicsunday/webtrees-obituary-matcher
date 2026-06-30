@@ -148,4 +148,27 @@ final class FinderPortalTest extends TestCase
         self::assertNotNull($portal);
         self::assertSame([], $portal->regions);
     }
+
+    /**
+     * The id validator is anchored with `/D`, so a trailing newline is NOT swallowed by `$`: an
+     * otherwise-pattern-matching id carrying a `\n` fails the anchor and drops the whole entry.
+     */
+    #[Test]
+    public function aTrailingNewlineInTheIdDropsTheWholeEntry(): void
+    {
+        self::assertNull(FinderPortal::tryFromArray(['id' => "p\n"]));
+    }
+
+    /**
+     * The country validator is anchored with `/D`, so a trailing newline is NOT swallowed by `$`: a
+     * `DE\n` value fails the anchor and is dropped to null while the portal survives.
+     */
+    #[Test]
+    public function aTrailingNewlineInTheCountryIsNull(): void
+    {
+        $portal = FinderPortal::tryFromArray(['id' => 'p', 'country' => "DE\n"]);
+
+        self::assertNotNull($portal);
+        self::assertNull($portal->country);
+    }
 }

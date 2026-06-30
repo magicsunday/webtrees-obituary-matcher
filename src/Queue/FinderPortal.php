@@ -62,7 +62,7 @@ final readonly class FinderPortal
 
         if (
             !is_string($id)
-            || (preg_match('/^[a-z0-9][a-z0-9_.-]{0,63}$/', $id) !== 1)
+            || (preg_match('/^[a-z0-9][a-z0-9_.-]{0,63}$/D', $id) !== 1)
         ) {
             return null;
         }
@@ -80,7 +80,7 @@ final readonly class FinderPortal
 
         if (
             !is_string($country)
-            || (preg_match('/^[A-Z]{2}$/', $country) !== 1)
+            || (preg_match('/^[A-Z]{2}$/D', $country) !== 1)
         ) {
             $country = null;
         }
