@@ -41,7 +41,7 @@ final class CapabilitiesProbeResultTest extends TestCase
      */
     private function caps(): FinderCapabilities
     {
-        $caps = FinderCapabilities::fromArray([
+        $caps = FinderCapabilities::tryFromArray([
             'finderId'         => 'finder-1',
             'retentionSeconds' => 86_400,
             'schemaVersions'   => [1],

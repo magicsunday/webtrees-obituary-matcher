@@ -35,7 +35,7 @@ final class FinderCapabilitiesTest extends TestCase
     #[Test]
     public function aWellFormedBodyNarrows(): void
     {
-        $caps = FinderCapabilities::fromArray([
+        $caps = FinderCapabilities::tryFromArray([
             'finderId'         => 'finder-1',
             'finderVersion'    => '1.0.0',
             'retentionSeconds' => 86_400,
@@ -58,7 +58,7 @@ final class FinderCapabilitiesTest extends TestCase
     #[Test]
     public function aMissingRequiredKeyIsInvalid(): void
     {
-        self::assertNull(FinderCapabilities::fromArray([
+        self::assertNull(FinderCapabilities::tryFromArray([
             'retentionSeconds' => 10,
             'schemaVersions'   => [1],
             'portals'          => [['id' => 'p']],
@@ -69,7 +69,7 @@ final class FinderCapabilitiesTest extends TestCase
     #[Test]
     public function aNonStringListNoticeFieldsIsInvalid(): void
     {
-        self::assertNull(FinderCapabilities::fromArray([
+        self::assertNull(FinderCapabilities::tryFromArray([
             'finderId'         => 'f',
             'retentionSeconds' => 10,
             'schemaVersions'   => [1],
@@ -82,7 +82,7 @@ final class FinderCapabilitiesTest extends TestCase
     #[Test]
     public function noValidPortalIsInvalid(): void
     {
-        self::assertNull(FinderCapabilities::fromArray([
+        self::assertNull(FinderCapabilities::tryFromArray([
             'finderId'         => 'f',
             'retentionSeconds' => 10,
             'schemaVersions'   => [1],
@@ -94,7 +94,7 @@ final class FinderCapabilitiesTest extends TestCase
     #[Test]
     public function aBadSchemaVersionEntryIsDroppedNotInvalid(): void
     {
-        $caps = FinderCapabilities::fromArray([
+        $caps = FinderCapabilities::tryFromArray([
             'finderId'         => 'f',
             'retentionSeconds' => 10,
             'schemaVersions'   => [1, 'x', 2, 9999],   // 'x' non-int + 9999 out-of-range → dropped
@@ -109,7 +109,7 @@ final class FinderCapabilitiesTest extends TestCase
     #[Test]
     public function aNonStringNoticeFieldElementIsInvalid(): void
     {
-        self::assertNull(FinderCapabilities::fromArray([
+        self::assertNull(FinderCapabilities::tryFromArray([
             'finderId'         => 'f',
             'retentionSeconds' => 10,
             'schemaVersions'   => [1],
@@ -122,7 +122,7 @@ final class FinderCapabilitiesTest extends TestCase
     #[Test]
     public function featuresKeepsOnlyStringKeyedBooleans(): void
     {
-        $caps = FinderCapabilities::fromArray([
+        $caps = FinderCapabilities::tryFromArray([
             'finderId'         => 'f',
             'retentionSeconds' => 10,
             'schemaVersions'   => [1],
@@ -138,14 +138,14 @@ final class FinderCapabilitiesTest extends TestCase
     #[Test]
     public function aRetentionSecondsOutOfRangeIsInvalid(): void
     {
-        self::assertNull(FinderCapabilities::fromArray([
+        self::assertNull(FinderCapabilities::tryFromArray([
             'finderId'         => 'f',
             'retentionSeconds' => 0,                 // below the inclusive 1 floor
             'schemaVersions'   => [1],
             'portals'          => [['id' => 'p']],
         ]));
 
-        self::assertNull(FinderCapabilities::fromArray([
+        self::assertNull(FinderCapabilities::tryFromArray([
             'finderId'         => 'f',
             'retentionSeconds' => '86400',           // wrong type (string, not int)
             'schemaVersions'   => [1],
@@ -157,7 +157,7 @@ final class FinderCapabilitiesTest extends TestCase
     #[Test]
     public function aSchemaVersionsWithNoSurvivingIntIsInvalid(): void
     {
-        self::assertNull(FinderCapabilities::fromArray([
+        self::assertNull(FinderCapabilities::tryFromArray([
             'finderId'         => 'f',
             'retentionSeconds' => 10,
             'schemaVersions'   => ['x', 9999],       // 'x' non-int + 9999 out-of-range → none survive

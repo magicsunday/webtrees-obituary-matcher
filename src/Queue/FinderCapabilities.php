@@ -84,7 +84,7 @@ final readonly class FinderCapabilities
      *
      * @return self|null The narrowed capabilities, or null when the document is invalid.
      */
-    public static function fromArray(array $body): ?self
+    public static function tryFromArray(array $body): ?self
     {
         $finderId = $body['finderId'] ?? null;
 

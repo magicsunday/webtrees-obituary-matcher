@@ -22,7 +22,7 @@ use function rtrim;
 /**
  * A pure PSR-18 probe that asks a finder service for its advertised capabilities: it sends
  * `GET {baseUrl}/capabilities`, reads the body under a byte cap, narrows it through
- * {@see FinderCapabilities::fromArray()} and maps the whole exchange onto a {@see CapabilitiesProbeResult}.
+ * {@see FinderCapabilities::tryFromArray()} and maps the whole exchange onto a {@see CapabilitiesProbeResult}.
  * The probe NEVER throws out of {@see self::probe()} — a transport fault, a non-success status, an
  * unreadable/oversized/torn body and a body that fails to narrow are each turned into a result, so the
  * admin UI that drives the probe always receives an outcome rather than an exception.
@@ -100,7 +100,7 @@ final readonly class FinderCapabilitiesProbe
             return CapabilitiesProbeResult::invalid();
         }
 
-        $capabilities = FinderCapabilities::fromArray($body);
+        $capabilities = FinderCapabilities::tryFromArray($body);
 
         if (!$capabilities instanceof FinderCapabilities) {
             return CapabilitiesProbeResult::invalid();
