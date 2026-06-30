@@ -164,4 +164,16 @@ final class FinderCapabilitiesTest extends TestCase
             'portals'          => [['id' => 'p']],
         ]));
     }
+
+    /** schemaVersions present but NOT an array (a bare scalar) is invalid: the field is required, so the non-array branch differs from the tolerant per-element drop. */
+    #[Test]
+    public function aNonArraySchemaVersionsIsInvalid(): void
+    {
+        self::assertNull(FinderCapabilities::tryFromArray([
+            'finderId'         => 'f',
+            'retentionSeconds' => 10,
+            'schemaVersions'   => '1',               // a bare scalar, not a list → field-required null path
+            'portals'          => [['id' => 'p']],
+        ]));
+    }
 }
