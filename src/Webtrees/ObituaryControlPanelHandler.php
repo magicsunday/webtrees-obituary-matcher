@@ -218,8 +218,9 @@ class ObituaryControlPanelHandler implements RequestHandlerInterface
      * validated at the single {@see FinderConnection::rest()} source FIRST: on a validation failure
      * NOTHING is persisted (both-or-neither) and a danger flash is shown; on success the base URL is
      * written, and the token is set only when one was supplied (a blank field keeps the existing token)
-     * or explicitly cleared by the remove flag. The token VALUE is never logged, flashed or echoed.
-     * Always PRG-redirects.
+     * or explicitly cleared by the remove flag. The token VALUE is never logged, flashed or echoed. A
+     * successful save also records the `finder_transport === 'rest'` consent marker that activates the
+     * connection in {@see self::finderConnection()}. Always PRG-redirects.
      *
      * @param ServerRequestInterface $request The incoming POST request.
      *
@@ -242,6 +243,12 @@ class ObituaryControlPanelHandler implements RequestHandlerInterface
         }
 
         $this->module->setPreference('finder_base_url', $baseUrl);
+
+        // The REST-only UI no longer offers a transport toggle, so `finder_transport` is now purely the
+        // internal "REST explicitly configured" consent marker. Writing it here lifts the migration gate
+        // in self::finderConnection() once the admin (re-)saves the connection — without this, a legacy
+        // file-mode install with retained REST creds would stay correctly dormant.
+        $this->module->setPreference('finder_transport', 'rest');
 
         if ($remove) {
             $this->module->setPreference('finder_token', '');
@@ -644,15 +651,24 @@ class ObituaryControlPanelHandler implements RequestHandlerInterface
     }
 
     /**
-     * Reads the finder connection from module preferences, or null when it is not configured. An empty
-     * stored base URL means "not configured" (null); a stored-but-invalid base URL the
-     * {@see FinderConnection::rest()} source rejects is likewise treated as not configured (null) rather
-     * than escaping as an exception. The token VALUE never leaves this method except into the connection.
+     * Reads the finder connection from module preferences, or null when it is not configured. The REST
+     * endpoint activates ONLY on explicit admin consent, recorded as `finder_transport === 'rest'` by a
+     * successful {@see self::saveFinder()}: any other stored value (the legacy `'file'` from a pre-cutover
+     * install, or the unset default) is treated as not configured (null) EVEN when a base URL lingers — so
+     * REST creds retained from a prior configuration are never silently reactivated and no person data is
+     * transmitted to an endpoint the admin had disabled. An empty stored base URL is likewise "not
+     * configured" (null); a stored-but-invalid base URL the {@see FinderConnection::rest()} source rejects
+     * is treated as not configured (null) rather than escaping as an exception. The token VALUE never
+     * leaves this method except into the connection.
      *
      * @return FinderConnection|null The configured REST connection, or null when not configured.
      */
     protected function finderConnection(): ?FinderConnection
     {
+        if ($this->module->getPreference('finder_transport', '') !== 'rest') {
+            return null;
+        }
+
         $baseUrl = $this->module->getPreference('finder_base_url', '');
 
         if ($baseUrl === '') {

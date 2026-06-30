@@ -303,7 +303,9 @@ final class ObituaryControlPanelHandlerTest extends AbstractEnqueueTestCase
         $this->module->setPreference('min_age', '70');
         $this->module->setPreference('limit', '3');
         // A configured finder connection so the trigger reaches the enqueue (the seamed producer writes to
-        // the throwaway queue regardless of transport).
+        // the throwaway queue regardless of transport). The REST consent marker is required to lift the
+        // activation gate in finderConnection().
+        $this->module->setPreference('finder_transport', 'rest');
         $this->module->setPreference('finder_base_url', 'https://finder.example');
 
         // Five eligible candidates (born 1930, far over age 70, no death date): with limit 3 the producer
@@ -440,13 +442,16 @@ final class ObituaryControlPanelHandlerTest extends AbstractEnqueueTestCase
     }
 
     /**
-     * Once the base URL is persisted, the enqueue path builds the REST connection carrying that base URL.
+     * With the REST consent marker (finder_transport === 'rest') set and a valid base URL persisted, the
+     * enqueue path builds the REST connection carrying that base URL — the legitimate REST install keeps
+     * working.
      *
      * @return void
      */
     #[Test]
-    public function theStoredBaseUrlSelectsTheRestConnection(): void
+    public function aStoredRestTransportWithAValidBaseUrlSelectsTheConnection(): void
     {
+        $this->module->setPreference('finder_transport', 'rest');
         $this->module->setPreference('finder_base_url', 'http://finder:8080');
 
         $handler = new class($this->module) extends ObituaryControlPanelHandler {
@@ -469,13 +474,16 @@ final class ObituaryControlPanelHandlerTest extends AbstractEnqueueTestCase
 
     /**
      * A stored-but-invalid base URL (one the FinderConnection::rest() source rejects) is treated as "not
-     * configured" (null) rather than escaping as an exception.
+     * configured" (null) rather than escaping as an exception. The consent marker is set so the rejection
+     * is exercised at the FinderConnection::rest() source rather than short-circuited by the transport
+     * gate.
      *
      * @return void
      */
     #[Test]
     public function aStoredInvalidBaseUrlIsTreatedAsNotConfigured(): void
     {
+        $this->module->setPreference('finder_transport', 'rest');
         $this->module->setPreference('finder_base_url', 'ftp://nope');
 
         $handler = new class($this->module) extends ObituaryControlPanelHandler {
@@ -491,6 +499,96 @@ final class ObituaryControlPanelHandlerTest extends AbstractEnqueueTestCase
         };
 
         self::assertNull($handler->exposedConnection());
+    }
+
+    /**
+     * A legacy (pre-cutover) install that configured REST and then switched the transport radio back to
+     * `file` retained its REST creds (`finder_base_url`/`finder_token`) but gated them behind
+     * `finder_transport === 'rest'`. The REST-only cutover must NOT silently reactivate those retained
+     * creds: with `finder_transport === 'file'` the connection resolves to NOT configured even though a
+     * base URL and token linger.
+     *
+     * @return void
+     */
+    #[Test]
+    public function aLegacyFileTransportWithRetainedRestCredsIsNotConfigured(): void
+    {
+        $this->module->setPreference('finder_transport', 'file');
+        $this->module->setPreference('finder_base_url', 'https://finder.example');
+        $this->module->setPreference('finder_token', 'retained-secret');
+
+        $handler = new class($this->module) extends ObituaryControlPanelHandler {
+            /**
+             * Exposes the persisted finder connection for assertion.
+             *
+             * @return FinderConnection|null The connection the module preferences select, or null.
+             */
+            public function exposedConnection(): ?FinderConnection
+            {
+                return $this->finderConnection();
+            }
+        };
+
+        self::assertNull($handler->exposedConnection());
+    }
+
+    /**
+     * A triggered search on a legacy `file`-transport install with retained REST creds transmits NO
+     * candidate data: the connection guard short-circuits the trigger before the producer is wired, so
+     * nothing is enqueued and the admin sees the "configure the finder" flash. This is the privacy guard —
+     * a disabled REST endpoint must never silently receive person data after the cutover.
+     *
+     * @return void
+     */
+    #[Test]
+    public function triggerWithLegacyFileTransportDoesNotEnqueueOrSendData(): void
+    {
+        $this->module->setPreference('finder_transport', 'file');
+        $this->module->setPreference('finder_base_url', 'https://finder.example');
+        $this->module->setPreference('finder_token', 'retained-secret');
+
+        $tree = $this->searchableTree('panel-legacy-file', 1);
+
+        $response = $this->handler()->handle(
+            $this->panelPost(['action' => 'trigger', 'tree' => (string) $tree->id()])
+        );
+
+        self::assertSame(StatusCodeInterface::STATUS_FOUND, $response->getStatusCode());
+        self::assertSame(0, $this->queuedJobCount());
+    }
+
+    /**
+     * A successful `save-finder` REST save writes the explicit-consent marker (`finder_transport === 'rest'`)
+     * and the connection then activates: re-saving the connection lifts the migration gate for a legacy
+     * install. The REST-only UI no longer offers a transport toggle, so this marker is purely the internal
+     * "REST explicitly configured" flag.
+     *
+     * @return void
+     */
+    #[Test]
+    public function saveFinderPersistsTheRestConsentMarkerAndActivatesTheConnection(): void
+    {
+        $this->handler()->handle($this->panelPost([
+            'action'   => 'save-finder',
+            'base_url' => 'https://finder.example',
+            'token'    => 'secret',
+        ]));
+
+        self::assertSame('rest', $this->module->getPreference('finder_transport'));
+
+        $handler = new class($this->module) extends ObituaryControlPanelHandler {
+            /**
+             * Exposes the persisted finder connection for assertion.
+             *
+             * @return FinderConnection|null The connection the module preferences select, or null.
+             */
+            public function exposedConnection(): ?FinderConnection
+            {
+                return $this->finderConnection();
+            }
+        };
+
+        self::assertInstanceOf(FinderConnection::class, $handler->exposedConnection());
     }
 
     /**
@@ -1071,7 +1169,8 @@ final class ObituaryControlPanelHandlerTest extends AbstractEnqueueTestCase
     private function throwingHandler(Throwable $exception): ObituaryControlPanelHandler
     {
         // A configured finder so the trigger path reaches the (throwing) producer rather than the
-        // not-configured guard.
+        // not-configured guard: both the consent marker and the base URL are required to lift the gate.
+        $this->module->setPreference('finder_transport', 'rest');
         $this->module->setPreference('finder_base_url', 'https://finder.example');
 
         return new class($this->module, $this->restPendingDir(), $this->queueRoot, $exception) extends ObituaryControlPanelHandler {
