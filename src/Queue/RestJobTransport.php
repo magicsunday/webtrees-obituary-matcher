@@ -16,6 +16,7 @@ use InvalidArgumentException;
 use JsonException;
 use MagicSunday\ObituaryMatcher\Support\FeederRequest;
 use MagicSunday\ObituaryMatcher\Support\FinderConnection;
+use MagicSunday\ObituaryMatcher\Support\JobId;
 use Psr\Http\Client\ClientExceptionInterface;
 use Psr\Http\Client\ClientInterface;
 use Psr\Http\Message\RequestFactoryInterface;
@@ -404,7 +405,7 @@ final readonly class RestJobTransport implements JobTransport
         // originates from a path-safe source — a minted id or a ledger entry the RestPendingLedger
         // narrowed to its validated filename basename — so this guard is defence-in-depth, mirroring the
         // same path-safety the poll URL gets from the ledger rather than from a sink-local check.
-        if (!QueuePaths::isJobDirectoryName($jobId)) {
+        if (!JobId::isSafeForStorage($jobId)) {
             return;
         }
 

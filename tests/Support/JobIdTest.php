@@ -18,6 +18,7 @@ use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
 
 use function preg_match;
+use function str_repeat;
 
 /**
  * Tests the time-prefixed, naturally-sortable job-id minter: the format, the UTC timestamp
@@ -71,5 +72,42 @@ final class JobIdTest extends TestCase
         $id = JobId::mint(new DateTimeImmutable('2026-06-23T10:15:30+00:00'));
 
         self::assertSame(1, preg_match('/^[A-Za-z0-9_-]{1,64}$/', $id));
+    }
+
+    /**
+     * Verifies a well-formed job identifier is accepted as a path-safe storage filename basename.
+     *
+     * @return void
+     */
+    #[Test]
+    public function aWellFormedJobIdIsSafe(): void
+    {
+        self::assertTrue(JobId::isSafeForStorage('job-20260630T101530Z-a1b2c3d4'));
+    }
+
+    /**
+     * Verifies an empty, traversal or over-long job identifier is rejected before it reaches the
+     * filesystem.
+     *
+     * @return void
+     */
+    #[Test]
+    public function aTraversalOrEmptyJobIdIsRejected(): void
+    {
+        self::assertFalse(JobId::isSafeForStorage(''));
+        self::assertFalse(JobId::isSafeForStorage('../etc'));
+        self::assertFalse(JobId::isSafeForStorage('a/b'));
+        self::assertFalse(JobId::isSafeForStorage(str_repeat('a', 65)));
+    }
+
+    /**
+     * Verifies the `/D` anchoring: a trailing newline is NOT swallowed by `$` and must be rejected.
+     *
+     * @return void
+     */
+    #[Test]
+    public function aTrailingNewlineJobIdIsRejected(): void
+    {
+        self::assertFalse(JobId::isSafeForStorage("job-ok\n"));
     }
 }

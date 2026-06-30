@@ -13,6 +13,7 @@ namespace MagicSunday\ObituaryMatcher\Queue;
 
 use FilesystemIterator;
 use InvalidArgumentException;
+use MagicSunday\ObituaryMatcher\Support\JobId;
 use RuntimeException;
 use SplFileInfo;
 use Throwable;
@@ -37,7 +38,7 @@ use function unlink;
  *
  * Every read is poison-tolerant: a malformed, foreign or structurally invalid file is skipped, never
  * fatal, so one corrupt entry can never abort the scan. The jobId becomes a filename, so it is validated
- * against the queue's authoritative path-traversal guard ({@see QueuePaths::isJobDirectoryName()}, the
+ * against the path-safety guard ({@see JobId::isSafeForStorage()}, the
  * `^[A-Za-z0-9_-]{1,64}$` pattern) before it ever becomes a path.
  *
  * @author  Rico Sonntag <mail@ricosonntag.de>
@@ -279,10 +280,10 @@ final readonly class RestPendingLedger
     }
 
     /**
-     * Reports whether a jobId is a path-safe filename by delegating to the queue's authoritative
-     * path-traversal guard ({@see QueuePaths::isJobDirectoryName()}, the `^[A-Za-z0-9_-]{1,64}$`
-     * pattern). The guard is a stateless predicate on the candidate name, so it is called statically —
-     * reusing the single source of truth for the pattern instead of duplicating the regular expression.
+     * Reports whether a jobId is a path-safe filename by delegating to the path-safety guard
+     * ({@see JobId::isSafeForStorage()}, the `^[A-Za-z0-9_-]{1,64}$` pattern). The guard is a stateless
+     * predicate on the candidate name, so it is called statically — reusing the single source of truth
+     * for the pattern instead of duplicating the regular expression.
      *
      * @param string $jobId The candidate job identifier.
      *
@@ -290,6 +291,6 @@ final readonly class RestPendingLedger
      */
     private function isValidJobId(string $jobId): bool
     {
-        return QueuePaths::isJobDirectoryName($jobId);
+        return JobId::isSafeForStorage($jobId);
     }
 }

@@ -15,6 +15,7 @@ use DateTimeImmutable;
 use DateTimeZone;
 
 use function bin2hex;
+use function preg_match;
 use function random_bytes;
 
 /**
@@ -22,7 +23,7 @@ use function random_bytes;
  * UTC timestamp prefix plus a random 8-hex suffix that only breaks a same-second tie (the relative
  * order WITHIN one second is therefore unspecified, which the drain's per-job-independent ingest
  * does not depend on). The form `job-<YYYYMMDDTHHMMSSZ>-<8 hex>` is human-readable, timezone-free
- * and within {@see \MagicSunday\ObituaryMatcher\Queue\QueuePaths}'s path-traversal pattern.
+ * and a path-safe filename basename.
  *
  * @author  Rico Sonntag <mail@ricosonntag.de>
  * @license https://opensource.org/licenses/GPL-3.0 GNU General Public License v3.0
@@ -30,6 +31,27 @@ use function random_bytes;
  */
 final readonly class JobId
 {
+    /**
+     * The static-only helper is never instantiated.
+     */
+    private function __construct()
+    {
+    }
+
+    /**
+     * Validates that a job identifier is safe to use as a storage filename basename: a 1–64 character
+     * run of `[A-Za-z0-9_-]`, `/D`-anchored so a trailing newline cannot slip past `$`. Used by the REST
+     * transport and the pending ledger before a jobId reaches the filesystem.
+     *
+     * @param string $jobId The untrusted job identifier.
+     *
+     * @return bool True when the identifier is a path-safe filename basename.
+     */
+    public static function isSafeForStorage(string $jobId): bool
+    {
+        return preg_match('/^[A-Za-z0-9_-]{1,64}$/D', $jobId) === 1;
+    }
+
     /**
      * Mints a job id stamped with the given instant in UTC plus a random same-second tiebreak.
      *

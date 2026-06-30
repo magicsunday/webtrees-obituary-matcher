@@ -26,7 +26,6 @@ use MagicSunday\ObituaryMatcher\Queue\AtomicFile;
 use MagicSunday\ObituaryMatcher\Queue\CappedJsonBodyReader;
 use MagicSunday\ObituaryMatcher\Queue\CompletedJob;
 use MagicSunday\ObituaryMatcher\Queue\FailedJob;
-use MagicSunday\ObituaryMatcher\Queue\QueuePaths;
 use MagicSunday\ObituaryMatcher\Queue\ResponseValidationException;
 use MagicSunday\ObituaryMatcher\Queue\ResponseValidator;
 use MagicSunday\ObituaryMatcher\Queue\RestJobTransport;
@@ -34,6 +33,7 @@ use MagicSunday\ObituaryMatcher\Queue\RestPendingLedger;
 use MagicSunday\ObituaryMatcher\Support\FeederCandidateRequest;
 use MagicSunday\ObituaryMatcher\Support\FeederRequest;
 use MagicSunday\ObituaryMatcher\Support\FinderConnection;
+use MagicSunday\ObituaryMatcher\Support\JobId;
 use MagicSunday\ObituaryMatcher\Support\ObituaryNameParser;
 use MagicSunday\ObituaryMatcher\Test\Support\TempDirTestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
@@ -69,7 +69,7 @@ use const JSON_THROW_ON_ERROR;
 #[UsesClass(RestPendingLedger::class)]
 #[UsesClass(CappedJsonBodyReader::class)]
 #[UsesClass(AtomicFile::class)]
-#[UsesClass(QueuePaths::class)]
+#[UsesClass(JobId::class)]
 #[UsesClass(CompletedJob::class)]
 #[UsesClass(FailedJob::class)]
 #[UsesClass(ResponseValidator::class)]
