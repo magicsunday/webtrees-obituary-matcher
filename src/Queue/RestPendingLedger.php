@@ -203,6 +203,48 @@ final readonly class RestPendingLedger
     }
 
     /**
+     * Counts every pending ledger FILE whose basename is a path-safe jobId, regardless of whether its
+     * CONTENT narrows cleanly. A poisoned, oversized or structurally-invalid entry still represents a
+     * remote job that was submitted and not yet drained, so it counts as open here (in contrast to
+     * {@see self::entries()}/{@see self::jobIds()}, which skip such files). Returns 0 when the ledger
+     * root does not exist or cannot be read. Mirrors the {@see self::entries()} scan (FilesystemIterator
+     * + isFile + `.json` suffix, UnexpectedValueException-guarded) so a path-safe DIRECTORY named
+     * `*.json` is NOT miscounted and an unreadable root cannot break the control-panel render.
+     *
+     * @return int The number of open finder jobs in the ledger.
+     */
+    public function openJobCount(): int
+    {
+        if (!is_dir($this->root)) {
+            return 0;
+        }
+
+        $count = 0;
+
+        try {
+            foreach (new FilesystemIterator($this->root, FilesystemIterator::SKIP_DOTS) as $entry) {
+                if (!$entry instanceof SplFileInfo) {
+                    continue;
+                }
+
+                $name = $entry->getFilename();
+
+                if (
+                    $entry->isFile()
+                    && str_ends_with($name, '.json')
+                    && JobId::isSafeForStorage(substr($name, 0, -5))
+                ) {
+                    ++$count;
+                }
+            }
+        } catch (UnexpectedValueException) {
+            return 0;
+        }
+
+        return $count;
+    }
+
+    /**
      * Returns the jobIds of every well-formed pending entry, derived from the same poison-tolerant scan
      * as {@see self::entries()}.
      *
