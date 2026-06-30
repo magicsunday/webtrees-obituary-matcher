@@ -12,13 +12,23 @@ declare(strict_types=1);
 namespace MagicSunday\ObituaryMatcher\Test\Queue;
 
 use MagicSunday\ObituaryMatcher\Queue\FinderCapabilities;
+use MagicSunday\ObituaryMatcher\Queue\FinderPortal;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\Attributes\UsesClass;
 use PHPUnit\Framework\TestCase;
 
+/**
+ * Unit tests for the per-field defensive narrowing of an untrusted capabilities body — tolerant
+ * schema-version handling, strict notice-field validation and string-keyed boolean features — so a
+ * hand-crafted document never poisons the value object the admin readout consumes.
+ *
+ * @author  Rico Sonntag <mail@ricosonntag.de>
+ * @license https://opensource.org/licenses/GPL-3.0 GNU General Public License v3.0
+ * @link    https://github.com/magicsunday/webtrees-obituary-matcher/
+ */
 #[CoversClass(FinderCapabilities::class)]
-#[UsesClass(\MagicSunday\ObituaryMatcher\Queue\FinderPortal::class)]
+#[UsesClass(FinderPortal::class)]
 final class FinderCapabilitiesTest extends TestCase
 {
     /** A well-formed body narrows to a populated VO. */

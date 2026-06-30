@@ -21,6 +21,14 @@ use PHPUnit\Framework\Attributes\UsesClass;
 use PHPUnit\Framework\TestCase;
 use ReflectionMethod;
 
+/**
+ * Unit tests for the capabilities probe result value object — the four named constructors and the
+ * status/capabilities readout the admin control panel renders after probing a finder connection.
+ *
+ * @author  Rico Sonntag <mail@ricosonntag.de>
+ * @license https://opensource.org/licenses/GPL-3.0 GNU General Public License v3.0
+ * @link    https://github.com/magicsunday/webtrees-obituary-matcher/
+ */
 #[CoversClass(CapabilitiesProbeResult::class)]
 #[UsesClass(FinderCapabilities::class)]
 #[UsesClass(FinderPortal::class)]
