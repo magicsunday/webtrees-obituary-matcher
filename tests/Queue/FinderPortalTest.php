@@ -33,7 +33,11 @@ use function str_repeat;
 #[CoversClass(FinderPortal::class)]
 final class FinderPortalTest extends TestCase
 {
-    /** A non-array entry cannot describe a portal, so the whole entry collapses to null. */
+    /**
+     * A non-array entry cannot describe a portal, so the whole entry collapses to null.
+     *
+     * @return void
+     */
     #[Test]
     public function aNonArrayEntryIsNull(): void
     {
@@ -53,7 +57,11 @@ final class FinderPortalTest extends TestCase
         self::assertNull(FinderPortal::tryFromArray(['id' => 123]));
     }
 
-    /** A name longer than 200 characters is dropped to null, but the portal itself survives. */
+    /**
+     * A name longer than 200 characters is dropped to null, but the portal itself survives.
+     *
+     * @return void
+     */
     #[Test]
     public function anOversizeNameIsDroppedButThePortalSurvives(): void
     {
@@ -64,7 +72,11 @@ final class FinderPortalTest extends TestCase
         self::assertNull($portal->name);
     }
 
-    /** A non-string name is dropped to null while the portal survives. */
+    /**
+     * A non-string name is dropped to null while the portal survives.
+     *
+     * @return void
+     */
     #[Test]
     public function aNonStringNameIsNull(): void
     {
@@ -74,7 +86,11 @@ final class FinderPortalTest extends TestCase
         self::assertNull($portal->name);
     }
 
-    /** A well-formed name within the length cap is kept verbatim. */
+    /**
+     * A well-formed name within the length cap is kept verbatim.
+     *
+     * @return void
+     */
     #[Test]
     public function aValidNameIsKept(): void
     {
@@ -113,7 +129,11 @@ final class FinderPortalTest extends TestCase
         yield 'non-string' => [123];
     }
 
-    /** A valid ISO-3166 alpha-2 country is kept verbatim. */
+    /**
+     * A valid ISO-3166 alpha-2 country is kept verbatim.
+     *
+     * @return void
+     */
     #[Test]
     public function aValidCountryIsKept(): void
     {
@@ -139,7 +159,11 @@ final class FinderPortalTest extends TestCase
         self::assertSame(['Bayern', 'Hessen'], $portal->regions);
     }
 
-    /** A non-array regions value yields the empty list (not null, and not a fatal). */
+    /**
+     * A non-array regions value yields the empty list (not null, and not a fatal).
+     *
+     * @return void
+     */
     #[Test]
     public function aNonArrayRegionsIsEmpty(): void
     {

@@ -31,7 +31,11 @@ use PHPUnit\Framework\TestCase;
 #[UsesClass(FinderPortal::class)]
 final class FinderCapabilitiesTest extends TestCase
 {
-    /** A well-formed body narrows to a populated VO. */
+    /**
+     * A well-formed body narrows to a populated VO.
+     *
+     * @return void
+     */
     #[Test]
     public function aWellFormedBodyNarrows(): void
     {
@@ -54,7 +58,11 @@ final class FinderCapabilitiesTest extends TestCase
         self::assertSame('p-de', $caps->portals[0]->id);
     }
 
-    /** A missing required key (finderId) is invalid → null. */
+    /**
+     * A missing required key (finderId) is invalid → null.
+     *
+     * @return void
+     */
     #[Test]
     public function aMissingRequiredKeyIsInvalid(): void
     {
@@ -65,7 +73,11 @@ final class FinderCapabilitiesTest extends TestCase
         ]));
     }
 
-    /** noticeFields present but not a string list → invalid (wrong shape, not a drop). */
+    /**
+     * noticeFields present but not a string list → invalid (wrong shape, not a drop).
+     *
+     * @return void
+     */
     #[Test]
     public function aNonStringListNoticeFieldsIsInvalid(): void
     {
@@ -78,7 +90,11 @@ final class FinderCapabilitiesTest extends TestCase
         ]));
     }
 
-    /** No valid portal survives (all ids fail the pattern) → invalid. */
+    /**
+     * No valid portal survives (all ids fail the pattern) → invalid.
+     *
+     * @return void
+     */
     #[Test]
     public function noValidPortalIsInvalid(): void
     {
@@ -90,7 +106,11 @@ final class FinderCapabilitiesTest extends TestCase
         ]));
     }
 
-    /** schemaVersions is TOLERANT: a bad element is DROPPED (not invalid) as long as one valid int survives. */
+    /**
+     * schemaVersions is TOLERANT: a bad element is DROPPED (not invalid) as long as one valid int survives.
+     *
+     * @return void
+     */
     #[Test]
     public function aBadSchemaVersionEntryIsDroppedNotInvalid(): void
     {
@@ -105,7 +125,11 @@ final class FinderCapabilitiesTest extends TestCase
         self::assertSame([1, 2], $caps->schemaVersions);
     }
 
-    /** noticeFields is STRICTER than schemaVersions: a non-string ELEMENT means a corrupt shape → invalid. */
+    /**
+     * noticeFields is STRICTER than schemaVersions: a non-string ELEMENT means a corrupt shape → invalid.
+     *
+     * @return void
+     */
     #[Test]
     public function aNonStringNoticeFieldElementIsInvalid(): void
     {
@@ -118,7 +142,11 @@ final class FinderCapabilitiesTest extends TestCase
         ]));
     }
 
-    /** features: only string-keyed boolean flags are kept; an integer key or a non-bool value is dropped. */
+    /**
+     * features: only string-keyed boolean flags are kept; an integer key or a non-bool value is dropped.
+     *
+     * @return void
+     */
     #[Test]
     public function featuresKeepsOnlyStringKeyedBooleans(): void
     {
@@ -134,7 +162,11 @@ final class FinderCapabilitiesTest extends TestCase
         self::assertSame(['pagination' => true], $caps->features);   // int key 0 + non-bool 'yes' dropped
     }
 
-    /** retentionSeconds is a REQUIRED bounded field: a zero (below the floor) or a wrong type invalidates the document. */
+    /**
+     * retentionSeconds is a REQUIRED bounded field: a zero (below the floor) or a wrong type invalidates the document.
+     *
+     * @return void
+     */
     #[Test]
     public function aRetentionSecondsOutOfRangeIsInvalid(): void
     {
@@ -153,7 +185,11 @@ final class FinderCapabilitiesTest extends TestCase
         ]));
     }
 
-    /** schemaVersions is tolerant per-element but the FIELD is required: an all-dropped list (no surviving int) invalidates the document. */
+    /**
+     * schemaVersions is tolerant per-element but the FIELD is required: an all-dropped list (no surviving int) invalidates the document.
+     *
+     * @return void
+     */
     #[Test]
     public function aSchemaVersionsWithNoSurvivingIntIsInvalid(): void
     {
@@ -165,7 +201,11 @@ final class FinderCapabilitiesTest extends TestCase
         ]));
     }
 
-    /** schemaVersions present but NOT an array (a bare scalar) is invalid: the field is required, so the non-array branch differs from the tolerant per-element drop. */
+    /**
+     * schemaVersions present but NOT an array (a bare scalar) is invalid: the field is required, so the non-array branch differs from the tolerant per-element drop.
+     *
+     * @return void
+     */
     #[Test]
     public function aNonArraySchemaVersionsIsInvalid(): void
     {

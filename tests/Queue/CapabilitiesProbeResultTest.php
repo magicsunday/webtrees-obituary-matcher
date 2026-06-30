@@ -53,7 +53,11 @@ final class CapabilitiesProbeResultTest extends TestCase
         return $caps;
     }
 
-    /** Each named constructor sets the matching status and only its own optional fields. */
+    /**
+     * Each named constructor sets the matching status and only its own optional fields.
+     *
+     * @return void
+     */
     #[Test]
     public function namedConstructorsSetTheStatus(): void
     {
@@ -79,14 +83,22 @@ final class CapabilitiesProbeResultTest extends TestCase
         self::assertNull($notApplicable->httpStatus);
     }
 
-    /** The unreachable constructor defaults the HTTP status to null. */
+    /**
+     * The unreachable constructor defaults the HTTP status to null.
+     *
+     * @return void
+     */
     #[Test]
     public function unreachableDefaultsTheHttpStatusToNull(): void
     {
         self::assertNull(CapabilitiesProbeResult::unreachable()->httpStatus);
     }
 
-    /** The constructor is not publicly callable so only the named constructors may build the VO. */
+    /**
+     * The constructor is not publicly callable so only the named constructors may build the VO.
+     *
+     * @return void
+     */
     #[Test]
     public function theConstructorIsPrivate(): void
     {
