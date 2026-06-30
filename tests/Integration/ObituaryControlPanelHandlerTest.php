@@ -72,9 +72,14 @@ use Psr\Http\Message\StreamInterface;
 use RuntimeException;
 use Throwable;
 
+use function array_search;
 use function count;
 use function http_build_query;
+use function in_array;
 use function json_encode;
+use function str_contains;
+use function str_starts_with;
+use function strtolower;
 use function substr_count;
 
 use const JSON_THROW_ON_ERROR;
@@ -589,6 +594,55 @@ final class ObituaryControlPanelHandlerTest extends AbstractEnqueueTestCase
         };
 
         self::assertInstanceOf(FinderConnection::class, $handler->exposedConnection());
+    }
+
+    /**
+     * The REST activation marker (`finder_transport === 'rest'`) is written LAST, after the base URL and
+     * the token. Order is the privacy guard: each preference is an independently committed write, so if
+     * the base URL or token persistence fails (or another request interleaves) the marker must not yet
+     * have flipped REST on — otherwise the connection would activate against the stale credentials the
+     * admin was replacing. Starting from a legacy `file` install with retained creds, the recorded write
+     * order proves the marker trails both connection fields. This fails on the marker-first ordering,
+     * where `finder_transport` was committed before the token.
+     *
+     * @return void
+     */
+    #[Test]
+    public function saveFinderWritesTheRestActivationMarkerLast(): void
+    {
+        // A legacy install that once configured REST then reverted to file, leaving dormant creds behind
+        // the consent gate; every field already exists, so each save below is an UPDATE.
+        $this->module->setPreference('finder_transport', 'file');
+        $this->module->setPreference('finder_base_url', 'https://stale.example');
+        $this->module->setPreference('finder_token', 'retained-secret');
+
+        $handler = $this->handler();
+
+        $writeOrder = $this->captureModuleSettingWriteOrder(function () use ($handler): void {
+            $handler->handle($this->panelPost([
+                'action'   => 'save-finder',
+                'base_url' => 'https://finder.example',
+                'token'    => 'fresh-secret',
+            ]));
+        });
+
+        $transportIndex = array_search('finder_transport', $writeOrder, true);
+        $baseUrlIndex   = array_search('finder_base_url', $writeOrder, true);
+        $tokenIndex     = array_search('finder_token', $writeOrder, true);
+
+        self::assertIsInt($transportIndex, 'The activation marker was not persisted.');
+        self::assertIsInt($baseUrlIndex, 'The base URL was not persisted.');
+        self::assertIsInt($tokenIndex, 'The token was not persisted.');
+        self::assertGreaterThan(
+            $baseUrlIndex,
+            $transportIndex,
+            'The activation marker must be written after the base URL.',
+        );
+        self::assertGreaterThan(
+            $tokenIndex,
+            $transportIndex,
+            'The activation marker must be written after the token.',
+        );
     }
 
     /**
@@ -1118,6 +1172,51 @@ final class ObituaryControlPanelHandlerTest extends AbstractEnqueueTestCase
             ['Content-Type' => 'application/json'],
             json_encode($data, JSON_THROW_ON_ERROR),
         );
+    }
+
+    /**
+     * Records, in commit order, the `finder_*` module-setting names WRITTEN to the database while the
+     * given operation runs, by scanning the Illuminate connection query log. The module's
+     * {@see ObituaryMatcherModule::setPreference()} is final and DB-backed (no override seam), so the
+     * query log is the clean recorder of the actual persistence order — only the updateOrInsert
+     * UPDATE/INSERT statements count, never the exists() SELECT.
+     *
+     * @param callable(): void $operation The operation whose preference writes are recorded.
+     *
+     * @return list<string> The finder setting names in the order they were written.
+     */
+    private function captureModuleSettingWriteOrder(callable $operation): array
+    {
+        $connection = DB::connection();
+        $connection->flushQueryLog();
+        $connection->enableQueryLog();
+
+        try {
+            $operation();
+        } finally {
+            $connection->disableQueryLog();
+        }
+
+        $order = [];
+
+        foreach ($connection->getQueryLog() as $entry) {
+            $query = strtolower($entry['query']);
+
+            if (
+                !str_contains($query, 'module_setting')
+                || (!str_starts_with($query, 'update') && !str_starts_with($query, 'insert'))
+            ) {
+                continue;
+            }
+
+            foreach (['finder_base_url', 'finder_token', 'finder_transport'] as $settingName) {
+                if (in_array($settingName, $entry['bindings'], true)) {
+                    $order[] = $settingName;
+                }
+            }
+        }
+
+        return $order;
     }
 
     /**

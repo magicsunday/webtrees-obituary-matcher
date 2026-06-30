@@ -244,17 +244,21 @@ class ObituaryControlPanelHandler implements RequestHandlerInterface
 
         $this->module->setPreference('finder_base_url', $baseUrl);
 
-        // The REST-only UI no longer offers a transport toggle, so `finder_transport` is now purely the
-        // internal "REST explicitly configured" consent marker. Writing it here lifts the migration gate
-        // in self::finderConnection() once the admin (re-)saves the connection — without this, a legacy
-        // file-mode install with retained REST creds would stay correctly dormant.
-        $this->module->setPreference('finder_transport', 'rest');
-
         if ($remove) {
             $this->module->setPreference('finder_token', '');
         } elseif ($tokenRaw !== '') {
             $this->module->setPreference('finder_token', $tokenRaw);
         }
+
+        // The REST-only UI no longer offers a transport toggle, so `finder_transport` is now purely the
+        // internal "REST explicitly configured" consent marker. It is written LAST, after the base URL and
+        // the token, because each setPreference is an independently committed write: were the marker
+        // written first, a failure persisting the base URL or token (or another request interleaving)
+        // would leave REST ACTIVATED against the stale credentials the admin was replacing. Writing it
+        // last lifts the migration gate in self::finderConnection() only once every connection field has
+        // been committed — without this marker a legacy file-mode install with retained REST creds stays
+        // correctly dormant.
+        $this->module->setPreference('finder_transport', 'rest');
 
         FlashMessages::addMessage(I18N::translate('Finder connection saved.'), 'success');
 
