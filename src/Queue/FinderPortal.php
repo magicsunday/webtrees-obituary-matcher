@@ -18,7 +18,7 @@ use function preg_match;
 
 /**
  * Transport-neutral description of a single portal a finder can search, defensively narrowed from one
- * untrusted entry of the {@see GET /capabilities} response body. Every field is validated against a
+ * untrusted entry of the `GET /capabilities` response body. Every field is validated against a
  * conservative shape so a corrupt, oversize or hand-crafted capabilities document degrades to a
  * dropped entry rather than poisoning the admin UI that consumes it.
  *

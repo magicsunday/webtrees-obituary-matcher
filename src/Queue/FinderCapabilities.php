@@ -22,7 +22,7 @@ use function is_string;
 use function mb_strlen;
 
 /**
- * Transport-neutral, defensively narrowed view of the untrusted {@see GET /capabilities} response body
+ * Transport-neutral, defensively narrowed view of the untrusted `GET /capabilities` response body
  * a finder service returns. A required field that is missing or wrong-typed, a capabilities document
  * that yields no valid portal, or a corrupt notice-field shape collapses the whole document to null so
  * the probe and the admin UI never consume a half-trusted structure.
