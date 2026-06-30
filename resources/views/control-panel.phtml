@@ -6,9 +6,9 @@
  * For the full copyright and license information, please read the
  * LICENSE file that was distributed with this source code.
  *
- * The admin control-panel view: the prefilled candidate settings, a per-tree feeder-trigger form and
- * the recent-job queue status. The admin layout wraps it. Every dynamic sink is e()-escaped once and
- * each job state key maps to a literal I18N::translate() label here (so xgettext can extract it).
+ * The admin control-panel view: the prefilled candidate settings, a per-tree finder-trigger form and
+ * the number of open finder jobs. The admin layout wraps it. Every dynamic sink is e()-escaped once and
+ * each probe-status key maps to a literal I18N::translate() label here (so xgettext can extract it).
  */
 
 declare(strict_types=1);
@@ -21,24 +21,12 @@ use MagicSunday\ObituaryMatcher\Webtrees\ObituaryControlPanelHandler;
 
 $finder = $view->finder;
 
-$stateLabels = [
-    'queued'        => I18N::translate('Queued'),
-    'running'       => I18N::translate('Running'),
-    'done'          => I18N::translate('Done'),
-    'failed'        => I18N::translate('Failed'),
-    'ingesting'     => I18N::translate('Ingesting'),
-    'ingested'      => I18N::translate('Ingested'),
-    'failed-ingest' => I18N::translate('Failed (ingest)'),
-];
-
 // Each probe-status key maps to a literal I18N::translate() label here (so xgettext can extract it).
-// The not-applicable line is deliberately NEUTRAL: a file-queue connection has no REST endpoint to test,
-// which is not an error. Only the unreachable/invalid keys carry the error styling below.
+// Only the unreachable/invalid keys carry the error styling below.
 $statusLabels = [
-    'reachable'      => I18N::translate('The finder is reachable.'),
-    'unreachable'    => I18N::translate('The finder could not be reached.'),
-    'invalid'        => I18N::translate('The finder connection is invalid.'),
-    'not-applicable' => I18N::translate('Not tested: file-queue mode has no REST endpoint.'),
+    'reachable'   => I18N::translate('The finder is reachable.'),
+    'unreachable' => I18N::translate('The finder could not be reached.'),
+    'invalid'     => I18N::translate('The finder connection is invalid.'),
 ];
 ?>
 
@@ -65,15 +53,6 @@ $statusLabels = [
     <fieldset>
         <legend><?= e(I18N::translate('Finder connection')) ?></legend>
 
-        <label>
-            <input type="radio" name="transport" value="file"<?= $finder->transport === 'file' ? ' checked' : '' ?>>
-            <?= e(I18N::translate('File queue')) ?>
-        </label>
-        <label>
-            <input type="radio" name="transport" value="rest"<?= $finder->transport === 'rest' ? ' checked' : '' ?>>
-            <?= e(I18N::translate('REST API')) ?>
-        </label>
-
         <label for="base_url"><?= e(I18N::translate('REST base URL')) ?></label>
         <input type="text" id="base_url" name="base_url" value="<?= e($finder->baseUrl) ?>">
 
@@ -85,10 +64,6 @@ $statusLabels = [
             <input type="checkbox" name="remove_token" value="1">
             <?= e(I18N::translate('Remove token')) ?>
         </label>
-
-        <?php if ($finder->transport === 'file') : ?>
-            <p><?= e(I18N::translate('The REST URL and token are kept but not used in file-queue mode.')) ?></p>
-        <?php endif ?>
 
         <button type="submit" name="action" value="test"><?= e(I18N::translate('Test connection')) ?></button>
         <button type="submit" name="action" value="save-finder"><?= e(I18N::translate('Save finder connection')) ?></button>
@@ -177,44 +152,17 @@ $statusLabels = [
     <?php endforeach ?>
 <?php endif ?>
 
-<h2><?= e(I18N::translate('Recent searches')) ?></h2>
+<h2><?= e(I18N::translate('Open finder jobs')) ?></h2>
 
-<?php if ($view->jobRows === []) : ?>
-    <p><?= e(I18N::translate('No searches run yet.')) ?></p>
+<?php if ($view->openJobCount === 0) : ?>
+    <p><?= e(I18N::translate('No finder jobs are currently open.')) ?></p>
 <?php else : ?>
-    <table class="table wt-facts-table">
-        <thead>
-            <tr>
-                <th><?= e(I18N::translate('Job')) ?></th>
-                <th><?= e(I18N::translate('Status')) ?></th>
-                <th><?= e(I18N::translate('Counts')) ?></th>
-                <th><?= e(I18N::translate('Finished')) ?></th>
-            </tr>
-        </thead>
-        <tbody>
-            <?php foreach ($view->jobRows as $row) : ?>
-                <tr>
-                    <td><?= e($row->jobId) ?></td>
-                    <td><?= e($stateLabels[$row->stateKey] ?? $row->stateKey) ?></td>
-                    <td>
-                        <?php if ($row->counts === []) : ?>
-                            —
-                        <?php else : ?>
-                            <?php
-                            $pairs = [];
-
-                            foreach ($row->counts as $countKey => $countValue) {
-                                // Each pair is e()-escaped here; the '='/', ' join glue is static, so
-                                // the joined string is echoed RAW below to avoid double-escaping.
-                                $pairs[] = e($countKey) . '=' . e((string) $countValue);
-                            }
-                            ?>
-                            <?= implode(', ', $pairs) ?>
-                        <?php endif ?>
-                    </td>
-                    <td><?= e($row->finishedAt ?? '—') ?></td>
-                </tr>
-            <?php endforeach ?>
-        </tbody>
-    </table>
+    <p>
+        <?= e(I18N::plural(
+            '%s finder job is awaiting results.',
+            '%s finder jobs are awaiting results.',
+            $view->openJobCount,
+            I18N::number($view->openJobCount),
+        )) ?>
+    </p>
 <?php endif ?>

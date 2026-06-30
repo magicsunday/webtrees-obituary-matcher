@@ -14,10 +14,9 @@ namespace MagicSunday\ObituaryMatcher\Queue;
 use MagicSunday\ObituaryMatcher\Support\FeederRequest;
 
 /**
- * The transport seam between the webtrees-side enqueue/drain orchestration and the work-item carrier.
- * Both the on-disk file-drop queue ({@see FileJobTransport}) and the future REST transport implement
- * it, so {@see \MagicSunday\ObituaryMatcher\Webtrees\EnqueueService} and
- * {@see \MagicSunday\ObituaryMatcher\Webtrees\DrainService} stay oblivious to where the jobs live: they
+ * Boundary between the orchestration services ({@see \MagicSunday\ObituaryMatcher\Webtrees\EnqueueService}/{@see \MagicSunday\ObituaryMatcher\Webtrees\DrainService})
+ * and the external finder job backend. Currently REST-only in production ({@see RestJobTransport});
+ * retained as the service seam and the test double point so the services stay HTTP/ledger-free: they
  * submit a request, pull completed/failed outcomes, finalise each one, and ask the transport for the
  * enqueue-side in-flight set and the drain-summary stale tally.
  *

@@ -13,16 +13,15 @@ namespace MagicSunday\ObituaryMatcher\Test\Ui;
 
 use MagicSunday\ObituaryMatcher\Ui\ControlPanelView;
 use MagicSunday\ObituaryMatcher\Ui\FinderConnectionView;
-use MagicSunday\ObituaryMatcher\Ui\JobStatusRowView;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\Attributes\UsesClass;
 use PHPUnit\Framework\TestCase;
 
 /**
- * Shape test pinning the load-bearing positional constructor order of the control-panel value
- * objects: the presenter and handler build both {@see ControlPanelView} and {@see JobStatusRowView}
- * positionally, so a reorder of the promoted fields would silently mis-map every setting and row.
+ * Shape test pinning the load-bearing positional constructor order of the control-panel view: the
+ * presenter and handler build {@see ControlPanelView} positionally, so a reorder of the promoted fields
+ * would silently mis-map every setting, the open-job count or the finder view.
  *
  * @author  Rico Sonntag <mail@ricosonntag.de>
  * @license https://opensource.org/licenses/GPL-3.0 GNU General Public License v3.0
@@ -30,27 +29,24 @@ use PHPUnit\Framework\TestCase;
  */
 #[CoversClass(ControlPanelView::class)]
 #[UsesClass(FinderConnectionView::class)]
-#[UsesClass(JobStatusRowView::class)]
 final class ControlPanelViewTest extends TestCase
 {
     /**
-     * The view holds the persisted settings, the offered trees and the recent-job rows, and the
-     * nested row maps its positional arguments to the expected named properties.
+     * The view holds the persisted settings, the offered trees, the open-job count and the finder view,
+     * each mapping to the expected named property in positional order.
      *
      * @return void
      */
     #[Test]
-    public function controlPanelViewHoldsSettingsTreesAndJobRows(): void
+    public function controlPanelViewHoldsSettingsTreesAndOpenJobCount(): void
     {
-        $row    = new JobStatusRowView('job-1', 'done', ['candidates' => 5], '2026-06-24T10:00:00Z');
-        $finder = new FinderConnectionView('file', '', false, null);
-        $view   = new ControlPanelView(90, 50, [['id' => 1, 'name' => 'Demo']], [$row], $finder);
+        $finder = new FinderConnectionView('https://finder.example', false, null);
+        $view   = new ControlPanelView(90, 50, [['id' => 1, 'name' => 'Demo']], 7, $finder);
 
         self::assertSame(90, $view->minAge);
         self::assertSame(50, $view->limit);
         self::assertSame('Demo', $view->trees[0]['name']);
-        self::assertSame('done', $view->jobRows[0]->stateKey);
-        self::assertSame(5, $view->jobRows[0]->counts['candidates']);
-        self::assertSame('file', $view->finder->transport);
+        self::assertSame(7, $view->openJobCount);
+        self::assertSame('https://finder.example', $view->finder->baseUrl);
     }
 }

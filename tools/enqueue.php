@@ -10,29 +10,29 @@
 declare(strict_types=1);
 
 /**
- * Headless CLI adapter that enqueues ONE bounded feeder job for a single tree's death-date-missing
+ * Headless CLI adapter that enqueues ONE bounded finder job for a single tree's death-date-missing
  * candidates. It is a THIN composition root: it boots the request-less webtrees runtime
  * ({@see HeadlessBootstrap}), logs in the system principal so every candidate is visible, wires the
- * queue/producer object graph and hands the single enqueue decision to {@see EnqueueService::enqueue()}.
+ * REST producer object graph and hands the single enqueue decision to {@see EnqueueService::enqueue()}.
  * All domain logic lives in the injected services; this file only parses options, assembles the graph,
  * prints the one-line tally and maps the outcome to an exit code.
  *
  * `--tree` is REQUIRED: it is the NUMERIC webtrees tree id (the integer primary key) of the single
- * tree to enqueue. `--queue` is the queue root directory (defaults to the running instance's
- * `data/obituary-matcher/queue`, resolved relative to this module's install location). `--limit` caps
- * the number of candidates written into the request (default 50). `--min-age` is the minimum age (in
- * years) a candidate must have reached for inclusion (default 90). `--transport` selects the finder
- * transport (`file`, the default, or `rest`); for `rest`, `--base-url` is REQUIRED and `--token` is the
- * optional bearer token, and the REST in-flight ledger is placed beside the queue dir. All are `=`-form
- * long options.
+ * tree to enqueue. `--base-url` is REQUIRED: the REST base URL of the obituary finder, and `--token` is
+ * the optional bearer token. `--rest-pending` is the in-flight ledger root directory (defaults to the
+ * running instance's `data/obituary-matcher/rest-pending`, resolved relative to this module's install
+ * location). `--limit` caps the number of candidates written into the request (default 50). `--min-age`
+ * is the minimum age (in years) a candidate must have reached for inclusion (default 90). All are
+ * `=`-form long options. The `--base-url`/`--token` MUST match the control-panel finder config (reading
+ * persisted module preferences from the CLI is deferred — it needs CLI module-instance resolution).
  *
  * Usage:
- *   php tools/enqueue.php --tree=1 [--queue=/path/to/queue] [--limit=50] [--min-age=90]
- *   php tools/enqueue.php --tree=1 --transport=rest --base-url=https://finder.example [--token=secret]
+ *   php tools/enqueue.php --tree=1 --base-url=https://finder.example [--token=secret]
+ *       [--rest-pending=/path/to/rest-pending] [--limit=50] [--min-age=90]
  *
  * Exit codes: 0 on a completed run (including a run that finds zero candidates), 1 when the boot
- * fails, the DB is unreachable, `--tree` is missing/non-numeric, the tree id is unknown, or the
- * enqueue itself fails.
+ * fails, the DB is unreachable, `--tree` is missing/non-numeric, `--base-url` is missing/invalid, the
+ * ledger root cannot be located, the tree id is unknown, or the enqueue itself fails.
  *
  * @author  Rico Sonntag <mail@ricosonntag.de>
  * @license https://opensource.org/licenses/GPL-3.0 GNU General Public License v3.0
@@ -40,7 +40,6 @@ declare(strict_types=1);
  */
 
 use Fisharebest\Webtrees\I18N;
-use MagicSunday\ObituaryMatcher\Queue\QueuePaths;
 use MagicSunday\ObituaryMatcher\Support\FinderConnection;
 use MagicSunday\ObituaryMatcher\Support\WebtreesInstallLocator;
 use MagicSunday\ObituaryMatcher\Webtrees\EnqueueService;
@@ -60,19 +59,18 @@ require __DIR__ . '/autoload.php';
 // the array_key_exists() reads below stay type-honest rather than TypeError-ing on false.
 $options = getopt('', [
     'tree:',        // required → single colon
-    'queue::',
     'limit::',
     'min-age::',
-    'transport::',
     'base-url::',
     'token::',
+    'rest-pending::',
 ]);
 $options = $options === false ? [] : $options;
 
 // The optional-value (`::`) long options parse as `false` when passed without the `=` form
-// (`--queue /path`); reject that explicitly so a malformed flag gets a precise hint rather than being
-// silently coerced to its default below.
-foreach (['queue', 'limit', 'min-age', 'transport', 'base-url', 'token'] as $flag) {
+// (`--base-url https://x`); reject that explicitly so a malformed flag gets a precise hint rather than
+// being silently coerced to its default below.
+foreach (['limit', 'min-age', 'base-url', 'token', 'rest-pending'] as $flag) {
     if (
         array_key_exists($flag, $options)
         && !is_string($options[$flag])
@@ -83,34 +81,20 @@ foreach (['queue', 'limit', 'min-age', 'transport', 'base-url', 'token'] as $fla
     }
 }
 
-$treeOption      = $options['tree'] ?? null;
-$queueOption     = $options['queue'] ?? null;
-$limitOption     = $options['limit'] ?? null;
-$minAgeOption    = $options['min-age'] ?? null;
-$transportOption = $options['transport'] ?? null;
-$baseUrlOption   = $options['base-url'] ?? null;
-$tokenOption     = $options['token'] ?? null;
+$treeOption        = $options['tree'] ?? null;
+$limitOption       = $options['limit'] ?? null;
+$minAgeOption      = $options['min-age'] ?? null;
+$baseUrlOption     = $options['base-url'] ?? null;
+$tokenOption       = $options['token'] ?? null;
+$restPendingOption = $options['rest-pending'] ?? null;
 
-// --transport selects the finder transport: the default file-drop queue, or the REST endpoint. Any
-// other value is a misuse; fail loud rather than silently falling back to file.
+// --base-url is REQUIRED: the producer submits the job to the REST finder. A missing/empty base URL is
+// a misuse; fail loud.
 if (
-    is_string($transportOption)
-    && !in_array($transportOption, ['file', 'rest'], true)
+    !is_string($baseUrlOption)
+    || ($baseUrlOption === '')
 ) {
-    fwrite(STDERR, '--transport must be "file" or "rest".' . PHP_EOL);
-
-    exit(1);
-}
-
-$transport = $transportOption === 'rest' ? 'rest' : 'file';
-
-// --base-url is REQUIRED for the REST transport (the file transport ignores it). A missing/empty base
-// URL is a misuse; fail loud.
-if (
-    $transport === 'rest'
-    && (!is_string($baseUrlOption) || ($baseUrlOption === ''))
-) {
-    fwrite(STDERR, '--base-url=<url> is required when --transport=rest.' . PHP_EOL);
+    fwrite(STDERR, '--base-url=<url> is required (the REST finder endpoint).' . PHP_EOL);
 
     exit(1);
 }
@@ -146,56 +130,40 @@ $minAge = (is_string($minAgeOption) && ctype_digit($minAgeOption) && ((int) $min
 // non-zero. The PDOException-first arm ordering and the guarded sink live in that shared method.
 HeadlessBootstrap::bootForCli('enqueue');
 
-// Resolve the queue root: the explicit --queue, else the running instance's default queue dir resolved
-// through the layout-independent locator (relative to this module's root, which is the tools/ parent).
-$queueRoot = is_string($queueOption)
-    ? $queueOption
-    : (new WebtreesInstallLocator(dirname(__DIR__)))->defaultQueueRoot();
+// Resolve the REST in-flight ledger root: the explicit --rest-pending, else the running instance's
+// default rest-pending dir resolved through the layout-independent locator (relative to this module's
+// root, which is the tools/ parent). The ledger creates the directory on first record, so a
+// default-resolved root that is merely absent is NOT an error.
+$restPendingRoot = is_string($restPendingOption)
+    ? $restPendingOption
+    : (new WebtreesInstallLocator(dirname(__DIR__)))->defaultRestPendingRoot();
 
-if (!is_string($queueRoot)) {
-    fwrite(STDERR, 'Could not locate the running-instance queue dir beside this module; pass --queue=<dir> explicitly.' . PHP_EOL);
-
-    exit(1);
-}
-
-// An EXPLICIT --queue that does not exist is an operator typo: fail loud rather than silently writing
-// into a missing tree. A DEFAULT-resolved root that is merely absent is NOT an error — the QueueClient
-// creates the queue subdirectories on first enqueue.
-if (is_string($queueOption) && !is_dir($queueOption)) {
-    fwrite(STDERR, sprintf('The --queue directory does not exist: %s', $queueOption) . PHP_EOL);
+if (!is_string($restPendingRoot)) {
+    fwrite(STDERR, 'Could not locate the running-instance rest-pending dir beside this module; pass --rest-pending=<dir> explicitly.' . PHP_EOL);
 
     exit(1);
 }
 
-// Resolve the locale from the booted instance language so the feeder queries carry the instance's
+// Resolve the locale from the booted instance language so the finder queries carry the instance's
 // configured language tag.
 $locale = I18N::languageTag();
 
-// Build the finder connection and, for the REST transport, the in-flight ledger root as a sibling of
-// the queue dir. A malformed --base-url (not http(s), or carrying a control character) is rejected by
-// FinderConnection::rest(); catch it and fail loud rather than letting the stack trace (with the token
-// in a header build's frame) reach STDERR.
+// Build the REST finder connection. A malformed --base-url (not http(s), or carrying a control
+// character) is rejected by FinderConnection::rest(); catch it and fail loud rather than letting the
+// stack trace (with the token in a header build's frame) reach STDERR.
 $token = (is_string($tokenOption) && ($tokenOption !== '')) ? $tokenOption : null;
 
 try {
-    $connection = $transport === 'rest'
-        ? FinderConnection::rest($baseUrlOption, $token)
-        : FinderConnection::file();
+    $connection = FinderConnection::rest($baseUrlOption, $token);
 } catch (InvalidArgumentException) {
     fwrite(STDERR, 'Invalid REST connection: --base-url must be an http(s) URL and neither --base-url nor --token may contain control characters.' . PHP_EOL);
 
     exit(1);
 }
 
-$restPendingRoot = $transport === 'rest'
-    ? dirname(rtrim($queueRoot, '/')) . '/rest-pending'
-    : null;
-
 // Assemble the producer object graph. The reference year defaults to null (the current year) — it is a
 // service-only seam with no CLI flag.
-$paths = new QueuePaths($queueRoot);
-
-$enqueueService = EnqueueServiceFactory::create($paths, $connection, $restPendingRoot);
+$enqueueService = EnqueueServiceFactory::create($connection, $restPendingRoot);
 
 try {
     $summary = $enqueueService->enqueue($treeId, $limit, $minAge, $locale);
@@ -205,13 +173,13 @@ try {
 
     exit(1);
 } catch (Throwable $exception) {
-    // Any other producer failure — a QueueClient::enqueue clobber/filesystem RuntimeException, but
-    // ALSO any TypeError/Error/InvalidArgumentException (the last extends LogicException, not
-    // RuntimeException) that could otherwise escape to PHP's default uncaught-exception handler and
-    // print the full message + stack trace (with absolute paths) to STDERR/cron mail. Catch every
-    // Throwable, print a fixed category, and route the detail to the SAME guarded sink the bootstrap
-    // uses (error_log defaults to STDERR in CLI, so only log when a real sink is configured — the
-    // S46 lesson). DomainException (the operator's own numeric --tree) is handled above, safe to echo.
+    // Any other producer failure — a transport RuntimeException, but ALSO any TypeError/Error/
+    // InvalidArgumentException (the last extends LogicException, not RuntimeException) that could
+    // otherwise escape to PHP's default uncaught-exception handler and print the full message + stack
+    // trace (with absolute paths) to STDERR/cron mail. Catch every Throwable, print a fixed category,
+    // and route the detail to the SAME guarded sink the bootstrap uses (error_log defaults to STDERR
+    // in CLI, so only log when a real sink is configured — the S46 lesson). DomainException (the
+    // operator's own numeric --tree) is handled above, safe to echo.
     fwrite(STDERR, 'Enqueue failed.' . PHP_EOL);
     HeadlessBootstrap::logCliError('enqueue', $exception);
 

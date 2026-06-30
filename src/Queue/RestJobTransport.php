@@ -12,7 +12,6 @@ declare(strict_types=1);
 namespace MagicSunday\ObituaryMatcher\Queue;
 
 use DateTimeInterface;
-use InvalidArgumentException;
 use JsonException;
 use MagicSunday\ObituaryMatcher\Support\FeederRequest;
 use MagicSunday\ObituaryMatcher\Support\FinderConnection;
@@ -88,8 +87,6 @@ final readonly class RestJobTransport implements JobTransport
      * @param FinderConnection        $connection     The REST connection (base URL and optional token).
      * @param ResponseValidator       $validator      The shared, transport-neutral response validator.
      * @param int                     $maxBytes       The maximum number of response-body bytes read into memory.
-     *
-     * @throws InvalidArgumentException When the connection carries no base URL (not a REST connection).
      */
     public function __construct(
         private ClientInterface $http,
@@ -100,15 +97,7 @@ final readonly class RestJobTransport implements JobTransport
         private ResponseValidator $validator,
         private int $maxBytes = QueueLimits::FEEDER_FILE_MAX_BYTES,
     ) {
-        $baseUrl = $connection->baseUrl();
-
-        if ($baseUrl === null) {
-            throw new InvalidArgumentException(
-                'RestJobTransport requires a REST connection carrying a base URL.'
-            );
-        }
-
-        $this->baseUrl = rtrim($baseUrl, '/');
+        $this->baseUrl = rtrim($connection->baseUrl(), '/');
     }
 
     /**
