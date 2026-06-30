@@ -138,13 +138,7 @@ $statusLabels = [
                         <td><?= e($portal['id']) ?></td>
                         <td><?= e($portal['name']) ?></td>
                         <td><?= e($portal['country']) ?></td>
-                        <td>
-                            <?php
-                            // Each region is e()-escaped here; the ', ' join glue is static, so the joined
-                            // string is echoed RAW below to avoid double-escaping (mirrors the counts row).
-                            ?>
-                            <?= implode(', ', array_map(static fn (string $region): string => e($region), $portal['regions'])) ?>
-                        </td>
+                        <td><?= e(implode(', ', $portal['regions'])) ?></td>
                     </tr>
                 <?php endforeach ?>
             </tbody>
@@ -154,7 +148,7 @@ $statusLabels = [
     <?php if ($probe->noticeFields !== []) : ?>
         <p>
             <?= e(I18N::translate('Notice fields')) ?>:
-            <?= implode(', ', array_map(static fn (string $field): string => e($field), $probe->noticeFields)) ?>
+            <?= e(implode(', ', $probe->noticeFields)) ?>
         </p>
     <?php endif ?>
 
