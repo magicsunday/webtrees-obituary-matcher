@@ -118,7 +118,7 @@ $statusLabels = [
     <?php if ($probe->schemaVersions !== []) : ?>
         <p>
             <?= e(I18N::translate('Advertised schema versions')) ?>:
-            <?= e(implode(', ', array_map(static fn (int $version): string => (string) $version, $probe->schemaVersions))) ?>
+            <?= e(implode(', ', $probe->schemaVersions)) ?>
         </p>
     <?php endif ?>
 
@@ -153,16 +153,11 @@ $statusLabels = [
     <?php endif ?>
 
     <?php
-    $enabledFeatures = [];
-
-    foreach ($probe->features as $featureName => $featureEnabled) {
-        if ($featureEnabled) {
-            $enabledFeatures[] = e($featureName);
-        }
-    }
+    // array_filter keeps only the truthy (enabled) flags; array_keys then yields their names.
+    $enabledFeatures = array_keys(array_filter($probe->features));
     ?>
     <?php if ($enabledFeatures !== []) : ?>
-        <p><?= e(I18N::translate('Supported features')) ?>: <?= implode(', ', $enabledFeatures) ?></p>
+        <p><?= e(I18N::translate('Supported features')) ?>: <?= e(implode(', ', $enabledFeatures)) ?></p>
     <?php endif ?>
 <?php endif ?>
 
