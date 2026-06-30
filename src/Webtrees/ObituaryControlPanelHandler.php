@@ -249,12 +249,25 @@ class ObituaryControlPanelHandler implements RequestHandlerInterface
         $tokenRaw = Validator::parsedBody($request)->string('token', '');
         $remove   = Validator::parsedBody($request)->boolean('remove_token', false);
 
+        // Resolve the token under the REMOVE-wins precedence BEFORE validating, mirroring
+        // {@see self::testConnection()}: a remove discards the submitted token (so its content is never
+        // validated), else a non-empty submitted token is validated, else a blank field keeps the existing
+        // token (nothing new to validate). Validating the raw field first would refuse a remove because of
+        // the content of a token that was going to be discarded — breaking the REMOVE-wins invariant.
+        if ($remove) {
+            $token = null;
+        } elseif ($tokenRaw !== '') {
+            $token = $tokenRaw;
+        } else {
+            $token = null;
+        }
+
         try {
-            // Validate BOTH the base URL and a non-empty token's control characters in one go; the
-            // returned object is not needed because persistence stores the flat preferences.
-            FinderConnection::rest($baseUrl, $tokenRaw === '' ? null : $tokenRaw);
+            // Validate the base URL and the resolved token's control characters in one go; the returned
+            // object is not needed because persistence stores the flat preferences.
+            FinderConnection::rest($baseUrl, $token);
         } catch (InvalidArgumentException) {
-            FlashMessages::addMessage(I18N::translate('The finder connection could not be saved.'), 'danger');
+            FlashMessages::addMessage(I18N::translate('Finder connection could not be saved.'), 'danger');
 
             return redirect(route(self::ROUTE_NAME));
         }

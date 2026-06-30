@@ -558,6 +558,32 @@ final class ObituaryControlPanelHandlerTest extends AbstractEnqueueTestCase
     }
 
     /**
+     * Remove wins over the SUBMITTED token field even when that field carries a value the connection
+     * source would reject: ticking remove discards the typed token, so its content is never validated and
+     * the save still succeeds and clears the stored token. A control-character token is the discriminator —
+     * validating the raw field first (instead of the remove-resolved one) would refuse the save and leave
+     * the old token in place, diverging from {@see ObituaryControlPanelHandler::testConnection()}.
+     *
+     * @return void
+     */
+    #[Test]
+    public function saveFinderRemoveWinsOverARejectableSubmittedToken(): void
+    {
+        $this->module->setPreference('finder_token', 'old');
+
+        $this->handler()->handle($this->panelPost([
+            'action'       => 'save-finder',
+            'transport'    => 'rest',
+            'base_url'     => 'https://finder.example',
+            'token'        => "typed\n",
+            'remove_token' => '1',
+        ]));
+
+        self::assertSame('rest', $this->module->getPreference('finder_transport'));
+        self::assertSame('', $this->module->getPreference('finder_token'));
+    }
+
+    /**
      * Selecting the file transport persists `finder_transport=file` but leaves a previously stored REST
      * base URL and token intact, so a file↔rest toggle keeps the REST data.
      *
