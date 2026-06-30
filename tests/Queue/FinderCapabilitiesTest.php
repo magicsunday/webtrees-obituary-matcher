@@ -18,6 +18,8 @@ use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\Attributes\UsesClass;
 use PHPUnit\Framework\TestCase;
 
+use function str_repeat;
+
 /**
  * Unit tests for the per-field defensive narrowing of an untrusted capabilities body — tolerant
  * schema-version handling, strict notice-field validation and string-keyed boolean features — so a
@@ -51,11 +53,44 @@ final class FinderCapabilitiesTest extends TestCase
 
         self::assertNotNull($caps);
         self::assertSame('finder-1', $caps->finderId);
+        self::assertSame('1.0.0', $caps->finderVersion);                 // optional version kept verbatim
         self::assertSame([1, 2], $caps->schemaVersions);                 // de-duped
         self::assertSame(['death', 'relatives'], $caps->noticeFields);    // unknown dropped
         self::assertSame(['pagination' => true], $caps->features);        // non-bool dropped
         self::assertCount(1, $caps->portals);
         self::assertSame('p-de', $caps->portals[0]->id);
+    }
+
+    /**
+     * finderVersion is OPTIONAL: a present-but-non-string or over-100-character value degrades to null
+     * (the field is dropped, not a fatal) while the rest of the document still narrows to a VO.
+     *
+     * @return void
+     */
+    #[Test]
+    public function aNonStringOrOversizeFinderVersionDegradesToNull(): void
+    {
+        $nonString = FinderCapabilities::tryFromArray([
+            'finderId'         => 'f',
+            'finderVersion'    => 5,                  // not a string → dropped to null
+            'retentionSeconds' => 10,
+            'schemaVersions'   => [1],
+            'portals'          => [['id' => 'p']],
+        ]);
+
+        self::assertNotNull($nonString);
+        self::assertNull($nonString->finderVersion);
+
+        $oversize = FinderCapabilities::tryFromArray([
+            'finderId'         => 'f',
+            'finderVersion'    => str_repeat('v', 101),   // beyond the 100-character cap → dropped to null
+            'retentionSeconds' => 10,
+            'schemaVersions'   => [1],
+            'portals'          => [['id' => 'p']],
+        ]);
+
+        self::assertNotNull($oversize);
+        self::assertNull($oversize->finderVersion);
     }
 
     /**
