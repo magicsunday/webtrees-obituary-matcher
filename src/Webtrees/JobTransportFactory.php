@@ -94,6 +94,10 @@ final class JobTransportFactory
                 new Client([
                     'connect_timeout' => self::CONNECT_TIMEOUT_SECONDS,
                     'timeout'         => self::REQUEST_TIMEOUT_SECONDS,
+                    // Pin the no-redirect SSRF invariant at the client level so a future move off the
+                    // PSR-18 sendRequest() path (which hard-codes allow_redirects=false per request)
+                    // cannot silently follow a 3xx into an attacker-chosen internal host.
+                    'allow_redirects' => false,
                 ]),
                 $httpFactory,
                 $httpFactory,

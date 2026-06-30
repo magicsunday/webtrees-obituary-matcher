@@ -13,6 +13,7 @@ namespace MagicSunday\ObituaryMatcher\Test\Ui;
 
 use MagicSunday\ObituaryMatcher\Ui\ControlPanelPresenter;
 use MagicSunday\ObituaryMatcher\Ui\ControlPanelView;
+use MagicSunday\ObituaryMatcher\Ui\FinderConnectionView;
 use MagicSunday\ObituaryMatcher\Ui\JobStatusRowView;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -34,9 +35,20 @@ use function array_map;
  */
 #[CoversClass(ControlPanelPresenter::class)]
 #[UsesClass(ControlPanelView::class)]
+#[UsesClass(FinderConnectionView::class)]
 #[UsesClass(JobStatusRowView::class)]
 final class ControlPanelPresenterTest extends TestCase
 {
+    /**
+     * A throwaway finder-connection view model passed through every presenter call below.
+     *
+     * @return FinderConnectionView The default file-transport connection without a probe.
+     */
+    private static function finder(): FinderConnectionView
+    {
+        return new FinderConnectionView('file', '', false, null);
+    }
+
     /**
      * The persisted settings, the tree list and the recent-job tuples project into the view: the
      * jobs keep their input order, each row carries its own finish timestamp and counts.
@@ -54,6 +66,7 @@ final class ControlPanelPresenterTest extends TestCase
                 ['jobId' => 'job-2', 'stateKey' => 'running', 'counts' => [], 'finishedAt' => null],
                 ['jobId' => 'job-1', 'stateKey' => 'done', 'counts' => ['notices' => 3], 'finishedAt' => '2026-06-24T09:00:00Z'],
             ],
+            self::finder(),
         );
 
         self::assertSame(80, $view->minAge);
@@ -72,10 +85,28 @@ final class ControlPanelPresenterTest extends TestCase
     #[Test]
     public function buildWithNoJobsYieldsEmptyJobRows(): void
     {
-        $view = (new ControlPanelPresenter())->build(90, 50, [], []);
+        $view = (new ControlPanelPresenter())->build(90, 50, [], [], self::finder());
 
         self::assertSame([], $view->jobRows);
         self::assertSame(90, $view->minAge);
+    }
+
+    /**
+     * The handler-built finder-connection view model is surfaced verbatim on the control-panel view:
+     * the transport and the token-is-set boolean carry through, and a GET render has no probe.
+     *
+     * @return void
+     */
+    #[Test]
+    public function buildCarriesTheFinderConnectionView(): void
+    {
+        $finder = new FinderConnectionView('rest', 'http://finder:8080', true, null);
+        $view   = (new ControlPanelPresenter())->build(90, 50, [], [], $finder);
+
+        self::assertSame('rest', $view->finder->transport);
+        self::assertSame('http://finder:8080', $view->finder->baseUrl);
+        self::assertTrue($view->finder->tokenIsSet);
+        self::assertNull($view->finder->probe);
     }
 
     /**
@@ -91,7 +122,7 @@ final class ControlPanelPresenterTest extends TestCase
     {
         $view = (new ControlPanelPresenter())->build(90, 50, [], [
             ['jobId' => 'job-1', 'stateKey' => $stateKey, 'counts' => [], 'finishedAt' => null],
-        ]);
+        ], self::finder());
 
         self::assertSame($stateKey, $view->jobRows[0]->stateKey);
     }

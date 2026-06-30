@@ -19,6 +19,8 @@ use MagicSunday\ObituaryMatcher\Webtrees\ObituaryControlPanelHandler;
 
 /** @var ControlPanelView $view */
 
+$finder = $view->finder;
+
 $stateLabels = [
     'queued'        => I18N::translate('Queued'),
     'running'       => I18N::translate('Running'),
@@ -27,6 +29,16 @@ $stateLabels = [
     'ingesting'     => I18N::translate('Ingesting'),
     'ingested'      => I18N::translate('Ingested'),
     'failed-ingest' => I18N::translate('Failed (ingest)'),
+];
+
+// Each probe-status key maps to a literal I18N::translate() label here (so xgettext can extract it).
+// The not-applicable line is deliberately NEUTRAL: a file-queue connection has no REST endpoint to test,
+// which is not an error. Only the unreachable/invalid keys carry the error styling below.
+$statusLabels = [
+    'reachable'      => I18N::translate('The finder is reachable.'),
+    'unreachable'    => I18N::translate('The finder could not be reached.'),
+    'invalid'        => I18N::translate('The finder connection is invalid.'),
+    'not-applicable' => I18N::translate('Not tested: file-queue mode has no REST endpoint.'),
 ];
 ?>
 
@@ -44,6 +56,110 @@ $stateLabels = [
 
     <button type="submit"><?= e(I18N::translate('Save')) ?></button>
 </form>
+
+<h2><?= e(I18N::translate('Finder connection')) ?></h2>
+
+<form method="post" action="<?= e(route(ObituaryControlPanelHandler::ROUTE_NAME)) ?>">
+    <?= csrf_field() ?>
+
+    <fieldset>
+        <legend><?= e(I18N::translate('Finder connection')) ?></legend>
+
+        <label>
+            <input type="radio" name="transport" value="file"<?= $finder->transport === 'file' ? ' checked' : '' ?>>
+            <?= e(I18N::translate('File queue')) ?>
+        </label>
+        <label>
+            <input type="radio" name="transport" value="rest"<?= $finder->transport === 'rest' ? ' checked' : '' ?>>
+            <?= e(I18N::translate('REST API')) ?>
+        </label>
+
+        <label for="base_url"><?= e(I18N::translate('REST base URL')) ?></label>
+        <input type="text" id="base_url" name="base_url" value="<?= e($finder->baseUrl) ?>">
+
+        <label for="token"><?= e(I18N::translate('Access token')) ?></label>
+        <input type="password" id="token" name="token" autocomplete="new-password">
+        <p><?= $finder->tokenIsSet ? e(I18N::translate('A token is set.')) : e(I18N::translate('No token set.')) ?></p>
+
+        <label>
+            <input type="checkbox" name="remove_token" value="1">
+            <?= e(I18N::translate('Remove token')) ?>
+        </label>
+
+        <?php if ($finder->transport === 'file') : ?>
+            <p><?= e(I18N::translate('The REST URL and token are kept but not used in file-queue mode.')) ?></p>
+        <?php endif ?>
+
+        <button type="submit" name="action" value="test"><?= e(I18N::translate('Test connection')) ?></button>
+        <button type="submit" name="action" value="save-finder"><?= e(I18N::translate('Save finder connection')) ?></button>
+    </fieldset>
+</form>
+
+<?php if ($finder->probe !== null) : ?>
+    <?php $probe = $finder->probe; ?>
+
+    <h3><?= e(I18N::translate('Connection test result')) ?></h3>
+
+    <?php $statusIsError = ($probe->statusKey === 'unreachable') || ($probe->statusKey === 'invalid'); ?>
+    <p class="<?= $statusIsError ? 'alert alert-danger' : 'alert alert-info' ?>">
+        <?= e($statusLabels[$probe->statusKey] ?? $probe->statusKey) ?>
+        <?php if (($probe->statusKey === 'unreachable') && ($probe->httpStatus !== null)) : ?>
+            <?= e(I18N::translate('HTTP status: %s', (string) $probe->httpStatus)) ?>
+        <?php endif ?>
+    </p>
+
+    <?php if ($probe->finderId !== null) : ?>
+        <p><?= e(I18N::translate('Finder ID')) ?>: <?= e($probe->finderId) ?></p>
+    <?php endif ?>
+    <?php if ($probe->finderVersion !== null) : ?>
+        <p><?= e(I18N::translate('Finder version')) ?>: <?= e($probe->finderVersion) ?></p>
+    <?php endif ?>
+
+    <?php if ($probe->schemaVersions !== []) : ?>
+        <p>
+            <?= e(I18N::translate('Advertised schema versions')) ?>:
+            <?= e(implode(', ', $probe->schemaVersions)) ?>
+        </p>
+    <?php endif ?>
+
+    <?php if ($probe->portals !== []) : ?>
+        <table class="table wt-facts-table">
+            <thead>
+                <tr>
+                    <th><?= e(I18N::translate('Portal')) ?></th>
+                    <th><?= e(I18N::translate('Name')) ?></th>
+                    <th><?= e(I18N::translate('Country')) ?></th>
+                    <th><?= e(I18N::translate('Regions')) ?></th>
+                </tr>
+            </thead>
+            <tbody>
+                <?php foreach ($probe->portals as $portal) : ?>
+                    <tr>
+                        <td><?= e($portal['id']) ?></td>
+                        <td><?= e($portal['name']) ?></td>
+                        <td><?= e($portal['country']) ?></td>
+                        <td><?= e(implode(', ', $portal['regions'])) ?></td>
+                    </tr>
+                <?php endforeach ?>
+            </tbody>
+        </table>
+    <?php endif ?>
+
+    <?php if ($probe->noticeFields !== []) : ?>
+        <p>
+            <?= e(I18N::translate('Notice fields')) ?>:
+            <?= e(implode(', ', $probe->noticeFields)) ?>
+        </p>
+    <?php endif ?>
+
+    <?php
+    // array_filter keeps only the truthy (enabled) flags; array_keys then yields their names.
+    $enabledFeatures = array_keys(array_filter($probe->features));
+    ?>
+    <?php if ($enabledFeatures !== []) : ?>
+        <p><?= e(I18N::translate('Supported features')) ?>: <?= e(implode(', ', $enabledFeatures)) ?></p>
+    <?php endif ?>
+<?php endif ?>
 
 <h2><?= e(I18N::translate('Search for death notices')) ?></h2>
 

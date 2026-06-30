@@ -161,4 +161,38 @@ final class FinderConnectionTest extends TestCase
             self::assertStringNotContainsString('s3cr3t', $exception->getMessage());
         }
     }
+
+    /**
+     * A base URL whose host carries an RFC-illegal character (here an embedded space) is rejected at this
+     * single source. parse_url is lenient and accepts `ho st` as a host, but the PSR-7 request build the
+     * probe and the live transport perform (parse_url over the base plus an endpoint path) then throws a
+     * MalformedUriException — which is NOT a ClientExceptionInterface, so it would escape the capabilities
+     * probe's catch and, once the connection is persisted, crash the live drain. Rejecting it here keeps
+     * every consumer's request build total.
+     *
+     * @return void
+     */
+    #[Test]
+    public function aBaseUrlWithAnRfcIllegalHostIsRejected(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+
+        FinderConnection::rest('http://ho st', null);
+    }
+
+    /**
+     * A base URL the PSR-7 builder accepts — even one with a host underscore, an explicit port and a path,
+     * all of which a stricter hand-rolled host regex would wrongly reject — is still accepted, so the
+     * validation stays faithful to what the transport can actually build rather than over-rejecting valid
+     * configurations.
+     *
+     * @return void
+     */
+    #[Test]
+    public function aBuilderAcceptedBaseUrlWithPortAndPathIsAccepted(): void
+    {
+        $connection = FinderConnection::rest('http://finder_host.example:8080/api', null);
+
+        self::assertSame('http://finder_host.example:8080/api', $connection->baseUrl());
+    }
 }

@@ -13,8 +13,8 @@ namespace MagicSunday\ObituaryMatcher\Ui;
 
 /**
  * The control-panel view, projected webtrees-free AND Queue-free. It carries the persisted settings,
- * the trees offered for a feeder trigger and the recent-job status rows; the template escapes every
- * sink once with e() and maps any state key to its i18n label.
+ * the trees offered for a feeder trigger, the recent-job status rows and the finder-connection view
+ * model; the template escapes every sink once with e() and maps any state key to its i18n label.
  *
  * @author  Rico Sonntag <mail@ricosonntag.de>
  * @license https://opensource.org/licenses/GPL-3.0 GNU General Public License v3.0
@@ -29,12 +29,14 @@ final readonly class ControlPanelView
      * @param int                                $limit   The persisted per-run candidate limit.
      * @param list<array{id: int, name: string}> $trees   The trees offered for a feeder trigger.
      * @param list<JobStatusRowView>             $jobRows The recent-job status rows.
+     * @param FinderConnectionView               $finder  The finder-connection view model.
      */
     public function __construct(
         public int $minAge,
         public int $limit,
         public array $trees,
         public array $jobRows,
+        public FinderConnectionView $finder,
     ) {
     }
 }
