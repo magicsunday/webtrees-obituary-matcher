@@ -391,18 +391,40 @@ final class RestJobTransportTest extends TempDirTestCase
     }
 
     /**
-     * A 200 whose `state` is not a string is skipped (it carries no usable lifecycle signal), leaving
-     * the job in flight.
+     * A 200 whose `state` is missing or NOT a string carries no usable lifecycle signal and is a
+     * structurally non-conforming response the contract reproduces verbatim on every re-GET, so it is
+     * terminally failed as `response_invalid` rather than polled forever.
      *
      * @return void
      */
     #[Test]
-    public function aNonStringStateLeavesTheJobInFlight(): void
+    public function aMissingOrNonStringStateIsTerminallyFailed(): void
     {
         $ledger = new RestPendingLedger($this->tmp . '/rp');
         $ledger->record('job-1', 7, ['I1'], '2024-05-21T08:29:55Z');
 
-        $http      = $this->http([static fn (): ResponseInterface => self::json(200, ['schemaVersion' => 1, 'jobId' => 'job-1', 'state' => 42])]);
+        $http     = $this->http([static fn (): ResponseInterface => self::json(200, ['schemaVersion' => 1, 'jobId' => 'job-1', 'state' => 42])]);
+        $outcomes = iterator_to_array($this->newRest($http, $ledger)->fetchCompleted());
+
+        self::assertCount(1, $outcomes);
+        self::assertInstanceOf(FailedJob::class, $outcomes[0]);
+        self::assertSame('response_invalid', $outcomes[0]->reasonCategory);
+    }
+
+    /**
+     * A 200 with an UNKNOWN but plausible `state` STRING (neither `done` nor `failed`) is still in flight
+     * — a forward-compatible finder may complete it on a later poll — so it is skipped and kept in the
+     * ledger, NOT terminally failed. This preserves the forward-compatibility of the state enum.
+     *
+     * @return void
+     */
+    #[Test]
+    public function anUnknownStringStateLeavesTheJobInFlight(): void
+    {
+        $ledger = new RestPendingLedger($this->tmp . '/rp');
+        $ledger->record('job-1', 7, ['I1'], '2024-05-21T08:29:55Z');
+
+        $http      = $this->http([static fn (): ResponseInterface => self::json(200, ['schemaVersion' => 1, 'jobId' => 'job-1', 'state' => 'paused'])]);
         $transport = $this->newRest($http, $ledger);
 
         self::assertSame([], iterator_to_array($transport->fetchCompleted()));
@@ -423,6 +445,28 @@ final class RestJobTransportTest extends TempDirTestCase
         $ledger->record('job-1', 7, ['I1'], '2024-05-21T08:29:55Z');
 
         $http     = $this->http([static fn (): ResponseInterface => self::raw(200, '42')]);
+        $outcomes = iterator_to_array($this->newRest($http, $ledger)->fetchCompleted());
+
+        self::assertCount(1, $outcomes);
+        self::assertInstanceOf(FailedJob::class, $outcomes[0]);
+        self::assertSame('response_invalid', $outcomes[0]->reasonCategory);
+    }
+
+    /**
+     * A 200 body that is valid JSON but a TOP-LEVEL ARRAY (`[1,2,3]`) is not a job-response object; the
+     * list guard classifies it PERMANENT and the stored response recurs on every re-GET, so it is
+     * terminally failed as `response_invalid` rather than polled forever (the `is_array` guard alone would
+     * have let a JSON array through, since json_decode maps both objects and arrays to a PHP array).
+     *
+     * @return void
+     */
+    #[Test]
+    public function aTopLevelJsonArrayBodyIsTerminallyFailed(): void
+    {
+        $ledger = new RestPendingLedger($this->tmp . '/rp');
+        $ledger->record('job-1', 7, ['I1'], '2024-05-21T08:29:55Z');
+
+        $http     = $this->http([static fn (): ResponseInterface => self::raw(200, '[1,2,3]')]);
         $outcomes = iterator_to_array($this->newRest($http, $ledger)->fetchCompleted());
 
         self::assertCount(1, $outcomes);

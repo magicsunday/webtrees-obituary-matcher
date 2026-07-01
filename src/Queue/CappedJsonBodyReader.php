@@ -15,6 +15,7 @@ use JsonException;
 use Psr\Http\Message\ResponseInterface;
 use Throwable;
 
+use function array_is_list;
 use function is_array;
 use function json_decode;
 use function strlen;
@@ -74,7 +75,14 @@ final class CappedJsonBodyReader
             return BodyFault::Permanent;
         }
 
-        if (!is_array($decoded)) {
+        // `json_decode(..., true)` maps BOTH a JSON object and a JSON array to a PHP array, so `is_array`
+        // alone cannot enforce the object requirement. A top-level JSON array (a list) — and the empty
+        // `[]`/`{}` which both decode to an empty list — is not a usable job-response object; classify it
+        // Permanent so it is terminally failed rather than polled forever.
+        if (
+            !is_array($decoded)
+            || array_is_list($decoded)
+        ) {
             return BodyFault::Permanent;
         }
 

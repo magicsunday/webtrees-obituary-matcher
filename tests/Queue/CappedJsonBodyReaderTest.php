@@ -108,4 +108,32 @@ final class CappedJsonBodyReaderTest extends TestCase
 
         self::assertSame(BodyFault::Permanent, $fault);
     }
+
+    /**
+     * A top-level JSON ARRAY is valid JSON but not a job-response object; because `json_decode(…, true)`
+     * maps it to a PHP list, the `is_array` guard alone would miss it — the list guard classifies it
+     * Permanent.
+     *
+     * @return void
+     */
+    #[Test]
+    public function aTopLevelJsonArrayIsPermanent(): void
+    {
+        $fault = CappedJsonBodyReader::decode(self::raw(200, '[1,2,3]'), 5_242_880);
+
+        self::assertSame(BodyFault::Permanent, $fault);
+    }
+
+    /**
+     * An empty body — `{}` or `[]`, both of which decode to an empty PHP list — is not a usable
+     * job-response object and is classified Permanent rather than returned as a decoded object.
+     *
+     * @return void
+     */
+    #[Test]
+    public function anEmptyObjectOrArrayIsPermanent(): void
+    {
+        self::assertSame(BodyFault::Permanent, CappedJsonBodyReader::decode(self::raw(200, '{}'), 5_242_880));
+        self::assertSame(BodyFault::Permanent, CappedJsonBodyReader::decode(self::raw(200, '[]'), 5_242_880));
+    }
 }

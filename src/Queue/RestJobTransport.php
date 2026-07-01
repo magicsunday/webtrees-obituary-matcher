@@ -189,19 +189,29 @@ final readonly class RestJobTransport implements JobTransport
             $body = $this->decodeBody($response);
 
             if ($body instanceof BodyFault) {
-                if ($body === BodyFault::Permanent) {
-                    // The stored response is unusable and the contract will reproduce it verbatim on every
-                    // re-GET; terminally fail it so it leaves the poll set instead of being polled forever.
-                    yield new FailedJob($jobId, $treeId, $personIds, 'response_invalid');
+                // A permanent fault is terminally failed (the stored response is unusable and the contract
+                // reproduces it verbatim on every re-GET); a transient torn read keeps the ledger entry
+                // for the next drain to retry. The match is exhaustive, so a future fault case is caught.
+                $reason = match ($body) {
+                    BodyFault::Permanent => 'response_invalid',
+                    BodyFault::Transient => null,
+                };
+
+                if ($reason !== null) {
+                    yield new FailedJob($jobId, $treeId, $personIds, $reason);
                 }
 
-                // Transient torn read: keep the ledger entry and retry on the next drain.
                 continue;
             }
 
             $state = $body['state'] ?? null;
 
             if (!is_string($state)) {
+                // A missing or non-string `state` is a structurally non-conforming response the contract
+                // reproduces verbatim on every re-GET; terminally fail it rather than poll it forever. An
+                // unknown but plausible state STRING stays retryable below (forward compatibility).
+                yield new FailedJob($jobId, $treeId, $personIds, 'response_invalid');
+
                 continue;
             }
 
