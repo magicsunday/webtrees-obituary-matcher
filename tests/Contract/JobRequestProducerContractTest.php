@@ -235,6 +235,10 @@ final class JobRequestProducerContractTest extends TestCase
                 new FinderCandidateRequest('I1', new PersonName([], null, '', null, [], ['Erika Musterfrau']), []),
                 ['names' => [['kind' => 'alias', 'full' => 'Erika Musterfrau']]],
             ],
+            'dirty name tokens are trimmed and blank elements dropped' => [
+                new FinderCandidateRequest('I1', new PersonName(['', ' Erika ', '  '], null, '  Mustermann ', null), []),
+                ['names' => [['kind' => 'primary', 'given' => 'Erika', 'surname' => 'Mustermann']]],
+            ],
             'more than ten name forms are capped at ten with the primary first' => [
                 new FinderCandidateRequest(
                     'I1',

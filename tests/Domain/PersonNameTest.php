@@ -66,11 +66,14 @@ final class PersonNameTest extends TestCase
     public static function unsearchableNameProvider(): array
     {
         return [
-            'all empty'           => [new PersonName([], null, '', null, [], [])],
-            'empty given token'   => [new PersonName([''], null, '', null, [], [])],
-            'empty married token' => [new PersonName([], null, '', null, [''], [])],
-            'empty alias token'   => [new PersonName([], null, '', null, [], [''])],
-            'empty birth surname' => [new PersonName([], null, '', '', [], [])],
+            'all empty'               => [new PersonName([], null, '', null, [], [])],
+            'empty given token'       => [new PersonName([''], null, '', null, [], [])],
+            'empty married token'     => [new PersonName([], null, '', null, [''], [])],
+            'empty alias token'       => [new PersonName([], null, '', null, [], [''])],
+            'empty birth surname'     => [new PersonName([], null, '', '', [], [])],
+            'whitespace-only given'   => [new PersonName(['   '], null, '', null, [], [])],
+            'whitespace-only surname' => [new PersonName([], null, "\t ", null, [], [])],
+            'whitespace-only alias'   => [new PersonName([], null, '', null, [], [' '])],
         ];
     }
 
@@ -83,6 +86,7 @@ final class PersonNameTest extends TestCase
     {
         return [
             'given only'         => [new PersonName(['Erika'], null, '', null, [], [])],
+            'padded given'       => [new PersonName([' Erika '], null, '', null, [], [])],
             'surname only'       => [new PersonName([], null, 'Mustermann', null, [], [])],
             'birth surname only' => [new PersonName([], null, '', 'Mueller', [], [])],
             'married only'       => [new PersonName([], null, '', null, ['Schmidt'], [])],

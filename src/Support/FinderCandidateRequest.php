@@ -17,6 +17,7 @@ use function array_slice;
 use function count;
 use function implode;
 use function mb_substr;
+use function trim;
 
 /**
  * The finder-request portion describing a single candidate and its prioritised queries.
@@ -94,14 +95,15 @@ final readonly class FinderCandidateRequest
 
     /**
      * Projects the decomposed {@see PersonName} onto contract name-entry forms — primary, birth,
-     * married and alias — dropping any empty form, truncating each field to the contract maximum
-     * ({@see self::MAX_NAME_FIELD_LENGTH}) and keeping at most {@see self::MAX_NAME_ENTRIES}
-     * (primary first).
+     * married and alias — trimming each token and dropping any blank form, truncating each field to the
+     * contract maximum ({@see self::MAX_NAME_FIELD_LENGTH}) and keeping at most
+     * {@see self::MAX_NAME_ENTRIES} (primary first).
      *
-     * MUST stay in lockstep with {@see PersonName::hasSearchableName()}: the enqueue producer excludes
-     * every candidate for which that predicate is false, so a candidate that reaches here always
-     * carries at least one non-empty token and the list is non-empty (the schema's `minItems: 1`). The
-     * producer contract test pins that invariant at the boundary.
+     * MUST stay in lockstep with {@see PersonName::hasSearchableName()}: both decide a token's presence
+     * by the SAME trimmed-non-blank test, and the enqueue producer excludes every candidate for which
+     * that predicate is false, so a candidate that reaches here always carries at least one trimmed
+     * token and the list is non-empty, satisfying the schema's `minItems: 1`. The producer contract test
+     * pins that invariant at the boundary.
      *
      * @return list<array{kind?: string, full?: string, given?: string, surname?: string}> The projected name entries.
      */
@@ -109,8 +111,22 @@ final readonly class FinderCandidateRequest
     {
         $entries = [];
 
-        $given   = mb_substr(implode(' ', $this->name->givenNames), 0, self::MAX_NAME_FIELD_LENGTH);
-        $surname = mb_substr($this->name->surname, 0, self::MAX_NAME_FIELD_LENGTH);
+        // Trim every name token and drop the empty ones, so a whitespace-only or empty GEDCOM element
+        // (e.g. `['', 'John']` or a `2 SURN "   "`) never reaches the wire as a leading-space or
+        // blank value. This keeps the projection in lockstep with {@see PersonName::hasSearchableName()},
+        // which decides inclusion on the SAME trimmed-non-empty notion.
+        $cleanGivenNames = [];
+
+        foreach ($this->name->givenNames as $givenName) {
+            $trimmedGiven = trim($givenName);
+
+            if ($trimmedGiven !== '') {
+                $cleanGivenNames[] = $trimmedGiven;
+            }
+        }
+
+        $given   = mb_substr(implode(' ', $cleanGivenNames), 0, self::MAX_NAME_FIELD_LENGTH);
+        $surname = mb_substr(trim($this->name->surname), 0, self::MAX_NAME_FIELD_LENGTH);
         $primary = ['kind' => 'primary'];
 
         if ($given !== '') {
@@ -127,19 +143,25 @@ final readonly class FinderCandidateRequest
             $entries[] = $primary;
         }
 
-        if (($this->name->birthSurname !== null) && ($this->name->birthSurname !== '')) {
-            $entries[] = ['kind' => 'birth', 'surname' => mb_substr($this->name->birthSurname, 0, self::MAX_NAME_FIELD_LENGTH)];
+        $birthSurname = ($this->name->birthSurname === null) ? '' : trim($this->name->birthSurname);
+
+        if ($birthSurname !== '') {
+            $entries[] = ['kind' => 'birth', 'surname' => mb_substr($birthSurname, 0, self::MAX_NAME_FIELD_LENGTH)];
         }
 
         foreach ($this->name->marriedSurnames as $marriedSurname) {
-            if ($marriedSurname !== '') {
-                $entries[] = ['kind' => 'married', 'surname' => mb_substr($marriedSurname, 0, self::MAX_NAME_FIELD_LENGTH)];
+            $trimmedMarried = trim($marriedSurname);
+
+            if ($trimmedMarried !== '') {
+                $entries[] = ['kind' => 'married', 'surname' => mb_substr($trimmedMarried, 0, self::MAX_NAME_FIELD_LENGTH)];
             }
         }
 
         foreach ($this->name->aliases as $alias) {
-            if ($alias !== '') {
-                $entries[] = ['kind' => 'alias', 'full' => mb_substr($alias, 0, self::MAX_NAME_FIELD_LENGTH)];
+            $trimmedAlias = trim($alias);
+
+            if ($trimmedAlias !== '') {
+                $entries[] = ['kind' => 'alias', 'full' => mb_substr($trimmedAlias, 0, self::MAX_NAME_FIELD_LENGTH)];
             }
         }
 
