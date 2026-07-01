@@ -40,12 +40,12 @@ use const JSON_UNESCAPED_SLASHES;
 use const JSON_UNESCAPED_UNICODE;
 
 /**
- * Static-only helper for tear-free JSON file I/O on the file-drop queue. Writes go through a
- * uniquely-named temporary file in the same directory followed by an atomic rename, so a reader
- * never observes a half-written file: the replacement is tear-free (the temp name is excluded from
- * the *.json scans). It is not crash-durable — there is no fsync, so durability is deferred to a
- * later phase. Reads are guarded against symlinks and oversized files so a hostile or corrupt queue
- * entry cannot exhaust memory or escape the queue via a link.
+ * Static-only helper for tear-free JSON file I/O of the matcher's local state (the REST pending-jobs
+ * ledger and the per-tree match stores). Writes go through a uniquely-named temporary file in the same
+ * directory followed by an atomic rename, so a reader never observes a half-written file: the
+ * replacement is tear-free (the temp name is excluded from the *.json scans). It is not crash-durable —
+ * there is no fsync, so durability is deferred to a later phase. Reads are guarded against symlinks and
+ * oversized files so a hostile or corrupt entry cannot exhaust memory or escape the store via a link.
  *
  * @author  Rico Sonntag <mail@ricosonntag.de>
  * @license https://opensource.org/licenses/GPL-3.0 GNU General Public License v3.0

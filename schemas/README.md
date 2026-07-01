@@ -22,12 +22,12 @@ A finder is "compatible" if it implements this OpenAPI surface and satisfies the
 schemas — then it can be plugged in without changing the matcher (the matcher only
 needs the finder's base URL + optional token in config).
 
-This contract is the **target** transport. The system today still talks over a
-file-based queue (the matcher's `Queue/*` classes ↔ a cron-drained finder); the
-ordered migration from that queue to REST — what maps to what, the incremental
-steps, and the cutover criterion — is tracked in the REST transition epic (`#66`).
-The JSON shapes carry over almost 1:1, so adopting REST is a transport swap, not a
-data-model rewrite.
+This contract is the transport the matcher uses. It submits finder jobs and drains
+results over this REST surface — the matcher's `Queue/*` classes wrap the HTTP calls
+and the pending-jobs ledger. The file-drop queue the matcher originally shipped with
+has been removed (the REST transition epic `#66`); the JSON shapes are unchanged from
+that earlier queue, so a finder that satisfies these schemas plugs in as a pure
+transport, not a data-model rewrite.
 
 ## Files
 

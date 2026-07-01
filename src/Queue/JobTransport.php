@@ -38,9 +38,9 @@ interface JobTransport
     /**
      * Yields the outcome of every completed job: a {@see CompletedJob} carrying the decoded notices
      * for a job that produced a result, or a {@see FailedJob} carrying a reason category for a job
-     * whose per-job read failed. The file transport claims each job before yielding it, so a yielded
-     * job is owned by this caller and MUST be finalised via {@see markIngested}, {@see markFailed} or
-     * {@see release}.
+     * whose per-job read failed. A yielded job is owned by this caller and MUST be finalised via
+     * {@see markIngested}, {@see markFailed} or {@see release} so the transport can retire it from the
+     * pending set.
      *
      * @return iterable<CompletedJob|FailedJob> The per-job outcomes.
      */
@@ -89,9 +89,9 @@ interface JobTransport
 
     /**
      * The number of jobs left stranded mid-ingest by an earlier run (the drain summary's stale tally).
-     * The file transport counts the directories stuck in the ingesting state; the REST transport
-     * returns 0 — its pending jobs stay pollable in the ledger and are never "claimed", so there is no
-     * stuck-in-ingesting state to count.
+     * The REST transport returns 0 — its pending jobs stay pollable in the ledger and are never
+     * "claimed" into an intermediate state, so there is no stuck-in-ingesting state to count; the count
+     * stays on the seam for a transport that DOES claim jobs and could strand one on a mid-ingest crash.
      *
      * @return int The stale job count.
      */

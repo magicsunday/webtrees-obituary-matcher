@@ -23,8 +23,8 @@ namespace MagicSunday\ObituaryMatcher\Queue;
 final class QueueLimits
 {
     /**
-     * The maximum number of bytes a single finder request/response file is read into memory,
-     * guarding the queue readers against an oversized on-disk file (5 MiB).
+     * The maximum number of bytes a single finder response body is read into memory, guarding the
+     * response reader against an oversized finder response (5 MiB).
      */
     public const int FINDER_RESPONSE_MAX_BYTES = 5_242_880;
 

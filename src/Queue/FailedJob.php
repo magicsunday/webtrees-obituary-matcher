@@ -14,8 +14,8 @@ namespace MagicSunday\ObituaryMatcher\Queue;
 /**
  * Transport-neutral outcome of a finder job that did not complete: the requested persons plus a
  * snake_case reason category (e.g. `finder_failed`, `request_failed`) that classifies why the job
- * failed. Both the file-drop queue and the future REST transport produce this same value object so
- * the drain can react uniformly regardless of the transport.
+ * failed. The REST transport produces this value object through the {@see JobTransport} seam, so the
+ * drain can react uniformly regardless of the transport.
  *
  * @author  Rico Sonntag <mail@ricosonntag.de>
  * @license https://opensource.org/licenses/GPL-3.0 GNU General Public License v3.0

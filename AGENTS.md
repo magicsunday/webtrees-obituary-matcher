@@ -7,7 +7,7 @@ The Composer package is a `library` (`magicsunday/webtrees-obituary-matcher`, na
 The full product is two cooperating pieces:
 - **This repository (the engine)** — pure PHP. Parses obituary text into typed facts, scores each tree-candidate against each obituary, classifies the result into a confidence band, and detects data conflicts. Deterministic, side-effect-free, fully unit-tested.
 - **A future webtrees module** — embeds this engine, renders the explainable review screens inside the active webtrees theme (admin-only, control-panel + individual-page surfaces), and on admin confirm writes the death date plus a source citation back into the tree. **Nothing is ever written automatically.**
-- **A separate Python + Playwright feeder** — a standalone crawler that collects public obituary notices and normalises them into the engine's input shape. It lives outside this repository and is not a Composer dependency.
+- **A separate Python + Playwright finder** — a standalone crawler that collects public obituary notices and normalises them into the engine's input shape. It lives outside this repository and is not a Composer dependency.
 
 ## Setup/env
 - PHP 8.3–8.5 is required. Composer installs dependencies into `.build/vendor` and binaries into `.build/bin` (see `config.vendor-dir` / `config.bin-dir` in `composer.json`).

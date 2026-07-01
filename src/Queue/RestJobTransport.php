@@ -32,16 +32,14 @@ use function sprintf;
 
 /**
  * The REST {@see JobTransport}: it submits finder jobs to a remote HTTP endpoint and polls their
- * outcome, mapping the transport-neutral lifecycle onto plain HTTP over a PSR-18 client. Unlike the
- * file transport there is no shared queue directory to scan, so each submitted job is remembered in a
- * local {@see RestPendingLedger} and a drain polls `GET /jobs/{id}` for every still-pending entry.
+ * outcome, mapping the transport-neutral lifecycle onto plain HTTP over a PSR-18 client. There is no
+ * shared queue directory to scan, so each submitted job is remembered in a local
+ * {@see RestPendingLedger} and a drain polls `GET /jobs/{id}` for every still-pending entry.
  *
  * The remote endpoint speaks the published #56 contract directly: `GET /jobs/{id}` returns the whole
  * `job-response` document — a top-level `state` plus `results` once the state is `done`. The body is
- * handed to the SAME {@see ResponseValidator} the file transport uses, which reads only
- * `schemaVersion`/`jobId`/`results` and ignores the extra `state` key, so a REST body and a file
- * `response.json` validate byte-identically and the per-job reason categories stay uniform across the
- * transport seam.
+ * handed to {@see ResponseValidator}, which reads only `schemaVersion`/`jobId`/`results` and ignores
+ * the extra `state` key, so the per-job reason categories stay uniform across the transport seam.
  *
  * The bearer token is a secret: it travels only in the `Authorization` header and is never written
  * into a built URL, an exception message or a log line — a transport-level failure is reported with
@@ -230,7 +228,7 @@ final readonly class RestJobTransport implements JobTransport
      * needed (a failed ingest takes {@see self::markFailed()}, which preserves the remote job). The ledger
      * removal is the authoritative local state, so it happens first and unconditionally; the remote DELETE
      * is wrapped so a failure or error response can never resurrect the entry. The ingest counts and
-     * warnings are the file transport's status bookkeeping and have no REST equivalent.
+     * warnings are status bookkeeping for a claim-based transport and have no REST equivalent.
      *
      * @param string             $jobId    The job identifier to finalise.
      * @param array<string, int> $counts   The per-metric ingest counts (unused by the REST transport).
@@ -249,8 +247,8 @@ final readonly class RestJobTransport implements JobTransport
      * Drops the job from the local poll set but PRESERVES it on the remote: a failed job is removed from
      * the ledger (so it is not re-polled — unless the unlink itself fails on a read-only/permission-denied
      * ledger filesystem, a bounded self-healing degradation tracked in issue #71) yet deliberately NOT
-     * deleted remotely. This mirrors the file transport, which parks a failed job in `failed-ingest/` with its
-     * payload retained rather than discarding it, so a transient local fault that surfaces as
+     * deleted remotely. Preserving the remote job rather than discarding it means a transient local fault
+     * that surfaces as
      * `ingest_failed` (a disk-full or permission error while persisting the matches) does not destroy the
      * only copy of the finder's result — the remote keeps the job for manual recovery. Only a SUCCESSFUL
      * ingest ({@see self::markIngested()}) deletes the remote job. The category and warnings have no REST
@@ -264,8 +262,8 @@ final readonly class RestJobTransport implements JobTransport
      */
     public function markFailed(string $jobId, string $reasonCategory, array $warnings = []): void
     {
-        // Remove from the ledger only — never DELETE. The remote retains the failed job so its result is
-        // recoverable, exactly as the file transport preserves a failed job's payload in failed-ingest/.
+        // Remove from the ledger only — never DELETE. The remote retains the failed job so its result
+        // stays recoverable; only a successful ingest deletes the remote job.
         $this->ledger->remove($jobId);
     }
 
