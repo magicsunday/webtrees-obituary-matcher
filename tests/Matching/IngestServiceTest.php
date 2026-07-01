@@ -57,7 +57,7 @@ use MagicSunday\ObituaryMatcher\Support\NoticeMapper;
 use MagicSunday\ObituaryMatcher\Support\ObituaryNameParser;
 use MagicSunday\ObituaryMatcher\Support\UrlNormalizer;
 /* jscpd:ignore-end */
-use MagicSunday\ObituaryMatcher\Test\Queue\QueueTempDirTestCase;
+use MagicSunday\ObituaryMatcher\Test\Support\TempDirTestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\Attributes\UsesClass;
@@ -120,7 +120,7 @@ use const JSON_THROW_ON_ERROR;
 #[UsesClass(StoredMatch::class)]
 #[UsesClass(UrlNormalizer::class)]
 /* jscpd:ignore-end */
-final class IngestServiceTest extends QueueTempDirTestCase
+final class IngestServiceTest extends TempDirTestCase
 {
     /**
      * Ingests a validated feeder response for a still-held candidate, scores it with the enriched
@@ -198,7 +198,7 @@ final class IngestServiceTest extends QueueTempDirTestCase
      * Two notices in the same response whose URLs collapse onto one identity key (here two
      * utm-variant links for the same person) overwrite the same stored row. The count must reflect
      * the single distinct row actually persisted, not the two writes iterated — the count feeds
-     * QueueClient::markDone and may not overstate.
+     * JobTransport::markIngested and may not overstate.
      */
     #[Test]
     public function countsDistinctStoredSuggestionsWhenWithinResponseDuplicatesCollapse(): void
@@ -235,7 +235,7 @@ final class IngestServiceTest extends QueueTempDirTestCase
         $store->markRejected('I1', $store->allPending()[0]->obituaryUrl ?? '', 'reviewer rejected');
 
         // Re-ingesting the SAME notices must store nothing (the terminal row is a no-op) and therefore
-        // report zero — the count is destined for QueueClient::markIngested, so it may not overstate.
+        // report zero — the count is destined for JobTransport::markIngested, so it may not overstate.
         self::assertSame(
             0,
             $service->ingest($notices, ['I1' => $this->candidateMatchingErika()], $store)->matchesStored

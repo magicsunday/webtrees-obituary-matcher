@@ -11,8 +11,6 @@ declare(strict_types=1);
 
 namespace MagicSunday\ObituaryMatcher\Test\Integration;
 
-use MagicSunday\ObituaryMatcher\Queue\QueuePaths;
-
 use function is_dir;
 use function is_link;
 use function mkdir;
@@ -23,30 +21,26 @@ use function uniqid;
 use function unlink;
 
 /**
- * Shared plumbing for the queue-coupled integration harnesses ({@see AbstractDrainTestCase} and
- * {@see AbstractEnqueueTestCase}): a throwaway file-drop queue root plus an isolated per-tree
- * match-store root, both created in {@see setUp()} and recursively removed in {@see tearDown()}, and
- * the {@see paths()} builder rooted at the throwaway queue. The temp-dir leaf prefix is the one knob
- * each concrete harness varies so its scenarios get a distinct, identifiable working directory.
+ * Shared plumbing for the store-coupled integration harnesses ({@see AbstractDrainTestCase} and
+ * {@see AbstractEnqueueTestCase}): an isolated per-tree match-store root, created in {@see setUp()} and
+ * recursively removed in {@see tearDown()}, so the assertions never touch the live webtrees data dir.
+ * The transport is a {@see RecordingJobTransport} double, so the harness no longer lays out an on-disk
+ * queue. The temp-dir leaf prefix is the one knob each concrete harness varies so its scenarios get a
+ * distinct, identifiable working directory.
  *
  * @author  Rico Sonntag <mail@ricosonntag.de>
  * @license https://opensource.org/licenses/GPL-3.0 GNU General Public License v3.0
  * @link    https://github.com/magicsunday/webtrees-obituary-matcher/
  */
-abstract class AbstractQueueStoreTestCase extends IntegrationTestCase
+abstract class AbstractStoreTestCase extends IntegrationTestCase
 {
-    /**
-     * @var string The throwaway queue root the scenarios enqueue into and the service reads from.
-     */
-    protected string $queueRoot;
-
     /**
      * @var string The throwaway per-tree match-store base directory, isolated from the live data dir.
      */
     protected string $storeRoot;
 
     /**
-     * Create the throwaway queue + store roots and lay out the queue's state directories.
+     * Create the throwaway store root.
      *
      * @return void
      */
@@ -54,25 +48,18 @@ abstract class AbstractQueueStoreTestCase extends IntegrationTestCase
     {
         parent::setUp();
 
-        $root = sys_get_temp_dir() . '/' . $this->tempDirPrefix() . uniqid('', true);
+        $this->storeRoot = sys_get_temp_dir() . '/' . $this->tempDirPrefix() . uniqid('', true);
 
-        $this->queueRoot = $root . '/queue';
-        $this->storeRoot = $root . '/store';
-
-        mkdir($this->queueRoot, 0o700, true);
         mkdir($this->storeRoot, 0o700, true);
-
-        (new QueuePaths($this->queueRoot))->ensureLayout();
     }
 
     /**
-     * Remove the throwaway roots.
+     * Remove the throwaway store root.
      *
      * @return void
      */
     protected function tearDown(): void
     {
-        $this->removeRecursively($this->queueRoot);
         $this->removeRecursively($this->storeRoot);
 
         parent::tearDown();
@@ -85,16 +72,6 @@ abstract class AbstractQueueStoreTestCase extends IntegrationTestCase
      * @return string The temp-dir leaf prefix.
      */
     abstract protected function tempDirPrefix(): string;
-
-    /**
-     * The queue path builder rooted at this test's throwaway queue.
-     *
-     * @return QueuePaths
-     */
-    protected function paths(): QueuePaths
-    {
-        return new QueuePaths($this->queueRoot);
-    }
 
     /**
      * Recursively remove a directory tree.

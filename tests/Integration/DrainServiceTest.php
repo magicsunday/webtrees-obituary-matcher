@@ -20,15 +20,8 @@ use MagicSunday\ObituaryMatcher\Matching\IngestService;
 use MagicSunday\ObituaryMatcher\Matching\MatchStore;
 use MagicSunday\ObituaryMatcher\Matching\StoredMatch;
 use MagicSunday\ObituaryMatcher\Matching\WriteBack;
-use MagicSunday\ObituaryMatcher\Queue\AtomicFile;
 use MagicSunday\ObituaryMatcher\Queue\FailedJob;
-use MagicSunday\ObituaryMatcher\Queue\FeederRequestReader;
-use MagicSunday\ObituaryMatcher\Queue\JobState;
 use MagicSunday\ObituaryMatcher\Queue\JobTransport;
-use MagicSunday\ObituaryMatcher\Queue\QueueClient;
-use MagicSunday\ObituaryMatcher\Queue\QueueLimits;
-use MagicSunday\ObituaryMatcher\Queue\QueuePaths;
-use MagicSunday\ObituaryMatcher\Queue\ResponseReader;
 use MagicSunday\ObituaryMatcher\Scoring\Classifier;
 use MagicSunday\ObituaryMatcher\Scoring\EnrichedMatchEngine;
 use MagicSunday\ObituaryMatcher\Support\FeederRequest;
@@ -40,19 +33,13 @@ use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\Attributes\UsesClass;
 use RuntimeException;
 
-use function file_put_contents;
-use function json_encode;
-use function mkdir;
-use function str_repeat;
-
-use const JSON_THROW_ON_ERROR;
-
 /**
- * Drives {@see DrainService::drain()} end-to-end against a real imported tree and a real on-disk
- * file-drop queue. Each scenario asserts a discriminating triple — the summary counter, the queue
- * end-state of the job, and the resulting store delta — so a regression that merely "throws no
- * exception" cannot pass. The throwaway queue/store plumbing and the real-graph wiring live in
- * {@see AbstractDrainTestCase}; this class adds the branch-specific scenarios only.
+ * Drives {@see DrainService::drain()} end-to-end against a real imported tree and a
+ * {@see RecordingJobTransport} double. Each scenario asserts a discriminating triple — the summary
+ * counter, the transport-recorded finalisation of the job (ingested / failed / released), and the
+ * resulting store delta — so a regression that merely "throws no exception" cannot pass. The
+ * throwaway store plumbing and the real-graph wiring live in {@see AbstractDrainTestCase}; this class
+ * adds the branch-specific scenarios only.
  *
  * @author  Rico Sonntag <mail@ricosonntag.de>
  * @license https://opensource.org/licenses/GPL-3.0 GNU General Public License v3.0
@@ -61,7 +48,6 @@ use const JSON_THROW_ON_ERROR;
 #[CoversClass(DrainService::class)]
 #[UsesClass(\MagicSunday\ObituaryMatcher\Webtrees\DrainSummary::class)]
 #[UsesClass(\MagicSunday\ObituaryMatcher\Webtrees\DrainOutcome::class)]
-#[UsesClass(\MagicSunday\ObituaryMatcher\Queue\FileJobTransport::class)]
 #[UsesClass(CandidateRepository::class)]
 #[UsesClass(MatchStoreFactory::class)]
 #[UsesClass(\MagicSunday\ObituaryMatcher\Webtrees\PersonCandidateAdapter::class)]
@@ -70,57 +56,54 @@ use const JSON_THROW_ON_ERROR;
 #[UsesClass(FileMatchStore::class)]
 #[UsesClass(\MagicSunday\ObituaryMatcher\Matching\IngestResult::class)]
 #[UsesClass(StoredMatch::class)]
-#[UsesClass(QueueClient::class)]
-#[UsesClass(QueuePaths::class)]
-#[UsesClass(FeederRequestReader::class)]
-#[UsesClass(ResponseReader::class)]
-#[UsesClass(AtomicFile::class)]
+#[UsesClass(\MagicSunday\ObituaryMatcher\Queue\CompletedJob::class)]
 #[UsesClass(FailedJob::class)]
+#[UsesClass(\MagicSunday\ObituaryMatcher\Queue\ResponseValidator::class)]
 #[UsesClass(EnrichedMatchEngine::class)]
 #[UsesClass(Classifier::class)]
-#[UsesClass(\MagicSunday\ObituaryMatcher\Queue\ResponseValidationException::class)]
-#[UsesClass(\MagicSunday\ObituaryMatcher\Queue\JobStatus::class)]
 final class DrainServiceTest extends AbstractDrainTestCase
 {
     /**
-     * A fixture done job is claimed, ingested into the matching tree's store and finalised: the
-     * summary counts one ingested job with a stored row, the job lands under ingested/, and the
-     * persisted row carries the harvested cemetery fact.
+     * A completed job is ingested into the matching tree's store and finalised: the summary counts one
+     * ingested job with a stored row, the transport records the ingest finalisation, and the persisted
+     * row carries the harvested cemetery fact.
      */
     #[Test]
-    public function aDoneJobBecomesAnIngestedStoreRowCarryingTheCemeteryFact(): void
+    public function aCompletedJobBecomesAnIngestedStoreRowCarryingTheCemeteryFact(): void
     {
-        $tree = $this->ottoTree('fixture-a');
-        $job  = $this->seedDoneJob('job-001', $tree->id(), 'I1', 'Otto Searchable');
+        $tree      = $this->ottoTree('fixture-a');
+        $transport = new RecordingJobTransport([$this->completedJob('job-001', $tree->id(), 'I1', 'Otto Searchable')]);
 
         $this->assertSingleCemeteryRowFinalised(
-            $this->drainService()->drain(null, 20),
+            $this->drainService($transport)->drain(null, 20),
             $tree,
-            $job,
+            'job-001',
+            $transport,
         );
     }
 
     /**
-     * Re-running the drain after the job has already been ingested is a no-op: there is no claimable
-     * done job left, so nothing is ingested and the store row count is unchanged.
+     * A drain that pulls no new completed jobs is a no-op: after a first run stored exactly one row, a
+     * second run over an empty transport ingests nothing and the store row count is unchanged.
      */
     #[Test]
-    public function reRunningTheDrainIsANoOp(): void
+    public function aReDrainWithNoNewCompletedJobsIsANoOp(): void
     {
         $tree = $this->ottoTree('fixture-a');
-        $job  = $this->seedDoneJob('job-001', $tree->id(), 'I1', 'Otto Searchable');
 
-        $this->drainService()->drain(null, 20);
+        $this->drainService(
+            new RecordingJobTransport([$this->completedJob('job-001', $tree->id(), 'I1', 'Otto Searchable')])
+        )->drain(null, 20);
 
-        // Anchor the baseline: the first run stored exactly one row, so the no-op assertion
-        // below is a real delta-of-zero rather than a trivial pass against an empty store.
+        // Anchor the baseline: the first run stored exactly one row, so the no-op assertion below is a
+        // real delta-of-zero rather than a trivial pass against an empty store.
         self::assertCount(1, $this->storeFor($tree)->allPending(), 'first run stored exactly one suggestion');
 
-        $summary = $this->drainService()->drain(null, 20);
+        // A second run with nothing left to pull.
+        $summary = $this->drainService(new RecordingJobTransport())->drain(null, 20);
 
         self::assertSame(0, $summary->ingested);
         self::assertSame(0, $summary->stored);
-        self::assertSame(JobState::Ingested, $this->paths()->stateOf($job));
 
         // Store delta: the second run added no row.
         self::assertCount(1, $this->storeFor($tree)->allPending(), 'second run added no row');
@@ -128,7 +111,7 @@ final class DrainServiceTest extends AbstractDrainTestCase
 
     /**
      * A requested person who is no longer a held candidate (an unknown xref) is skipped without
-     * aborting the job: the job still finalises to ingested/, and only the other person's notice is
+     * aborting the job: the job still finalises as ingested, and only the other person's notice is
      * stored.
      */
     #[Test]
@@ -137,17 +120,12 @@ final class DrainServiceTest extends AbstractDrainTestCase
         $tree = $this->ottoTree('fixture-a');
 
         // The request names the real I1 plus the non-existent I99 (no held candidate this run).
-        $job = $this->seedDoneJobWithTwoPersons(
-            'job-001',
-            $tree->id(),
-            'I1',
-            'Otto Searchable',
-            'I99',
-            'Ghost Person',
-        );
+        $transport = new RecordingJobTransport([
+            $this->completedJobWithTwoPersons('job-001', $tree->id(), 'I1', 'Otto Searchable', 'I99', 'Ghost Person'),
+        ]);
 
         // The held I1 is stored; the ghost person's notice (an unknown xref) persisted nothing.
-        $this->assertOnlyI1Stored($tree, $job);
+        $this->assertOnlyI1Stored($tree, 'job-001', $transport);
     }
 
     /**
@@ -165,14 +143,9 @@ final class DrainServiceTest extends AbstractDrainTestCase
         $tree = $this->ottoTreeWithConfidential('fixture-a');
 
         // The request names the public, dead I1 plus the confidential, living I7.
-        $job = $this->seedDoneJobWithTwoPersons(
-            'job-001',
-            $tree->id(),
-            'I1',
-            'Otto Searchable',
-            'I7',
-            'Ida Private',
-        );
+        $transport = new RecordingJobTransport([
+            $this->completedJobWithTwoPersons('job-001', $tree->id(), 'I1', 'Otto Searchable', 'I7', 'Ida Private'),
+        ]);
 
         // Positive control: as the seeded admin BOTH records are visible, so the visitor-context
         // skip below is a real privacy discriminator rather than a vacuous pass against an
@@ -188,30 +161,31 @@ final class DrainServiceTest extends AbstractDrainTestCase
         self::assertFalse($this->requireIndividual('I7', $tree)->canShow());
 
         // The visible I1 is stored; the privacy-suppressed I7's notice persisted nothing.
-        $this->assertOnlyI1Stored($tree, $job);
+        $this->assertOnlyI1Stored($tree, 'job-001', $transport);
     }
 
     /**
-     * A tree-scoped drain whose filter does not match the job's tree releases the job back to done
-     * and counts it skipped, persisting no row.
+     * A tree-scoped drain whose filter does not match the job's tree releases the job back to the
+     * completed pool through the transport and counts it skipped, persisting no row.
      */
     #[Test]
-    public function aTreeFilterMismatchReleasesTheJobBackToDone(): void
+    public function aTreeFilterMismatchReleasesTheJobBackToTheCompletedPool(): void
     {
-        $tree = $this->ottoTree('fixture-a');
-        $job  = $this->seedDoneJob('job-001', $tree->id(), 'I1', 'Otto Searchable');
+        $tree      = $this->ottoTree('fixture-a');
+        $transport = new RecordingJobTransport([$this->completedJob('job-001', $tree->id(), 'I1', 'Otto Searchable')]);
 
-        // Drain a DIFFERENT tree id than the job carries. Only one tree is imported, so id+1
-        // resolves no tree-filter target and the job is foreign — released back to done.
-        $summary = $this->drainService()->drain($tree->id() + 1, 20);
+        // Drain a DIFFERENT tree id than the job carries. Only one tree is imported, so id+1 resolves no
+        // tree-filter target and the job is foreign — released back to the pool.
+        $summary = $this->drainService($transport)->drain($tree->id() + 1, 20);
 
         self::assertSame(0, $summary->ingested);
         self::assertSame(1, $summary->skipped);
         self::assertSame(0, $summary->failed);
         self::assertSame(0, $summary->stored);
 
-        // Queue end-state: the job is back in done/ for another run.
-        self::assertSame(JobState::Done, $this->paths()->stateOf($job));
+        // Finalisation: the job was released for another run, neither ingested nor failed.
+        self::assertTrue($transport->wasReleased('job-001'));
+        self::assertFalse($transport->wasIngested('job-001'));
 
         // Store delta: nothing was persisted.
         self::assertSame([], $this->storeFor($tree)->allPending());
@@ -227,17 +201,19 @@ final class DrainServiceTest extends AbstractDrainTestCase
         $treeA = $this->ottoTree('fixture-a');
         $treeB = $this->ottoTree('fixture-b');
 
-        $this->seedDoneJob('job-001', $treeA->id(), 'I1', 'Otto Searchable');
-        $this->seedDoneJob('job-002', $treeB->id(), 'I1', 'Otto Searchable');
+        $transport = new RecordingJobTransport([
+            $this->completedJob('job-001', $treeA->id(), 'I1', 'Otto Searchable'),
+            $this->completedJob('job-002', $treeB->id(), 'I1', 'Otto Searchable'),
+        ]);
 
-        $summary = $this->drainService()->drain(null, 20);
+        $summary = $this->drainService($transport)->drain(null, 20);
 
         self::assertSame(2, $summary->ingested);
         self::assertSame(2, $summary->stored);
 
-        // Each tree's own store carries exactly its own job's row, identified by the job-tagged
-        // notice URL — a shared store (or a cross-store leak swapping the rows) would fail this,
-        // which a bare count would not catch.
+        // Each tree's own store carries exactly its own job's row, identified by the job-tagged notice
+        // URL — a shared store (or a cross-store leak swapping the rows) would fail this, which a bare
+        // count would not catch.
         $pendingA = $this->storeFor($treeA)->allPending();
         $pendingB = $this->storeFor($treeB)->allPending();
 
@@ -248,105 +224,19 @@ final class DrainServiceTest extends AbstractDrainTestCase
     }
 
     /**
-     * A done job whose request.json is schema-invalid is parked in failed-ingest, counted failed,
-     * and persists no row.
-     */
-    #[Test]
-    public function aSchemaInvalidRequestIsParkedInFailedIngest(): void
-    {
-        $tree = $this->ottoTree('fixture-a');
-
-        // Seed a done job whose request.json carries the wrong schema version.
-        $jobDir = $this->paths()->doneDir('job-001');
-        mkdir($jobDir, 0o700, true);
-        AtomicFile::writeJson(
-            $jobDir . '/request.json',
-            [
-                'schemaVersion' => 999,
-                'jobId'         => 'job-001',
-                'treeId'        => $tree->id(),
-                'candidates'    => [['personId' => 'I1']],
-            ],
-        );
-
-        $this->assertJobOneParkedInFailedIngestWithEmptyStore($tree);
-    }
-
-    /**
-     * A done job whose response.json is schema-invalid does NOT halt the whole drain: the corrupt job
-     * is parked in failed-ingest (counted failed, never left stranded in ingesting/), while a second,
-     * valid job in the same batch still reaches ingested/ with its row persisted. This proves the
-     * ingest step is isolated per job — one corrupt response.json cannot strand the batch.
-     */
-    #[Test]
-    public function aResponseInvalidJobIsParkedWhileTheValidJobStillIngests(): void
-    {
-        $tree = $this->ottoTree('fixture-a');
-
-        // job-001 carries a valid request but a schema-invalid response.json (wrong version), so the
-        // ingest step's ResponseReader throws ResponseValidationException only once ingest runs.
-        $corruptDir = $this->seedDoneJobWithValidRequest($tree);
-        AtomicFile::writeJson(
-            $corruptDir . '/response.json',
-            [
-                'schemaVersion' => 999,
-                'jobId'         => 'job-001',
-                'results'       => [],
-            ],
-        );
-
-        // The corrupt job is parked in failed-ingest while a valid sibling still ingests.
-        $this->assertBadJobParkedWhileValidJobIngests($tree, 'job-001');
-    }
-
-    /**
-     * A TORN response.json (malformed/truncated JSON) is parked as ingest_failed, NOT request_failed:
-     * the read of the response shares the SAME try block as the ingest, so the plain RuntimeException
-     * {@see AtomicFile::readJsonCapped()} throws on a decode failure
-     * (a converted JsonException, which is NOT a ResponseValidationException) is caught by the Throwable
-     * arm and recorded under the ingest_failed reason category. This preserves the file path's original
-     * behaviour — before the slice that split the response read into its own catch, a torn-response IO
-     * failure surfaced from inside ingest() and was caught as ingest_failed — and pins that a
-     * RESPONSE-read fault is never mislabelled as a request fault.
-     */
-    #[Test]
-    public function aTornResponseJobIsParkedAsIngestFailed(): void
-    {
-        $tree = $this->ottoTree('fixture-a');
-
-        // A valid request.json (schema v3) but a TORN response.json: the JSON is truncated, so
-        // readJsonCapped() throws a plain RuntimeException (a converted JsonException), NOT a
-        // ResponseValidationException. The job is claimed (done -> ingesting) before the read runs.
-        $jobDir = $this->seedDoneJobWithValidRequest($tree);
-
-        // Deliberately malformed (truncated) JSON so the decode throws — written raw because
-        // AtomicFile::writeJson would only ever produce well-formed JSON.
-        file_put_contents($jobDir . '/response.json', '{"schemaVersion": 1, "jobId": "job-001", "results":');
-
-        // The torn-response job is parked in failed-ingest, counted failed, and persisted no row.
-        $this->assertJobOneParkedInFailedIngestWithEmptyStore($tree);
-
-        // The reason CATEGORY is ingest_failed (a RESPONSE-read IO fault routed through the shared
-        // ingest try block), NOT request_failed — a response-read failure must never be mislabelled as
-        // a request fault.
-        self::assertSame('ingest_failed', (new QueueClient($this->paths()))->status('job-001')->error);
-    }
-
-    /**
-     * A throw from the ingest STEP itself (as opposed to a transport read fault) terminally parks the
-     * job as ingest_failed rather than releasing it: a job whose {@see IngestService::ingest()} throws
-     * mid-flight — here because the per-tree store's persist step fails — must not be re-claimed every
-     * drain (head-of-line starvation), so {@see DrainService} catches the {@see Throwable} and routes
-     * the job to failed-ingest. This pins {@see DrainService::ingestCompleted()}'s catch arm directly:
-     * a valid request + valid response reaches ingest, the store throws on upsert, and the job lands in
-     * failed-ingest counted failed with nothing stored. Distinct from the torn/oversize/schema-invalid
-     * scenarios, where the fault surfaces from the transport READ before the ingest runs.
+     * A throw from the ingest STEP itself terminally parks the job as ingest_failed rather than
+     * releasing it: a job whose {@see IngestService::ingest()} throws mid-flight — here because the
+     * per-tree store's persist step fails — must not be re-processed every drain (head-of-line
+     * starvation), so {@see DrainService} catches the {@see \Throwable} and finalises the job as failed.
+     * This pins {@see DrainService::ingestCompleted()}'s catch arm directly: a completed job reaches
+     * ingest, the store throws on upsert, and the job is failed with reason `ingest_failed` and nothing
+     * stored.
      */
     #[Test]
     public function anIngestThrowParksTheJobAsIngestFailed(): void
     {
-        $tree = $this->ottoTree('fixture-a');
-        $job  = $this->seedDoneJob('job-001', $tree->id(), 'I1', 'Otto Searchable');
+        $tree      = $this->ottoTree('fixture-a');
+        $transport = new RecordingJobTransport([$this->completedJob('job-001', $tree->id(), 'I1', 'Otto Searchable')]);
 
         // A store whose persist step deterministically throws: ingest() scores the held I1's notice and
         // calls upsertPending(), whose RuntimeException propagates out of ingest() into ingestCompleted's
@@ -462,31 +352,27 @@ final class DrainServiceTest extends AbstractDrainTestCase
             }
         };
 
-        $summary = $this->drainService($throwingStore)->drain(null, 20);
+        $summary = $this->drainService($transport, $throwingStore)->drain(null, 20);
 
         // The job failed at the ingest step, persisted nothing, and was counted failed (not released).
         self::assertSame(0, $summary->ingested);
         self::assertSame(0, $summary->stored);
         self::assertSame(1, $summary->failed);
 
-        // Queue end-state: the job is terminally parked in failed-ingest (NOT stranded in ingesting/,
-        // NOT released back to done where it would be re-claimed forever).
-        self::assertSame(JobState::FailedIngest, $this->paths()->stateOf($job));
-
-        // The recorded reason CATEGORY is ingest_failed — the ingest-step throw, not a read fault.
-        self::assertSame('ingest_failed', (new QueueClient($this->paths()))->status($job)->error);
+        // Finalisation: the job was parked under the ingest_failed category, NOT released.
+        self::assertSame('ingest_failed', $transport->failureReason('job-001'));
+        self::assertFalse($transport->wasReleased('job-001'));
 
         // Store delta: the real per-tree store (separate from the throwing double) holds no row.
         self::assertSame([], $this->storeFor($tree)->allPending());
     }
 
     /**
-     * A failure of the PARK itself (markFailed throwing, e.g. the file transport's failed-ingest rename
-     * failing on a read-only/permission-denied queue filesystem) must NOT abort the whole drain. Two
-     * jobs are yielded by a transport whose markFailed always throws; the drain must still process BOTH
-     * (counting them failed) rather than crashing on the first and starving the second — the head-of-line
-     * starvation the parkFailed() guard prevents. Without the guard the first markFailed throw propagates
-     * out of the drain loop and the second job is never seen.
+     * A failure of the PARK itself (markFailed throwing) must NOT abort the whole drain. Two jobs are
+     * yielded by a transport whose markFailed always throws; the drain must still process BOTH
+     * (counting them failed) rather than crashing on the first and starving the second — the
+     * head-of-line starvation the parkFailed() guard prevents. Without the guard the first markFailed
+     * throw propagates out of the drain loop and the second job is never seen.
      *
      * @return void
      */
@@ -550,7 +436,7 @@ final class DrainServiceTest extends AbstractDrainTestCase
             }
         };
 
-        $summary = $this->drainService(null, $transport)->drain(null, 20);
+        $summary = $this->drainService($transport)->drain(null, 20);
 
         // Both jobs were processed and counted failed: the first job's throwing park did not abort the
         // drain, so the second job behind it was not starved.
@@ -559,162 +445,97 @@ final class DrainServiceTest extends AbstractDrainTestCase
     }
 
     /**
-     * The request read isolates a plain IO/system RuntimeException the SAME way it isolates a
-     * validation reject: an oversize request.json makes {@see FeederRequestReader::read()} ->
-     * {@see AtomicFile::readJsonCapped()} throw a plain RuntimeException ("exceeds the size cap"),
-     * which is NOT a ResponseValidationException. Before the catch (RuntimeException) arm that
-     * propagated uncaught and crashed the whole drain, stranding the claimed job in ingesting/ and
-     * losing the valid sibling. This pins that the oversize job is parked in failed-ingest while the
-     * valid sibling still ingests — so a single torn/oversize request never strands the batch.
+     * The limit bounds the number of completed jobs processed: with two completed jobs and a cap of 1,
+     * only the first is ingested and the second is left for a later run — the break-AFTER loop never
+     * advances the transport iterator past the cap.
      */
     #[Test]
-    public function anOversizeRequestJobIsParkedWhileTheValidJobStillIngests(): void
+    public function theLimitCapsTheNumberOfCompletedJobsProcessed(): void
     {
         $tree = $this->ottoTree('fixture-a');
 
-        // job-001 carries an OVERSIZE request.json: still valid JSON, but padded past the reader's
-        // 5 MiB cap so readJsonCapped() throws a plain RuntimeException (an IO/system failure), NOT a
-        // ResponseValidationException. The job is claimed (done -> ingesting) before the read runs.
-        $oversizeDir = $this->paths()->doneDir('job-001');
-        mkdir($oversizeDir, 0o700, true);
+        $transport = new RecordingJobTransport([
+            $this->completedJob('job-1', $tree->id(), 'I1', 'Otto Searchable'),
+            $this->completedJob('job-2', $tree->id(), 'I1', 'Otto Searchable'),
+        ]);
 
-        $oversizeRequest = json_encode(
-            [
-                'schemaVersion' => 3,
-                'jobId'         => 'job-001',
-                'treeId'        => $tree->id(),
-                'candidates'    => [['personId' => 'I1']],
-                // One byte past the reader's cap, derived from the constant so the pin tracks it.
-                'padding' => str_repeat('x', QueueLimits::FEEDER_FILE_MAX_BYTES + 1),
-            ],
-            JSON_THROW_ON_ERROR,
-        );
-        file_put_contents($oversizeDir . '/request.json', $oversizeRequest);
+        $summary = $this->drainService($transport)->drain(null, 1);
 
-        // The oversize job is parked in failed-ingest while a valid sibling still ingests.
-        $this->assertBadJobParkedWhileValidJobIngests($tree, 'job-001');
-    }
-
-    /**
-     * A job a previous run crashed mid-ingest (a pre-placed ingesting/ directory) is NOT re-ingested
-     * by this run; it is counted as stale and left in place for a future drain.
-     */
-    #[Test]
-    public function aStaleIngestingJobIsCountedAndLeftInPlace(): void
-    {
-        $tree = $this->ottoTree('fixture-a');
-
-        // job-001 is a fresh done job; job-002 is a stale ingesting/ directory left by a crash.
-        $this->seedDoneJob('job-001', $tree->id(), 'I1', 'Otto Searchable');
-
-        $staleDir = $this->paths()->ingestingDir('job-002');
-        mkdir($staleDir, 0o700, true);
-        AtomicFile::writeJson(
-            $staleDir . '/request.json',
-            [
-                'schemaVersion' => 3,
-                'jobId'         => 'job-002',
-                'treeId'        => $tree->id(),
-                'candidates'    => [['personId' => 'I1']],
-            ],
-        );
-
-        $summary = $this->drainService()->drain(null, 20);
-
-        // The fresh job ingested; the stale one was never touched (and not double-counted as failed).
+        // Exactly one job processed (the cap): the first is ingested, the second untouched.
         self::assertSame(1, $summary->ingested);
-        self::assertSame(0, $summary->failed);
-        self::assertSame(1, $summary->stale);
-
-        // The FRESH job finalised — proving the drain processed job-001, not the stale job-002.
-        self::assertSame(JobState::Ingested, $this->paths()->stateOf('job-001'));
+        self::assertTrue($transport->wasIngested('job-1'));
+        self::assertFalse($transport->wasIngested('job-2'));
         self::assertCount(1, $this->storeFor($tree)->allPending());
-
-        // The stale job is still sitting in ingesting/, untouched.
-        self::assertSame(JobState::Ingesting, $this->paths()->stateOf('job-002'));
     }
 
     /**
-     * Discovery orders done jobs by their job id NATURALLY, not lexicographically: with the two
-     * unpadded ids job-2 (older) and job-10, a limit-1 drain must process the oldest job-2, not the
-     * lexicographically-smaller job-10. A plain string sort would put "job-10" before "job-2" and
-     * wrongly ingest the NEWER job, so this pins the natural-sort oldest-first contract that also
-     * governs which jobs survive the limit cap.
+     * The transport's stale tally is surfaced verbatim in the drain summary alongside the ingested
+     * jobs, so an operator-facing stale count reflects the transport's own bookkeeping.
      */
     #[Test]
-    public function discoveryPicksTheOldestJobUnderNaturalOrdering(): void
+    public function theStaleCountFromTheTransportIsSurfacedInTheSummary(): void
     {
         $tree = $this->ottoTree('fixture-a');
 
-        // job-2 is older than job-10; lexicographically "job-10" < "job-2", so a string sort would
-        // pick job-10 under the limit of 1 — the bug this test guards against.
-        $this->seedDoneJob('job-2', $tree->id(), 'I1', 'Otto Searchable');
-        $this->seedDoneJob('job-10', $tree->id(), 'I1', 'Otto Searchable');
+        $transport = new RecordingJobTransport(
+            [$this->completedJob('job-001', $tree->id(), 'I1', 'Otto Searchable')],
+            [],
+            3,
+        );
 
-        $summary = $this->drainService()->drain(null, 1);
+        $summary = $this->drainService($transport)->drain(null, 20);
 
-        // Exactly one job processed (the cap), and it is the oldest job-2 — proven by both its
-        // queue end-state and the job-tagged notice URL persisted to the store.
         self::assertSame(1, $summary->ingested);
-        self::assertSame(JobState::Ingested, $this->paths()->stateOf('job-2'));
-        self::assertSame(JobState::Done, $this->paths()->stateOf('job-10'));
-
-        $pending = $this->storeFor($tree)->allPending();
-        self::assertCount(1, $pending);
-        self::assertSame('https://example.test/job-2', $pending[0]->obituaryUrl);
+        self::assertSame(3, $summary->stale);
     }
 
     /**
-     * The stale tally counts only real job directories left in ingesting/, ignoring a stray non-job
-     * entry (a name failing the job-id pattern, e.g. a `.DS_Store`-style file). Discovery already
-     * filters such entries; this pins that countStale() filters identically, so an operator-facing
-     * stale count is never inflated by a foreign filesystem artefact.
+     * A non-positive limit processes nothing but still reports the transport's stale tally: the
+     * completed iterator is never advanced (no job ingested), and the summary carries the stale count.
      */
     #[Test]
-    public function countStaleIgnoresANonJobEntryInIngesting(): void
+    public function aNonPositiveLimitDrainsNothingButStillReportsStale(): void
     {
         $tree = $this->ottoTree('fixture-a');
 
-        // A fresh done job so the drain has something to process and reaches the stale count.
-        $this->seedDoneJob('job-001', $tree->id(), 'I1', 'Otto Searchable');
+        $transport = new RecordingJobTransport(
+            [$this->completedJob('job-001', $tree->id(), 'I1', 'Otto Searchable')],
+            [],
+            2,
+        );
 
-        // A real stale ingesting job (a valid job id left by a crash).
-        $staleDir = $this->paths()->ingestingDir('job-002');
-        mkdir($staleDir, 0o700, true);
+        $summary = $this->drainService($transport)->drain(null, 0);
 
-        // A stray non-job entry directly in the ingesting state root: its name fails JOB_ID_PATTERN
-        // (the dot makes it an invalid job id), so it must NOT be counted into the stale tally.
-        $ingestingRoot = $this->paths()->stateRoot(JobState::Ingesting->value);
-        file_put_contents($ingestingRoot . '/not.a.job', '');
+        self::assertSame(0, $summary->ingested);
+        self::assertSame(0, $summary->stored);
+        self::assertSame(2, $summary->stale);
 
-        $summary = $this->drainService()->drain(null, 20);
-
-        // Only the one real stale job is counted; the stray entry is ignored.
-        self::assertSame(1, $summary->ingested);
-        self::assertSame(1, $summary->stale);
+        // The completed iterator was never consumed: no finalisation was recorded.
+        self::assertFalse($transport->wasIngested('job-001'));
+        self::assertSame([], $this->storeFor($tree)->allPending());
     }
 
     /**
-     * Drain the seeded two-person job and assert the discriminating outcome shared by the
-     * exclusion sub-paths: one job ingested with no failure, exactly the visible I1 persisted as
-     * the sole row, and the job finalised to ingested/. The OTHER requested person is excluded by
-     * {@see CandidateRepository::findByXrefs()} — whether because its xref is unknown or because
-     * the drain's principal may not see it — so the assertions are identical, only the setup
-     * differs.
+     * Drain the seeded two-person job and assert the discriminating outcome shared by the exclusion
+     * sub-paths: one job ingested with no failure, exactly the visible I1 persisted as the sole row,
+     * and the job finalised as ingested. The OTHER requested person is excluded by
+     * {@see CandidateRepository::findByXrefs()} — whether because its xref is unknown or because the
+     * drain's principal may not see it — so the assertions are identical, only the setup differs.
      *
-     * @param Tree   $tree The tree whose store is read.
-     * @param string $job  The seeded job id expected to finalise.
+     * @param Tree                  $tree      The tree whose store is read.
+     * @param string                $job       The seeded job id expected to finalise.
+     * @param RecordingJobTransport $transport The transport carrying the seeded two-person job.
      *
      * @return void
      */
-    private function assertOnlyI1Stored(Tree $tree, string $job): void
+    private function assertOnlyI1Stored(Tree $tree, string $job, RecordingJobTransport $transport): void
     {
-        $summary = $this->drainService()->drain(null, 20);
+        $summary = $this->drainService($transport)->drain(null, 20);
 
         self::assertSame(1, $summary->ingested);
         self::assertSame(0, $summary->failed);
         self::assertSame(1, $summary->stored);
-        self::assertSame(JobState::Ingested, $this->paths()->stateOf($job));
+        self::assertTrue($transport->wasIngested($job));
 
         $pending = $this->storeFor($tree)->allPending();
         self::assertCount(1, $pending);
@@ -782,103 +603,5 @@ final class DrainServiceTest extends AbstractDrainTestCase
         self::assertInstanceOf(Individual::class, $individual);
 
         return $individual;
-    }
-
-    /**
-     * Drain the whole batch and assert the single-job failure outcome shared by the "one bad job, no
-     * valid sibling" scenarios: nothing ingested or stored, exactly one job counted failed, job-001
-     * parked in failed-ingest (not stranded in ingesting/) and the store left empty. The caller may
-     * additionally assert the recorded failure reason category.
-     *
-     * @param Tree $tree The tree whose (empty) store is checked.
-     *
-     * @return void
-     */
-    private function assertJobOneParkedInFailedIngestWithEmptyStore(Tree $tree): void
-    {
-        $summary = $this->drainService()->drain(null, 20);
-
-        self::assertSame(0, $summary->ingested);
-        self::assertSame(1, $summary->failed);
-        self::assertSame(0, $summary->stored);
-
-        self::assertSame(JobState::FailedIngest, $this->paths()->stateOf('job-001'));
-        self::assertSame([], $this->storeFor($tree)->allPending());
-    }
-
-    /**
-     * Seed a done job ('job-001') carrying ONLY a valid request.json (schema v3, the single held
-     * candidate I1) and return its directory, so the caller can drop in its own response.json shape
-     * (a schema-invalid one, a torn one, …). Shared by the response-fault scenarios whose request half
-     * is byte-identical, keeping the duplicate seeding out of each test body.
-     *
-     * @param Tree $tree The tree the request belongs to.
-     *
-     * @return string The seeded done job directory (absolute path).
-     */
-    private function seedDoneJobWithValidRequest(Tree $tree): string
-    {
-        $jobDir = $this->paths()->doneDir('job-001');
-        mkdir($jobDir, 0o700, true);
-        AtomicFile::writeJson(
-            $jobDir . '/request.json',
-            [
-                'schemaVersion' => 3,
-                'jobId'         => 'job-001',
-                'treeId'        => $tree->id(),
-                'candidates'    => [['personId' => 'I1']],
-            ],
-        );
-
-        return $jobDir;
-    }
-
-    /**
-     * Seed a two-person done job: one notice per person, so a missing held candidate can be proven
-     * to skip without aborting the held one.
-     *
-     * @param string $jobId   The job identifier.
-     * @param int    $treeId  The tree the request belongs to.
-     * @param string $personA The first requested person id (the held one).
-     * @param string $nameA   The display name on the first person's notice.
-     * @param string $personB The second requested person id (the missing one).
-     * @param string $nameB   The display name on the second person's notice.
-     *
-     * @return string The seeded job id.
-     */
-    private function seedDoneJobWithTwoPersons(
-        string $jobId,
-        int $treeId,
-        string $personA,
-        string $nameA,
-        string $personB,
-        string $nameB,
-    ): string {
-        $jobDir = $this->paths()->doneDir($jobId);
-        mkdir($jobDir, 0o700, true);
-
-        AtomicFile::writeJson(
-            $jobDir . '/request.json',
-            [
-                'schemaVersion' => 3,
-                'jobId'         => $jobId,
-                'treeId'        => $treeId,
-                'candidates'    => [['personId' => $personA], ['personId' => $personB]],
-            ],
-        );
-
-        AtomicFile::writeJson(
-            $jobDir . '/response.json',
-            [
-                'schemaVersion' => 1,
-                'jobId'         => $jobId,
-                'results'       => [
-                    $personA => [$this->notice($nameA, 'https://example.test/' . $jobId . '-a')],
-                    $personB => [$this->notice($nameB, 'https://example.test/' . $jobId . '-b')],
-                ],
-            ],
-        );
-
-        return $jobId;
     }
 }

@@ -152,8 +152,7 @@ final readonly class RestPendingLedger
         }
 
         // A root that exists but is unreadable makes the FilesystemIterator constructor throw an
-        // UnexpectedValueException. Mirroring QueueClient::recentJobs, the scan yields nothing rather
-        // than crashing the caller.
+        // UnexpectedValueException. The scan yields nothing rather than crashing the caller.
         try {
             $iterator = new FilesystemIterator($this->root, FilesystemIterator::SKIP_DOTS);
         } catch (UnexpectedValueException) {

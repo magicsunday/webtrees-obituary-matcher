@@ -31,20 +31,13 @@ use Fisharebest\Webtrees\View;
 use GuzzleHttp\Psr7\HttpFactory;
 use GuzzleHttp\Psr7\Response;
 use LogicException;
-use MagicSunday\ObituaryMatcher\Queue\AtomicFile;
 use MagicSunday\ObituaryMatcher\Queue\CapabilitiesProbeResult;
 use MagicSunday\ObituaryMatcher\Queue\CappedJsonBodyReader;
-use MagicSunday\ObituaryMatcher\Queue\FeederRequestReader;
-use MagicSunday\ObituaryMatcher\Queue\FileJobTransport;
 use MagicSunday\ObituaryMatcher\Queue\FinderCapabilities;
 use MagicSunday\ObituaryMatcher\Queue\FinderCapabilitiesProbe;
 use MagicSunday\ObituaryMatcher\Queue\FinderPortal;
-use MagicSunday\ObituaryMatcher\Queue\JobState;
 use MagicSunday\ObituaryMatcher\Queue\ProbeStatus;
-use MagicSunday\ObituaryMatcher\Queue\QueueClient;
 use MagicSunday\ObituaryMatcher\Queue\QueueLimits;
-use MagicSunday\ObituaryMatcher\Queue\QueuePaths;
-use MagicSunday\ObituaryMatcher\Queue\ResponseReader;
 use MagicSunday\ObituaryMatcher\Queue\RestPendingLedger;
 use MagicSunday\ObituaryMatcher\Support\FeederRequestFactory;
 use MagicSunday\ObituaryMatcher\Support\FinderConnection;
@@ -91,10 +84,11 @@ use const JSON_THROW_ON_ERROR;
  * settings, the tree list, the open-finder-job count), the STRICT settings save (both-or-neither, no
  * coercion, in-range), the REST finder-connection save/test actions, and the per-tree finder trigger
  * (unknown tree, not-configured guard, and the load-bearing persisted-settings cap). The trigger path's
- * producer seam is redirected onto {@see AbstractEnqueueTestCase}'s file-transport producer over the
- * throwaway queue so the candidate-count assertions stay on the on-disk queue; the REST ledger root is
- * seamed onto a throwaway dir. The handler's {@see ObituaryControlPanelHandler::handle()} is invoked
- * directly so the tests pass before the route is registered (Task 5).
+ * producer seam is redirected onto {@see AbstractEnqueueTestCase}'s producer over a
+ * {@see RecordingJobTransport} double, so the candidate-count assertions read the submitted request back
+ * off the transport; the REST ledger root is seamed onto a throwaway dir. The handler's
+ * {@see ObituaryControlPanelHandler::handle()} is invoked directly so the tests pass before the route is
+ * registered (Task 5).
  *
  * @author  Rico Sonntag <mail@ricosonntag.de>
  * @license https://opensource.org/licenses/GPL-3.0 GNU General Public License v3.0
@@ -1295,10 +1289,10 @@ final class ObituaryControlPanelHandlerTest extends AbstractEnqueueTestCase
     }
 
     /**
-     * Builds the handler under test, seamed onto the throwaway REST ledger root and a file-transport
-     * producer over the isolated queue, so the trigger path's enqueue is exercised against isolated
-     * storage (the production transport is REST, but the test seams the producer the same way the
-     * file-harness does, keeping the candidate-count assertions on the on-disk queue).
+     * Builds the handler under test, seamed onto the throwaway REST ledger root and the harness's
+     * producer over a {@see RecordingJobTransport} double, so the trigger path's enqueue is exercised
+     * against isolated storage and the candidate-count assertions read the submitted request back off
+     * the transport.
      *
      * @return ObituaryControlPanelHandler The seamed handler.
      */
@@ -1308,7 +1302,7 @@ final class ObituaryControlPanelHandlerTest extends AbstractEnqueueTestCase
             /**
              * @param ObituaryMatcherModule $module          The module instance.
              * @param string                $restPendingRoot The throwaway REST ledger root injected for the test.
-             * @param EnqueueService        $producer        The file-transport producer over the isolated queue.
+             * @param EnqueueService        $producer        The producer over the recording transport.
              */
             public function __construct(
                 ObituaryMatcherModule $module,
@@ -1347,17 +1341,15 @@ final class ObituaryControlPanelHandlerTest extends AbstractEnqueueTestCase
         $this->module->setPreference('finder_transport', 'rest');
         $this->module->setPreference('finder_base_url', 'https://finder.example');
 
-        return new class($this->module, $this->restPendingDir(), $this->queueRoot, $exception) extends ObituaryControlPanelHandler {
+        return new class($this->module, $this->restPendingDir(), $exception) extends ObituaryControlPanelHandler {
             /**
              * @param ObituaryMatcherModule $module          The module instance.
              * @param string                $restPendingRoot The throwaway REST ledger root injected for the test.
-             * @param string                $queueRoot       The throwaway queue root injected for the test.
              * @param Throwable             $exception       The exception the seamed producer throws.
              */
             public function __construct(
                 ObituaryMatcherModule $module,
                 private readonly string $restPendingRoot,
-                private readonly string $queueRoot,
                 private readonly Throwable $exception,
             ) {
                 parent::__construct($module);
@@ -1370,27 +1362,18 @@ final class ObituaryControlPanelHandlerTest extends AbstractEnqueueTestCase
 
             protected function enqueueService(FinderConnection $connection, string $restPendingRoot): EnqueueService
             {
-                $exception = $this->exception;
-                $paths     = new QueuePaths($this->queueRoot);
-
-                return new class($paths, $exception) extends EnqueueService {
+                return new class($this->exception) extends EnqueueService {
                     /**
-                     * @param QueuePaths $paths     The queue path builder.
-                     * @param Throwable  $exception The exception to throw from enqueue().
+                     * @param Throwable $exception The exception to throw from enqueue().
                      */
-                    public function __construct(QueuePaths $paths, private readonly Throwable $exception)
+                    public function __construct(private readonly Throwable $exception)
                     {
                         parent::__construct(
                             new CandidateRepository(),
                             new FeederRequestFactory(new QueryGenerator()),
                             new UrlHostNormalizer(),
                             new TreeService(new GedcomImportService()),
-                            new FileJobTransport(
-                                new QueueClient($paths),
-                                new ResponseReader($paths, QueueLimits::FEEDER_FILE_MAX_BYTES),
-                                new FeederRequestReader($paths, QueueLimits::FEEDER_FILE_MAX_BYTES),
-                                $paths,
-                            ),
+                            new RecordingJobTransport(),
                         );
                     }
 
@@ -1483,21 +1466,15 @@ final class ObituaryControlPanelHandlerTest extends AbstractEnqueueTestCase
     }
 
     /**
-     * The candidate count of the single queued job's request.json.
+     * The candidate count of the single submitted job's request.
      *
-     * @return int The number of candidates written into the queued request.
+     * @return int The number of candidates in the submitted request.
      */
     private function enqueuedCandidateCount(): int
     {
         $jobIds = $this->queuedJobIds();
         self::assertCount(1, $jobIds);
 
-        $path = $this->paths()->stateRoot(JobState::Queued->value) . '/' . $jobIds[0] . '/request.json';
-        $data = AtomicFile::readJsonCapped($path, QueueLimits::FEEDER_FILE_MAX_BYTES);
-
-        /** @var list<array<string, mixed>> $candidates */
-        $candidates = $data['candidates'];
-
-        return count($candidates);
+        return count($this->queuedCandidates($jobIds[0]));
     }
 }

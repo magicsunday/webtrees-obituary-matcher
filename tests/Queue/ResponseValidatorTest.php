@@ -30,7 +30,7 @@ use PHPUnit\Framework\TestCase;
  * Tests the pure response validator: it narrows an already-decoded (file-free) response payload into
  * death-notice records keyed by person and rejects every malformed payload (bad URL scheme, foreign
  * job ownership, unknown schema version) with a dedicated validation exception — the same contract
- * {@see \MagicSunday\ObituaryMatcher\Queue\ResponseReader} now delegates to.
+ * {@see \MagicSunday\ObituaryMatcher\Queue\RestJobTransport} delegates to.
  *
  * @author  Rico Sonntag <mail@ricosonntag.de>
  * @license https://opensource.org/licenses/GPL-3.0 GNU General Public License v3.0

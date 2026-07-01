@@ -12,10 +12,9 @@ declare(strict_types=1);
 namespace MagicSunday\ObituaryMatcher\Queue;
 
 /**
- * Shared numeric limits for the queue layer. Holds the single source of truth for the feeder-file
- * size cap that the queue readers apply ({@see ResponseReader} as its default, {@see FeederRequestReader}
- * as an explicit argument) and both composition-root factories pass, so the 5 MiB ceiling lives in
- * exactly one place.
+ * Shared numeric limits for the queue layer. Holds the single source of truth for the feeder-response
+ * size cap that the REST transport's body reader ({@see CappedJsonBodyReader}) applies and the
+ * composition-root factory passes, so the 5 MiB ceiling lives in exactly one place.
  *
  * @author  Rico Sonntag <mail@ricosonntag.de>
  * @license https://opensource.org/licenses/GPL-3.0 GNU General Public License v3.0

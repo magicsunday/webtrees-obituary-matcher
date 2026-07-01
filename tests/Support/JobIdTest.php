@@ -61,8 +61,8 @@ final class JobIdTest extends TestCase
     }
 
     /**
-     * Verifies a minted id satisfies the queue's job-id path-traversal pattern, so the drain's
-     * directory discovery and the QueuePaths builders accept it without escaping the queue root.
+     * Verifies a minted id satisfies the queue's job-id path-traversal pattern, so the REST pending
+     * ledger's per-job path derivation accepts it without escaping its root.
      *
      * @return void
      */

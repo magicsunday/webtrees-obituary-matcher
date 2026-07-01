@@ -36,13 +36,12 @@ use function trim;
 use const PHP_URL_SCHEME;
 
 /**
- * Validates and decodes the UNTRUSTED, already-decoded response payload a feeder produced (read from
- * the file-drop queue today, a REST transport body tomorrow) into death-notice records keyed by the
- * personId they belong to. The payload is scraped from external obituary sites, so NOTHING in it is
+ * Validates and decodes the UNTRUSTED, already-decoded response payload a feeder produced (read from a
+ * REST transport body) into death-notice records keyed by the personId they belong to. The payload is scraped from external obituary sites, so NOTHING in it is
  * trusted: it is narrowed field by field with is_* guards before any value object is constructed, and
  * any failure throws {@see ResponseValidationException} (distinct from a plain IO failure of whatever
- * fetched the payload). This is the file-free core {@see ResponseReader} delegates to once it has read
- * and JSON-decoded the response.json off disk, so the same validation holds for every transport.
+ * fetched the payload). This is the transport-free core {@see RestJobTransport} delegates to once it has
+ * read and JSON-decoded the response body, so the same validation holds for every transport.
  *
  * The decoded response shape this validator narrows:
  *

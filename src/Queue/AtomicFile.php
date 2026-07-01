@@ -90,8 +90,7 @@ final class AtomicFile
 
         // Swallow the mkdir warning (a concurrent winner raises "File exists") so mkdir returns false
         // and the !is_dir() recovery below runs, rather than the warning being converted into a thrown
-        // exception that bypasses the recovery. This mirrors the scoped-handler guard QueueClient::claim
-        // already uses for its rename, without the forbidden @-suppression operator.
+        // exception that bypasses the recovery, without the forbidden @-suppression operator.
         set_error_handler(static fn (): bool => true);
 
         try {

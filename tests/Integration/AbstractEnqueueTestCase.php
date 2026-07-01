@@ -22,13 +22,8 @@ use MagicSunday\ObituaryMatcher\Matching\MatchStore;
 use MagicSunday\ObituaryMatcher\Matching\StoredMatch;
 use MagicSunday\ObituaryMatcher\Matching\StoredMatchKey;
 use MagicSunday\ObituaryMatcher\Queue\AtomicFile;
-use MagicSunday\ObituaryMatcher\Queue\FeederRequestReader;
-use MagicSunday\ObituaryMatcher\Queue\FileJobTransport;
-use MagicSunday\ObituaryMatcher\Queue\JobState;
 use MagicSunday\ObituaryMatcher\Queue\JobTransport;
-use MagicSunday\ObituaryMatcher\Queue\QueueClient;
-use MagicSunday\ObituaryMatcher\Queue\QueueLimits;
-use MagicSunday\ObituaryMatcher\Queue\ResponseReader;
+use MagicSunday\ObituaryMatcher\Support\FeederRequest;
 use MagicSunday\ObituaryMatcher\Support\FeederRequestFactory;
 use MagicSunday\ObituaryMatcher\Support\QueryGenerator;
 use MagicSunday\ObituaryMatcher\Support\UrlHostNormalizer;
@@ -37,25 +32,47 @@ use MagicSunday\ObituaryMatcher\Webtrees\EnqueueService;
 use MagicSunday\ObituaryMatcher\Webtrees\MatchStoreFactory;
 
 use function hash;
-use function mkdir;
-use function scandir;
-use function str_starts_with;
-
-use const SCANDIR_SORT_NONE;
 
 /**
- * Shared harness for the enqueue integration tests: a throwaway file-drop queue + isolated per-tree
- * store (the plumbing lives in {@see AbstractQueueStoreTestCase}), the {@see EnqueueService} wired
- * through the SAME graph the `tools/enqueue.php` CLI assembles (the only seams redirected are
- * {@see EnqueueService::storeForTree()} → the isolated store and {@see EnqueueService::now()} → a
- * fixed instant), plus seeders for in-flight jobs and store rows.
+ * Shared harness for the enqueue integration tests: an isolated per-tree store (the plumbing lives in
+ * {@see AbstractStoreTestCase}) and the {@see EnqueueService} wired through the SAME graph the
+ * `tools/enqueue.php` CLI assembles (the only seams redirected are {@see EnqueueService::storeForTree()}
+ * → the isolated store and {@see EnqueueService::now()} → a fixed instant). The transport is a
+ * {@see RecordingJobTransport} double: tests seed the already-in-flight requests it exposes and, after
+ * the run, read the submitted request back off it, so the harness never lays out an on-disk queue.
  *
  * @author  Rico Sonntag <mail@ricosonntag.de>
  * @license https://opensource.org/licenses/GPL-3.0 GNU General Public License v3.0
  * @link    https://github.com/magicsunday/webtrees-obituary-matcher/
  */
-abstract class AbstractEnqueueTestCase extends AbstractQueueStoreTestCase
+abstract class AbstractEnqueueTestCase extends AbstractStoreTestCase
 {
+    /**
+     * @var RecordingJobTransport The transport the last enqueueService() build was wired to, so a
+     *                            scenario can read the submitted request back after the run.
+     */
+    protected RecordingJobTransport $transport;
+
+    /**
+     * @var list<array{treeId: int, requestedPersonIds: list<string>}> The in-flight requests the next
+     *                                                                 transport exposes, so the in-flight dedup scan sees those persons as already queued.
+     */
+    private array $inFlight = [];
+
+    /**
+     * Initialise an empty transport so a scenario that never builds the producer (e.g. the
+     * throwing-producer trigger tests) can still read {@see queuedJobIds()} — it observes a producer
+     * that submitted nothing.
+     *
+     * @return void
+     */
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        $this->transport = new RecordingJobTransport();
+    }
+
     /**
      * {@inheritDoc}
      *
@@ -67,32 +84,26 @@ abstract class AbstractEnqueueTestCase extends AbstractQueueStoreTestCase
     }
 
     /**
-     * Build the {@see EnqueueService} through the real CLI wiring, redirecting only the store seam
-     * (to the isolated root) and the clock seam (to a fixed instant for a stable jobId).
+     * Build the {@see EnqueueService} through the real CLI wiring over a fresh {@see RecordingJobTransport}
+     * (seeded with the in-flight requests accumulated so far), redirecting only the store seam (to the
+     * isolated root) and the clock seam (to a fixed instant for a stable jobId). The transport is stored
+     * on {@see self::$transport} so the caller can read the submitted request back after the run.
      *
      * @return EnqueueService
      */
     protected function enqueueService(): EnqueueService
     {
-        $paths    = $this->paths();
+        $this->transport = new RecordingJobTransport([], $this->inFlight);
+
         $storeDir = $this->storeRoot;
 
-        // Build the file transport over this test's throwaway queue exactly as EnqueueServiceFactory
-        // does, so the test drives the real composition root; only the store + clock seams are pinned.
-        $transport = new FileJobTransport(
-            new QueueClient($paths),
-            new ResponseReader($paths, QueueLimits::FEEDER_FILE_MAX_BYTES),
-            new FeederRequestReader($paths, QueueLimits::FEEDER_FILE_MAX_BYTES),
-            $paths,
-        );
-
-        return new class(new CandidateRepository(), new FeederRequestFactory(new QueryGenerator()), new UrlHostNormalizer(), new TreeService(new GedcomImportService()), $transport, $storeDir) extends EnqueueService {
+        return new class(new CandidateRepository(), new FeederRequestFactory(new QueryGenerator()), new UrlHostNormalizer(), new TreeService(new GedcomImportService()), $this->transport, $storeDir) extends EnqueueService {
             /**
              * @param CandidateRepository  $repository     The candidate repository.
              * @param FeederRequestFactory $requestFactory The request assembler.
              * @param UrlHostNormalizer    $hostNormalizer The canonical-host helper.
              * @param TreeService          $treeService    The tree lookup.
-             * @param JobTransport         $transport      The file-drop job transport.
+             * @param JobTransport         $transport      The job transport.
              * @param string               $storeRoot      The isolated per-tree store base directory.
              */
             public function __construct(
@@ -131,70 +142,85 @@ abstract class AbstractEnqueueTestCase extends AbstractQueueStoreTestCase
     }
 
     /**
-     * List the real job directories currently in the queued state (excluding dot + temp entries), in
-     * filesystem order.
+     * The job ids the producer submitted this run, in order.
      *
-     * @return list<string> The queued job ids.
+     * @return list<string> The submitted job ids.
      */
     protected function queuedJobIds(): array
     {
-        $root    = $this->paths()->stateRoot(JobState::Queued->value);
-        $entries = scandir($root, SCANDIR_SORT_NONE);
+        $ids = [];
 
-        if ($entries === false) {
-            return [];
+        foreach ($this->transport->submitted as $request) {
+            $ids[] = $request->jobId;
         }
 
-        $jobs = [];
-
-        foreach ($entries as $entry) {
-            if (
-                ($entry === '.')
-                || ($entry === '..')
-                || str_starts_with($entry, '.tmp-')
-            ) {
-                continue;
-            }
-
-            $jobs[] = $entry;
-        }
-
-        return $jobs;
+        return $ids;
     }
 
     /**
-     * Seed an in-flight job in the given state carrying a schema-3 request for the given persons, so
-     * the in-flight dedup scan sees those personIds as already queued.
+     * The candidate list of the submitted job's request (its JSON-ready row shape, so the assertions see
+     * the exact `excludedHosts` shape the producer wrote).
      *
-     * @param string       $jobId     The job id (directory name).
-     * @param JobState     $state     The in-flight state to seed into.
-     * @param int          $treeId    The tree the request belongs to.
-     * @param list<string> $personIds The requested person ids.
+     * @param string $jobId The submitted job id.
+     *
+     * @return list<array<string, mixed>> The candidate entries.
+     */
+    protected function queuedCandidates(string $jobId): array
+    {
+        return $this->submittedRequestFor($jobId)->toArray()['candidates'];
+    }
+
+    /**
+     * The personIds of the submitted job's request, in written order.
+     *
+     * @param string $jobId The submitted job id.
+     *
+     * @return list<string> The requested person ids.
+     */
+    protected function queuedPersonIds(string $jobId): array
+    {
+        $ids = [];
+
+        foreach ($this->queuedCandidates($jobId) as $candidate) {
+            /** @var string $personId */
+            $personId = $candidate['personId'];
+            $ids[]    = $personId;
+        }
+
+        return $ids;
+    }
+
+    /**
+     * The submitted {@see FeederRequest} carrying the given job id, failing the test when the producer
+     * submitted no such request.
+     *
+     * @param string $jobId The submitted job id.
+     *
+     * @return FeederRequest The matching submitted request.
+     */
+    private function submittedRequestFor(string $jobId): FeederRequest
+    {
+        foreach ($this->transport->submitted as $request) {
+            if ($request->jobId === $jobId) {
+                return $request;
+            }
+        }
+
+        self::fail('No request was submitted for job id ' . $jobId);
+    }
+
+    /**
+     * Seed an in-flight request for the given persons, so the in-flight dedup scan sees those personIds
+     * as already queued for the tree.
+     *
+     * @param int          $treeId    The tree the in-flight request belongs to.
+     * @param list<string> $personIds The requested person ids already in flight.
      *
      * @return void
      */
-    protected function seedInflightJob(string $jobId, JobState $state, int $treeId, array $personIds): void
+    protected function seedInflightJob(int $treeId, array $personIds): void
     {
-        $dir = $this->paths()->stateRoot($state->value) . '/' . $jobId;
-        mkdir($dir, 0o700, true);
-
-        $candidates = [];
-
-        foreach ($personIds as $personId) {
-            $candidates[] = ['personId' => $personId, 'queries' => [], 'excludedHosts' => []];
-        }
-
-        AtomicFile::writeJson(
-            $dir . '/request.json',
-            [
-                'schemaVersion' => 3,
-                'jobId'         => $jobId,
-                'createdAt'     => '2026-06-20T09:00:00+00:00',
-                'locale'        => 'de-DE',
-                'candidates'    => $candidates,
-                'treeId'        => $treeId,
-            ],
-        );
+        $this->inFlight[] = ['treeId' => $treeId, 'requestedPersonIds' => $personIds];
     }
 
     /**

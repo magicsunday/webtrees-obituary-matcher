@@ -11,19 +11,12 @@ declare(strict_types=1);
 
 namespace MagicSunday\ObituaryMatcher\Test\Integration;
 
-use Fisharebest\Webtrees\Tree;
 use MagicSunday\ObituaryMatcher\Domain\ClassifiedMatch;
 use MagicSunday\ObituaryMatcher\Matching\FileMatchStore;
 use MagicSunday\ObituaryMatcher\Matching\MatchStatus;
 use MagicSunday\ObituaryMatcher\Matching\StoredMatch;
 use MagicSunday\ObituaryMatcher\Matching\StoredMatchKey;
 use MagicSunday\ObituaryMatcher\Queue\AtomicFile;
-use MagicSunday\ObituaryMatcher\Queue\FeederRequestReader;
-use MagicSunday\ObituaryMatcher\Queue\FileJobTransport;
-use MagicSunday\ObituaryMatcher\Queue\JobState;
-use MagicSunday\ObituaryMatcher\Queue\QueueClient;
-use MagicSunday\ObituaryMatcher\Queue\QueueLimits;
-use MagicSunday\ObituaryMatcher\Queue\QueuePaths;
 use MagicSunday\ObituaryMatcher\Support\FeederCandidateRequest;
 use MagicSunday\ObituaryMatcher\Support\FeederRequest;
 use MagicSunday\ObituaryMatcher\Support\FeederRequestFactory;
@@ -39,16 +32,13 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\Attributes\UsesClass;
 
-use function file_put_contents;
-use function mkdir;
-
 /**
  * Integration scenarios for the {@see EnqueueService}: each pins the discriminating triple — the
- * {@see EnqueueSummary} counters, the written `queued/<job>/request.json` content (candidates +
- * per-candidate excludedHosts, read back through the validating {@see FeederRequestReader} and the
- * raw row) and, for the skip cases, the absence of the skipped person from the request.
+ * {@see EnqueueSummary} counters, the submitted request's candidates (personIds + per-candidate
+ * excludedHosts, read back off the {@see RecordingJobTransport} double) and, for the skip cases, the
+ * absence of the skipped person from the request.
  *
- * The reference year is pinned (1929) so the three "Searchable" fixtures (born 1925/1928/1930) are
+ * The reference year is pinned (2025) so the three "Searchable" fixtures (born 1925/1928/1930) are
  * deterministic candidates regardless of the wall clock.
  *
  * @author  Rico Sonntag <mail@ricosonntag.de>
@@ -66,11 +56,6 @@ use function mkdir;
 #[UsesClass(ClassifiedMatch::class)]
 #[UsesClass(MatchStatus::class)]
 #[UsesClass(AtomicFile::class)]
-#[UsesClass(FeederRequestReader::class)]
-#[UsesClass(FileJobTransport::class)]
-#[UsesClass(QueueClient::class)]
-#[UsesClass(QueuePaths::class)]
-#[UsesClass(JobState::class)]
 #[UsesClass(FeederCandidateRequest::class)]
 #[UsesClass(FeederRequest::class)]
 #[UsesClass(FeederRequestFactory::class)]
@@ -87,9 +72,9 @@ final class EnqueueServiceTest extends AbstractEnqueueTestCase
     private const int REFERENCE_YEAR = 2025;
 
     /**
-     * (1) Happy path: a single eligible candidate (a 1-person tree) is enqueued, exactly one queued
-     * job is written carrying its personId + a non-empty query list + excludedHosts: [], and the
-     * summary reports it.
+     * (1) Happy path: a single eligible candidate (a 1-person tree) is enqueued, exactly one job is
+     * submitted carrying its personId + a non-empty query list + excludedHosts: [], and the summary
+     * reports it.
      *
      * @return void
      */
@@ -117,23 +102,23 @@ final class EnqueueServiceTest extends AbstractEnqueueTestCase
         self::assertArrayHasKey('excludedHosts', $candidates[0]);
         self::assertSame([], $candidates[0]['excludedHosts']);
 
-        // The validating reader agrees on the requested set.
-        $request = (new FeederRequestReader($this->paths(), QueueLimits::FEEDER_FILE_MAX_BYTES))->read($summary->jobId, JobState::Queued);
-        self::assertSame(['I1'], $request['requestedPersonIds']);
+        // The submitted request carries exactly the requested set.
+        self::assertSame(['I1'], $this->queuedPersonIds($summary->jobId));
     }
 
     /**
-     * (2) In-flight dedup, queued state: a person already in a queued job for this tree is skipped,
-     * so only the remaining two candidates are enqueued and the skipped person is absent.
+     * (2) In-flight dedup: a person already in flight for this tree is skipped, so only the remaining
+     * two candidates are enqueued and the skipped person is absent. The transport is the single
+     * in-flight source now, so the queued-vs-done file-state distinction collapses to one path.
      *
      * @return void
      */
     #[Test]
-    public function aPersonAlreadyInAQueuedJobIsSkipped(): void
+    public function aPersonAlreadyInFlightIsSkipped(): void
     {
-        $tree = $this->ottoTree('enqueue-inflight-queued');
+        $tree = $this->ottoTree('enqueue-inflight');
 
-        $this->seedInflightJob('job-existing-q', JobState::Queued, $tree->id(), ['I1']);
+        $this->seedInflightJob($tree->id(), ['I1']);
 
         $summary = $this->enqueueService()->enqueue($tree->id(), 50, 90, 'de-DE', self::REFERENCE_YEAR);
 
@@ -145,31 +130,6 @@ final class EnqueueServiceTest extends AbstractEnqueueTestCase
 
         self::assertSame(['I2', 'I3'], $ids);
         self::assertNotContains('I1', $ids);
-    }
-
-    /**
-     * (3) In-flight dedup, done state: a person already in a DONE job (the feeder produced a result
-     * not yet ingested) is skipped — the gap the 4-state scan closes.
-     *
-     * @return void
-     */
-    #[Test]
-    public function aPersonAlreadyInADoneJobIsSkipped(): void
-    {
-        $tree = $this->ottoTree('enqueue-inflight-done');
-
-        $this->seedInflightJob('job-existing-d', JobState::Done, $tree->id(), ['I2']);
-
-        $summary = $this->enqueueService()->enqueue($tree->id(), 50, 90, 'de-DE', self::REFERENCE_YEAR);
-
-        self::assertNotNull($summary->jobId);
-        self::assertSame(2, $summary->candidates);
-        self::assertSame(1, $summary->skippedInflight);
-
-        $ids = $this->queuedPersonIds($summary->jobId);
-
-        self::assertSame(['I1', 'I3'], $ids);
-        self::assertNotContains('I2', $ids);
     }
 
     /**
@@ -238,69 +198,6 @@ final class EnqueueServiceTest extends AbstractEnqueueTestCase
 
         self::assertArrayHasKey('excludedHosts', $candidates[0]);
         self::assertSame([], $candidates[0]['excludedHosts']);
-    }
-
-    /**
-     * (6) A malformed in-flight request.json is warned + ignored; the enqueue still produces its job
-     * (the corrupt foreign job neither blocks the producer nor skips any candidate).
-     *
-     * @return void
-     */
-    #[Test]
-    public function aMalformedInflightRequestIsIgnoredAndTheEnqueueStillRuns(): void
-    {
-        $tree = $this->ottoTree('enqueue-malformed-inflight');
-
-        // A schema-invalid in-flight request (no schemaVersion/jobId/candidates) in the queued state.
-        $badDir = $this->paths()->stateRoot(JobState::Queued->value) . '/job-corrupt';
-        mkdir($badDir, 0o700, true);
-        AtomicFile::writeJson($badDir . '/request.json', ['garbage' => true]);
-
-        $this->assertEnqueueIgnoresTheCorruptInflightJob($tree);
-    }
-
-    /**
-     * (10) A syntactically-broken in-flight request.json (raw non-JSON bytes, NOT a schema-invalid
-     * but well-formed document) is warned + ignored; the enqueue still produces its job. Distinct from
-     * scenario (6): there AtomicFile::readJsonCapped decodes successfully and the schema check raises a
-     * ResponseValidationException, whereas here the decode itself fails — which must surface as a
-     * RuntimeException the in-flight scan catches, never an uncaught JsonException that aborts the run.
-     *
-     * @return void
-     */
-    #[Test]
-    public function aBrokenJsonInflightRequestIsIgnoredAndTheEnqueueStillRuns(): void
-    {
-        $tree = $this->ottoTree('enqueue-broken-json-inflight');
-
-        // Write RAW, syntactically-broken bytes (bypassing AtomicFile::writeJson, which always
-        // produces valid JSON) for a valid-job-id-pattern directory so the scan reaches the decode.
-        $badDir = $this->paths()->stateRoot(JobState::Queued->value) . '/job-broken';
-        mkdir($badDir, 0o700, true);
-        file_put_contents($badDir . '/request.json', '{not json');
-
-        $this->assertEnqueueIgnoresTheCorruptInflightJob($tree);
-    }
-
-    /**
-     * Runs the enqueue against the Otto tree and asserts the producer ignored a pre-seeded corrupt
-     * in-flight job: a job is still produced, no candidate is skipped and all three persons are
-     * enqueued. Shared by the schema-invalid (6) and broken-JSON (10) scenarios, which differ only in
-     * HOW the corrupt in-flight directory was seeded.
-     *
-     * @param Tree $tree The Otto tree the corrupt in-flight job was seeded against.
-     *
-     * @return void
-     */
-    private function assertEnqueueIgnoresTheCorruptInflightJob(Tree $tree): void
-    {
-        $summary = $this->enqueueService()->enqueue($tree->id(), 50, 90, 'de-DE', self::REFERENCE_YEAR);
-
-        self::assertNotNull($summary->jobId);
-        self::assertSame(3, $summary->candidates);
-        self::assertSame(0, $summary->skippedInflight);
-
-        self::assertSame(['I1', 'I2', 'I3'], $this->queuedPersonIds($summary->jobId));
     }
 
     /**
@@ -379,7 +276,7 @@ final class EnqueueServiceTest extends AbstractEnqueueTestCase
 
     /**
      * (13) A non-positive --limit enqueues nothing: the explicit cap guard returns an empty summary
-     * (jobId null, all counters zero) and writes no job. Without the guard the `count() === $limit`
+     * (jobId null, all counters zero) and submits no job. Without the guard the `count() === $limit`
      * break could never fire for a zero/negative limit and the loop would drain and enqueue the whole
      * eligible population.
      *
@@ -416,7 +313,7 @@ final class EnqueueServiceTest extends AbstractEnqueueTestCase
 
         // I1 is stepped over while filling the cap (counted); I5 sits beyond the cap boundary and is
         // never reached (not counted).
-        $this->seedInflightJob('job-existing-mix', JobState::Queued, $tree->id(), ['I1', 'I5']);
+        $this->seedInflightJob($tree->id(), ['I1', 'I5']);
 
         $summary = $this->enqueueService()->enqueue($tree->id(), 2, 90, 'de-DE', self::REFERENCE_YEAR);
 
@@ -428,7 +325,7 @@ final class EnqueueServiceTest extends AbstractEnqueueTestCase
     }
 
     /**
-     * (8) Zero eligible candidates → no job written, summary jobId null and counters zero.
+     * (8) Zero eligible candidates → no job submitted, summary jobId null and counters zero.
      *
      * @return void
      */
@@ -449,7 +346,7 @@ final class EnqueueServiceTest extends AbstractEnqueueTestCase
         self::assertSame(0, $summary->skippedInflight);
         self::assertSame(0, $summary->excludedHosts);
 
-        // No queued job was written.
+        // No job was submitted.
         self::assertSame([], $this->queuedJobIds());
     }
 
@@ -470,7 +367,7 @@ final class EnqueueServiceTest extends AbstractEnqueueTestCase
 
         // An in-flight job for a FOREIGN tree id carrying the SAME xref I1 must NOT block this tree's
         // own I1 — they are different people.
-        $this->seedInflightJob('job-foreign-tree', JobState::Queued, $tree->id() + 999, ['I1']);
+        $this->seedInflightJob($tree->id() + 999, ['I1']);
 
         $summary = $this->enqueueService()->enqueue($tree->id(), 50, 90, 'de-DE', self::REFERENCE_YEAR);
 
@@ -479,44 +376,5 @@ final class EnqueueServiceTest extends AbstractEnqueueTestCase
         self::assertSame(0, $summary->skippedInflight);
 
         self::assertSame(['I1'], $this->queuedPersonIds($summary->jobId));
-    }
-
-    /**
-     * Read the candidate list of a queued job's request.json straight off disk (the raw row, so the
-     * assertions see the exact `excludedHosts` shape the producer wrote).
-     *
-     * @param string $jobId The queued job id.
-     *
-     * @return list<array<string, mixed>> The candidate entries.
-     */
-    private function queuedCandidates(string $jobId): array
-    {
-        $path = $this->paths()->stateRoot(JobState::Queued->value) . '/' . $jobId . '/request.json';
-        $data = AtomicFile::readJsonCapped($path, QueueLimits::FEEDER_FILE_MAX_BYTES);
-
-        /** @var list<array<string, mixed>> $candidates */
-        $candidates = $data['candidates'];
-
-        return $candidates;
-    }
-
-    /**
-     * Read just the personIds of a queued job's request, in written order.
-     *
-     * @param string $jobId The queued job id.
-     *
-     * @return list<string> The requested person ids.
-     */
-    private function queuedPersonIds(string $jobId): array
-    {
-        $ids = [];
-
-        foreach ($this->queuedCandidates($jobId) as $candidate) {
-            /** @var string $personId */
-            $personId = $candidate['personId'];
-            $ids[]    = $personId;
-        }
-
-        return $ids;
     }
 }
