@@ -777,11 +777,14 @@ final class RestJobTransportTest extends TempDirTestCase
         $candidates = [];
 
         foreach ($personIds as $personId) {
-            $candidates[] = new FinderCandidateRequest($personId, []);
+            $candidates[] = new FinderCandidateRequest(
+                $personId,
+                new PersonName([], null, 'Mustermann', null),
+                []
+            );
         }
 
         return new FinderRequest(
-            1,
             $jobId,
             new DateTimeImmutable('2024-05-21T08:29:55+00:00'),
             'de-DE',

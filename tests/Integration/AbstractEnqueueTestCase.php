@@ -23,6 +23,7 @@ use MagicSunday\ObituaryMatcher\Matching\StoredMatch;
 use MagicSunday\ObituaryMatcher\Matching\StoredMatchKey;
 use MagicSunday\ObituaryMatcher\Queue\AtomicFile;
 use MagicSunday\ObituaryMatcher\Queue\JobTransport;
+use MagicSunday\ObituaryMatcher\Support\FinderCandidateRequest;
 use MagicSunday\ObituaryMatcher\Support\FinderRequest;
 use MagicSunday\ObituaryMatcher\Support\FinderRequestFactory;
 use MagicSunday\ObituaryMatcher\Support\QueryGenerator;
@@ -158,8 +159,8 @@ abstract class AbstractEnqueueTestCase extends AbstractStoreTestCase
     }
 
     /**
-     * The candidate list of the submitted job's request (its JSON-ready row shape, so the assertions see
-     * the exact `excludedHosts` shape the producer wrote).
+     * The candidate list of the submitted job's request in its JSON-ready contract-wire shape (so the
+     * assertions see the exact `names`/`queryHints` body the producer POSTs).
      *
      * @param string $jobId The submitted job id.
      *
@@ -168,6 +169,26 @@ abstract class AbstractEnqueueTestCase extends AbstractStoreTestCase
     protected function queuedCandidates(string $jobId): array
     {
         return $this->submittedRequestFor($jobId)->toArray()['candidates'];
+    }
+
+    /**
+     * The excludedHosts the producer threaded onto each submitted candidate, keyed by personId. The
+     * hint is carried on the {@see FinderCandidateRequest} object but NOT on the contract wire, so this
+     * reads it off the object graph rather than the serialised body.
+     *
+     * @param string $jobId The submitted job id.
+     *
+     * @return array<string, list<string>> The per-personId excludedHosts.
+     */
+    protected function queuedExcludedHosts(string $jobId): array
+    {
+        $byId = [];
+
+        foreach ($this->submittedRequestFor($jobId)->candidates as $candidate) {
+            $byId[$candidate->personId] = $candidate->excludedHosts;
+        }
+
+        return $byId;
     }
 
     /**

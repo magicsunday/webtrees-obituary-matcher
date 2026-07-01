@@ -12,10 +12,9 @@ declare(strict_types=1);
 namespace MagicSunday\ObituaryMatcher\Support;
 
 use DateTimeImmutable;
-use DateTimeInterface;
 
 /**
- * A serialisable, schema-versioned request handed to the external obituary finder.
+ * A serialisable request handed to the external obituary finder as the `POST /jobs` body.
  *
  * @author  Rico Sonntag <mail@ricosonntag.de>
  * @license https://opensource.org/licenses/GPL-3.0 GNU General Public License v3.0
@@ -24,17 +23,24 @@ use DateTimeInterface;
 final readonly class FinderRequest
 {
     /**
+     * The MAJOR of the published #56 job-request contract this body targets. A finder rejects an
+     * unknown major, so the wire always stamps the contract major — not any internal envelope version.
+     */
+    private const int JOB_REQUEST_SCHEMA_VERSION = 1;
+
+    /**
      * Constructor.
      *
-     * @param int                          $schemaVersion The request payload's schema version.
-     * @param string                       $jobId         The caller-assigned job identifier.
-     * @param DateTimeImmutable            $createdAt     The moment the request was assembled.
-     * @param string                       $locale        The IETF BCP 47 locale tag (e.g. "de-DE").
-     * @param list<FinderCandidateRequest> $candidates    The per-candidate query bundles.
-     * @param int                          $treeId        The numeric webtrees tree identifier the request belongs to.
+     * The `$createdAt` and `$treeId` are carried for the local {@see \MagicSunday\ObituaryMatcher\Queue\RestJobTransport}
+     * ledger correlation only; they are NOT part of the published contract and never reach the wire.
+     *
+     * @param string                       $jobId      The caller-assigned job identifier.
+     * @param DateTimeImmutable            $createdAt  The moment the request was assembled (ledger-only).
+     * @param string                       $locale     The IETF BCP 47 locale tag (e.g. "de-DE").
+     * @param list<FinderCandidateRequest> $candidates The per-candidate query bundles.
+     * @param int                          $treeId     The numeric webtrees tree identifier (ledger-only).
      */
     public function __construct(
-        public int $schemaVersion,
         public string $jobId,
         public DateTimeImmutable $createdAt,
         public string $locale,
@@ -44,19 +50,20 @@ final readonly class FinderRequest
     }
 
     /**
-     * Serialises the request into a plain, JSON-ready array.
+     * Serialises the request into the published job-request contract body (see the #56 contract).
+     *
+     * The internal envelope fields (`createdAt`, `treeId`) are intentionally NOT emitted — they carry
+     * no contract meaning and stay local to the transport's ledger.
      *
      * @return array{
      *   schemaVersion: int,
      *   jobId: string,
-     *   createdAt: string,
      *   locale: string,
      *   candidates: list<array{
      *     personId: string,
-     *     queries: list<array{query: string, priority: int, dedupKey: string}>,
-     *     excludedHosts: list<string>
-     *   }>,
-     *   treeId: int
+     *     names: list<array{kind?: string, full?: string, given?: string, surname?: string}>,
+     *     queryHints: list<array{query: string, dedupKey: string, priority: int}>
+     *   }>
      * }
      */
     public function toArray(): array
@@ -68,12 +75,10 @@ final readonly class FinderRequest
         }
 
         return [
-            'schemaVersion' => $this->schemaVersion,
+            'schemaVersion' => self::JOB_REQUEST_SCHEMA_VERSION,
             'jobId'         => $this->jobId,
-            'createdAt'     => $this->createdAt->format(DateTimeInterface::ATOM),
             'locale'        => $this->locale,
             'candidates'    => $candidates,
-            'treeId'        => $this->treeId,
         ];
     }
 }

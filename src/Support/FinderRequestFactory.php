@@ -27,11 +27,6 @@ use MagicSunday\ObituaryMatcher\Domain\PersonCandidate;
 final readonly class FinderRequestFactory
 {
     /**
-     * The schema version stamped onto every request this factory builds.
-     */
-    public const int SCHEMA_VERSION = 3;
-
-    /**
      * Constructor.
      *
      * @param QueryGenerator $queryGenerator The pure query generator used per candidate.
@@ -67,13 +62,13 @@ final readonly class FinderRequestFactory
         foreach ($candidates as $candidate) {
             $candidateRequests[] = new FinderCandidateRequest(
                 $candidate->id,
+                $candidate->name,
                 $this->queryGenerator->generate($candidate),
                 $excludedHostsByPersonId[$candidate->id] ?? [],
             );
         }
 
         return new FinderRequest(
-            self::SCHEMA_VERSION,
             $jobId,
             $createdAt,
             $locale,

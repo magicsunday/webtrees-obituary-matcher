@@ -98,9 +98,8 @@ final class EnqueueServiceTest extends AbstractEnqueueTestCase
 
         self::assertCount(1, $candidates);
         self::assertSame('I1', $candidates[0]['personId']);
-        self::assertNotEmpty($candidates[0]['queries']);
-        self::assertArrayHasKey('excludedHosts', $candidates[0]);
-        self::assertSame([], $candidates[0]['excludedHosts']);
+        self::assertNotEmpty($candidates[0]['queryHints']);
+        self::assertSame([], $this->queuedExcludedHosts($summary->jobId)['I1']);
 
         // The submitted request carries exactly the requested set.
         self::assertSame(['I1'], $this->queuedPersonIds($summary->jobId));
@@ -156,14 +155,7 @@ final class EnqueueServiceTest extends AbstractEnqueueTestCase
         // Two distinct hosts for I1, none for the others.
         self::assertSame(2, $summary->excludedHosts);
 
-        $candidates = $this->queuedCandidates($summary->jobId);
-        $byId       = [];
-
-        foreach ($candidates as $candidate) {
-            /** @var string $personId */
-            $personId        = $candidate['personId'];
-            $byId[$personId] = $candidate['excludedHosts'];
-        }
+        $byId = $this->queuedExcludedHosts($summary->jobId);
 
         self::assertSame(['anzeiger.test', 'zeitung.test'], $byId['I1']);
         self::assertSame([], $byId['I2']);
@@ -194,10 +186,7 @@ final class EnqueueServiceTest extends AbstractEnqueueTestCase
         self::assertSame(1, $summary->candidates);
         self::assertSame(0, $summary->excludedHosts);
 
-        $candidates = $this->queuedCandidates($summary->jobId);
-
-        self::assertArrayHasKey('excludedHosts', $candidates[0]);
-        self::assertSame([], $candidates[0]['excludedHosts']);
+        self::assertSame([], $this->queuedExcludedHosts($summary->jobId)['I1']);
     }
 
     /**
