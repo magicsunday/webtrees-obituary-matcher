@@ -13,8 +13,8 @@ namespace MagicSunday\ObituaryMatcher\Test\Queue;
 
 use InvalidArgumentException;
 use MagicSunday\ObituaryMatcher\Queue\AtomicFile;
-use MagicSunday\ObituaryMatcher\Queue\QueuePaths;
 use MagicSunday\ObituaryMatcher\Queue\RestPendingLedger;
+use MagicSunday\ObituaryMatcher\Support\JobId;
 use MagicSunday\ObituaryMatcher\Test\Support\TempDirTestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -38,7 +38,7 @@ use function mkdir;
  */
 #[CoversClass(RestPendingLedger::class)]
 #[UsesClass(AtomicFile::class)]
-#[UsesClass(QueuePaths::class)]
+#[UsesClass(JobId::class)]
 final class RestPendingLedgerTest extends TempDirTestCase
 {
     /**
@@ -65,6 +65,61 @@ final class RestPendingLedgerTest extends TempDirTestCase
 
         self::assertSame([], iterator_to_array($ledger->entries()));
         self::assertSame([], $ledger->jobIds());
+    }
+
+    /**
+     * Every path-safe pending ledger file is counted as an open job by openJobCount().
+     *
+     * @return void
+     */
+    #[Test]
+    public function openJobCountCountsEveryPathSafeLedgerFile(): void
+    {
+        $root   = $this->tmp . '/rest-pending';
+        $ledger = new RestPendingLedger($root);
+        $ledger->record('job-a', 1, ['X1'], '2026-06-30T10:00:00Z');
+        $ledger->record('job-b', 1, ['X2'], '2026-06-30T10:01:00Z');
+
+        self::assertSame(2, $ledger->openJobCount());
+    }
+
+    /**
+     * A malformed entry still strands a remote job, so it MUST count as open (unlike entries()/jobIds()).
+     *
+     * @return void
+     */
+    #[Test]
+    public function openJobCountIncludesAMalformedButPathSafeEntry(): void
+    {
+        $root   = $this->tmp . '/rest-pending';
+        $ledger = new RestPendingLedger($root);
+        $ledger->record('job-a', 1, ['X1'], '2026-06-30T10:00:00Z');
+        file_put_contents($root . '/job-b.json', '{ not valid json');
+
+        self::assertSame(2, $ledger->openJobCount());   // entries() would drop job-b; openJobCount keeps it
+    }
+
+    /**
+     * openJobCount() counts by FILENAME safety, not content: a `.json` file whose basename is not a
+     * path-safe jobId (here an embedded dot) is skipped by the isSafeForStorage guard, and a `.json`
+     * DIRECTORY is skipped by the isFile guard. Neither strands a remote job, so neither is counted —
+     * pinning the two exclusion branches a content-based counter would miss.
+     *
+     * @return void
+     */
+    #[Test]
+    public function openJobCountExcludesUnsafeNamesAndDirectories(): void
+    {
+        $root   = $this->tmp . '/rest-pending';
+        $ledger = new RestPendingLedger($root);
+        $ledger->record('job-a', 1, ['X1'], '2026-06-30T10:00:00Z');
+
+        // A path-UNSAFE basename (an embedded dot fails ^[A-Za-z0-9_-]{1,64}$) and a path-safe *.json
+        // DIRECTORY are both present beside the one real job.
+        file_put_contents($root . '/foo.bar.json', '{}');
+        mkdir($root . '/adir.json');
+
+        self::assertSame(1, $ledger->openJobCount());
     }
 
     /**

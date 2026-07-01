@@ -55,7 +55,7 @@ final readonly class UrlHostNormalizer
     public function canonicalHost(string $url): ?string
     {
         // Reject any input carrying a control character (C0 range or DEL): such a host could
-        // break the JSON line it is later written into, or mislead the feeder's consumption.
+        // break the JSON line it is later written into, or mislead the finder's consumption.
         // This guard runs against the RAW input because parse_url() — invoked first inside
         // normalizeForIdentity() — silently rewrites a control char in the host to `_`, so a
         // post-normalisation host check would never see it.
@@ -66,7 +66,7 @@ final readonly class UrlHostNormalizer
         $normalized = UrlNormalizer::normalizeForIdentity($url);
 
         // Scheme gate: only http(s) URLs yield a host. A non-http(s) or schemeless URL is null,
-        // so a feeder hint never lists a host derived from an ftp:/mailto:/relative reference.
+        // so a finder hint never lists a host derived from an ftp:/mailto:/relative reference.
         $scheme = parse_url($normalized, PHP_URL_SCHEME);
 
         if (

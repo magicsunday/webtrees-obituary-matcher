@@ -22,14 +22,13 @@ use MagicSunday\ObituaryMatcher\Queue\JobTransport;
 use Throwable;
 
 /**
- * The Phase-2e orchestration boundary: it drains finished feeder jobs into the per-tree match stores.
+ * The Phase-2e orchestration boundary: it drains finished finder jobs into the per-tree match stores.
  * The transport ({@see JobTransport}) yields each completed job — a {@see CompletedJob} carrying its
  * validated notices, or a {@see FailedJob} carrying a per-job read fault category — so this service stays
- * oblivious to where the jobs live (the on-disk file queue or the REST ledger). The file transport yields
- * each job already atomically claimed (`done` → `ingesting`), so overlapping drains never double-process;
- * the REST transport polls its ledger without a claim, so two overlapping drains over the same REST
- * ledger can each process the same job (a known limitation tracked in issue #71 — non-corrupting today
- * because the per-row atomic store is last-writer-wins). For each completed job it resolves the target
+ * oblivious to where the jobs live (the REST ledger). The REST transport polls its ledger without
+ * claiming a job, so two overlapping drains over the same ledger can each process the same job (a known
+ * limitation tracked in issue #71 — non-corrupting today because the per-row atomic store is
+ * last-writer-wins). For each completed job it resolves the target
  * tree, rebuilds the requested candidates and hands the notices to the store-agnostic
  * {@see IngestService::ingest()} against the tree-scoped store, then finalises the job through the
  * transport (ingested / failed / released).
@@ -67,13 +66,13 @@ class DrainService
      * released back to the completed pool (so a tree-scoped drain leaves foreign jobs untouched for
      * another run). A job whose ingest throws mid-flight is terminally parked as `ingest_failed` — a
      * deterministically-throwing job must not be released and re-claimed every drain (head-of-line
-     * starvation). After the run the transport's stale tally (the
-     * file transport's still-ingesting directories; 0 for the REST transport) is reported in the
-     * summary; this slice does NOT auto-reclaim such a job (recovery is manual/a future hardening).
+     * starvation). After the run the transport's stale tally (0 for the REST transport, which never
+     * claims a job into an intermediate state) is reported in the summary; this slice does NOT
+     * auto-reclaim such a job (recovery is manual/a future hardening).
      *
-     * The $limit bounds the number of CLAIMED jobs processed: the loop breaks after the $limit-th, so
-     * the (unbounded) transport iterator is never advanced past it — the file transport therefore never
-     * claims a job beyond the cap.
+     * The $limit bounds the number of processed jobs: the loop breaks after the $limit-th, so the
+     * (unbounded) transport iterator is never advanced past it — no job beyond the cap is drawn from the
+     * transport.
      *
      * @param int|null $onlyTreeId The single tree to ingest, or null to ingest every tree.
      * @param int      $limit      The maximum number of completed jobs to process this run.
@@ -184,10 +183,10 @@ class DrainService
 
     /**
      * Parks a job under its failure category through the transport, tolerating a failure of the park
-     * itself. A park is a finalisation step that can throw: the file transport renames `ingesting/` ->
-     * `failed-ingest/` (a {@see \RuntimeException} when the rename fails), and any transport's park
-     * touches the queue filesystem. Swallowing a park failure here keeps one un-parkable job from
-     * aborting the whole drain — head-of-line starvation of the still-healthy jobs queued behind it.
+     * itself. A park is a finalisation step that can throw: the transport records the failure against
+     * its backing store (a {@see \RuntimeException} on an I/O fault). Swallowing a park failure here
+     * keeps one un-parkable job from aborting the whole drain — head-of-line starvation of the
+     * still-healthy jobs queued behind it.
      * The un-parked job simply stays claimed for the next run or manual recovery (file: left in
      * `ingesting/`, reported by staleCount; REST: the ledger entry survives and re-polls), a bounded,
      * non-corrupting, self-healing degradation tracked in issue #71. This mirrors why the markIngested

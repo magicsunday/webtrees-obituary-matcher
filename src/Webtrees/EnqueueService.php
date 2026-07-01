@@ -16,7 +16,7 @@ use Fisharebest\Webtrees\Services\TreeService;
 use Fisharebest\Webtrees\Tree;
 use MagicSunday\ObituaryMatcher\Matching\MatchStore;
 use MagicSunday\ObituaryMatcher\Queue\JobTransport;
-use MagicSunday\ObituaryMatcher\Support\FeederRequestFactory;
+use MagicSunday\ObituaryMatcher\Support\FinderRequestFactory;
 use MagicSunday\ObituaryMatcher\Support\JobId;
 use MagicSunday\ObituaryMatcher\Support\UrlHostNormalizer;
 
@@ -29,13 +29,13 @@ use const SORT_STRING;
 /**
  * The enqueue producer: selects the death-date-missing candidates of a tree, drops any already
  * in-flight, attaches each survivor's prioritised queries plus the portals it already has an open
- * match on, and enqueues one bounded feeder job for the private feeder to claim.
+ * match on, and enqueues one bounded finder job for the private finder to claim.
  *
  * Lives in the {@see \MagicSunday\ObituaryMatcher\Webtrees} adapter layer (it orchestrates
  * {@see TreeService}, {@see CandidateRepository}, the per-tree {@see MatchStore} and the
- * {@see JobTransport}); the pure {@see FeederRequestFactory}/{@see UrlHostNormalizer}/{@see JobId}
+ * {@see JobTransport}); the pure {@see FinderRequestFactory}/{@see UrlHostNormalizer}/{@see JobId}
  * are injected. The in-flight scan + the excludedHosts are advisory dedup hints — the slice stays
- * correct (and the drain idempotent) even if the feeder ignores them.
+ * correct (and the drain idempotent) even if the finder ignores them.
  *
  * @author  Rico Sonntag <mail@ricosonntag.de>
  * @license https://opensource.org/licenses/GPL-3.0 GNU General Public License v3.0
@@ -47,14 +47,14 @@ class EnqueueService
      * Constructor.
      *
      * @param CandidateRepository  $repository     The candidate selector.
-     * @param FeederRequestFactory $requestFactory The pure request assembler.
+     * @param FinderRequestFactory $requestFactory The pure request assembler.
      * @param UrlHostNormalizer    $hostNormalizer The canonical-host helper for excludedHosts.
      * @param TreeService          $treeService    The webtrees tree lookup (throws on an unknown id).
      * @param JobTransport         $transport      The transport that submits the job and exposes the in-flight set.
      */
     public function __construct(
         private readonly CandidateRepository $repository,
-        private readonly FeederRequestFactory $requestFactory,
+        private readonly FinderRequestFactory $requestFactory,
         private readonly UrlHostNormalizer $hostNormalizer,
         private readonly TreeService $treeService,
         private readonly JobTransport $transport,
@@ -62,7 +62,7 @@ class EnqueueService
     }
 
     /**
-     * Selects, dedups, bounds and enqueues one feeder job for the tree.
+     * Selects, dedups, bounds and enqueues one finder job for the tree.
      *
      * @param int      $treeId        The numeric tree id to enqueue (throws DomainException if unknown).
      * @param int      $limit         The maximum candidates written into the one job this run.

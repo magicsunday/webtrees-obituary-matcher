@@ -24,15 +24,14 @@ use function rtrim;
 use function strtolower;
 
 /**
- * Immutable description of how the module talks to the obituary finder: either the file-drop queue
- * (`file`) or a REST endpoint (`rest`) with a base URL and an optional bearer token. The token is a
- * secret — it must never surface in an exception message, a log line, a built URL, a debug dump or
- * any other explicit string output. To uphold that, the constructor parameter and the `rest()`
- * factory mark the token `#[SensitiveParameter]` (so PHP redacts it in stack traces and backtraces),
- * {@see self::__debugInfo()} replaces it with `***` for `var_dump()`, and the class deliberately has
- * no `__toString()` so accidental string interpolation cannot spill it. Only the explicit
- * {@see self::token()} accessor hands the raw token back for its single legitimate use: the
- * `Authorization` header of the REST transport.
+ * Immutable description of how the module talks to the obituary finder: a REST endpoint with a base URL
+ * and an optional bearer token. The token is a secret — it must never surface in an exception message, a
+ * log line, a built URL, a debug dump or any other explicit string output. To uphold that, the
+ * constructor parameter and the `rest()` factory mark the token `#[SensitiveParameter]` (so PHP redacts
+ * it in stack traces and backtraces), {@see self::__debugInfo()} replaces it with `***` for
+ * `var_dump()`, and the class deliberately has no `__toString()` so accidental string interpolation
+ * cannot spill it. Only the explicit {@see self::token()} accessor hands the raw token back for its
+ * single legitimate use: the `Authorization` header of the REST transport.
  *
  * @author  Rico Sonntag <mail@ricosonntag.de>
  * @license https://opensource.org/licenses/GPL-3.0 GNU General Public License v3.0
@@ -41,26 +40,14 @@ use function strtolower;
 final readonly class FinderConnection
 {
     /**
-     * @param string      $transport The transport identifier, either `file` or `rest`.
-     * @param string|null $baseUrl   The REST base URL, or null for the file transport.
-     * @param string|null $token     The secret bearer token, or null when unauthenticated.
+     * @param string      $baseUrl The REST base URL the transport talks to.
+     * @param string|null $token   The secret bearer token, or null when unauthenticated.
      */
     private function __construct(
-        private string $transport,
-        private ?string $baseUrl,
+        private string $baseUrl,
         #[SensitiveParameter]
         private ?string $token,
     ) {
-    }
-
-    /**
-     * Creates a connection that drives the file-drop queue and carries no REST details.
-     *
-     * @return self The file-transport connection.
-     */
-    public static function file(): self
-    {
-        return new self('file', null, null);
     }
 
     /**
@@ -154,32 +141,22 @@ final readonly class FinderConnection
             throw new InvalidArgumentException('The finder base URL is not a valid URI.', 0, $exception);
         }
 
-        return new self('rest', $baseUrl, $token);
+        return new self($baseUrl, $token);
     }
 
     /**
-     * Returns the transport identifier (`file` or `rest`).
+     * Returns the REST base URL the transport talks to.
      *
-     * @return string The transport identifier.
+     * @return string The REST base URL.
      */
-    public function transport(): string
-    {
-        return $this->transport;
-    }
-
-    /**
-     * Returns the REST base URL, or null for the file transport.
-     *
-     * @return string|null The REST base URL, or null.
-     */
-    public function baseUrl(): ?string
+    public function baseUrl(): string
     {
         return $this->baseUrl;
     }
 
     /**
      * Returns the raw bearer token for its single legitimate use (the Authorization header), or null
-     * when the connection is unauthenticated or uses the file transport.
+     * when the connection is unauthenticated.
      *
      * @return string|null The secret bearer token, or null.
      */
@@ -192,14 +169,13 @@ final readonly class FinderConnection
      * Returns the redacted debug representation used by `var_dump()`. The token is replaced with
      * `***` (keeping the null/non-null distinction) so a debug dump never leaks the secret.
      *
-     * @return array{transport: string, baseUrl: string|null, token: string|null} The redacted shape.
+     * @return array{baseUrl: string, token: string|null} The redacted shape.
      */
     public function __debugInfo(): array
     {
         return [
-            'transport' => $this->transport,
-            'baseUrl'   => $this->baseUrl,
-            'token'     => $this->token === null ? null : '***',
+            'baseUrl' => $this->baseUrl,
+            'token'   => $this->token === null ? null : '***',
         ];
     }
 }

@@ -12,8 +12,8 @@ declare(strict_types=1);
 namespace MagicSunday\ObituaryMatcher\Matching;
 
 /**
- * The outcome of one {@see IngestService::ingest()} run: the per-metric counts the queue records
- * via {@see \MagicSunday\ObituaryMatcher\Queue\QueueClient::markIngested()} plus the non-fatal
+ * The outcome of one {@see IngestService::ingest()} run: the per-metric counts the drain records
+ * via {@see \MagicSunday\ObituaryMatcher\Queue\JobTransport::markIngested()} plus the non-fatal
  * warnings collected while draining. A notice belonging to a person who no longer has a held
  * candidate is not an error; it is reported as a warning rather than dropped silently.
  *

@@ -26,14 +26,14 @@ use MagicSunday\ObituaryMatcher\Queue\AtomicFile;
 use MagicSunday\ObituaryMatcher\Queue\CappedJsonBodyReader;
 use MagicSunday\ObituaryMatcher\Queue\CompletedJob;
 use MagicSunday\ObituaryMatcher\Queue\FailedJob;
-use MagicSunday\ObituaryMatcher\Queue\QueuePaths;
 use MagicSunday\ObituaryMatcher\Queue\ResponseValidationException;
 use MagicSunday\ObituaryMatcher\Queue\ResponseValidator;
 use MagicSunday\ObituaryMatcher\Queue\RestJobTransport;
 use MagicSunday\ObituaryMatcher\Queue\RestPendingLedger;
-use MagicSunday\ObituaryMatcher\Support\FeederCandidateRequest;
-use MagicSunday\ObituaryMatcher\Support\FeederRequest;
+use MagicSunday\ObituaryMatcher\Support\FinderCandidateRequest;
 use MagicSunday\ObituaryMatcher\Support\FinderConnection;
+use MagicSunday\ObituaryMatcher\Support\FinderRequest;
+use MagicSunday\ObituaryMatcher\Support\JobId;
 use MagicSunday\ObituaryMatcher\Support\ObituaryNameParser;
 use MagicSunday\ObituaryMatcher\Test\Support\TempDirTestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
@@ -69,14 +69,14 @@ use const JSON_THROW_ON_ERROR;
 #[UsesClass(RestPendingLedger::class)]
 #[UsesClass(CappedJsonBodyReader::class)]
 #[UsesClass(AtomicFile::class)]
-#[UsesClass(QueuePaths::class)]
+#[UsesClass(JobId::class)]
 #[UsesClass(CompletedJob::class)]
 #[UsesClass(FailedJob::class)]
 #[UsesClass(ResponseValidator::class)]
 #[UsesClass(ResponseValidationException::class)]
 #[UsesClass(FinderConnection::class)]
-#[UsesClass(FeederRequest::class)]
-#[UsesClass(FeederCandidateRequest::class)]
+#[UsesClass(FinderRequest::class)]
+#[UsesClass(FinderCandidateRequest::class)]
 #[UsesClass(DeathNoticeRecord::class)]
 #[UsesClass(DateRange::class)]
 #[UsesClass(NoticeType::class)]
@@ -106,7 +106,7 @@ final class RestJobTransportTest extends TempDirTestCase
         ]);
 
         $transport = $this->newRest($http, $ledger);
-        $transport->submit($this->feederRequest('job-1', 7, ['I1']));
+        $transport->submit($this->finderRequest('job-1', 7, ['I1']));
 
         $running = iterator_to_array($transport->fetchCompleted());
 
@@ -470,7 +470,7 @@ final class RestJobTransportTest extends TempDirTestCase
         ]);
 
         try {
-            $this->newRest($http, $ledger)->submit($this->feederRequest('job-1', 7, ['I1']));
+            $this->newRest($http, $ledger)->submit($this->finderRequest('job-1', 7, ['I1']));
             self::fail('Expected a RuntimeException for an unreachable finder.');
         } catch (RuntimeException $exception) {
             self::assertStringContainsString('finder.example', $exception->getMessage());
@@ -498,7 +498,7 @@ final class RestJobTransportTest extends TempDirTestCase
         ]);
 
         try {
-            $this->newRest($http, $ledger)->submit($this->feederRequest('job-1', 7, ['I1']));
+            $this->newRest($http, $ledger)->submit($this->finderRequest('job-1', 7, ['I1']));
             self::fail('Expected a RuntimeException for a mismatched acknowledgement.');
         } catch (RuntimeException) {
             // Expected: the remote acknowledged a different job.
@@ -527,7 +527,7 @@ final class RestJobTransportTest extends TempDirTestCase
         ]);
 
         try {
-            $this->newRest($http, $ledger)->submit($this->feederRequest('job-1', 7, ['I1']));
+            $this->newRest($http, $ledger)->submit($this->finderRequest('job-1', 7, ['I1']));
             self::fail('Expected a RuntimeException for an unreadable acknowledgement.');
         } catch (RuntimeException) {
             // Expected: the 202 body could not be read back to confirm the job.
@@ -556,7 +556,7 @@ final class RestJobTransportTest extends TempDirTestCase
 
         try {
             $this->newRest($http, $ledger)
-                ->submit($this->feederRequest('huge', 7, array_fill(0, 12_000, 'I1234567')));
+                ->submit($this->finderRequest('huge', 7, array_fill(0, 12_000, 'I1234567')));
             self::fail('Expected a RuntimeException for an unrecordable oversized request.');
         } catch (RuntimeException) {
             // Expected: the entry exceeds the read-back byte cap after the remote already accepted it.
@@ -582,7 +582,7 @@ final class RestJobTransportTest extends TempDirTestCase
             static fn (): ResponseInterface => self::json(202, ['schemaVersion' => 1, 'jobId' => 'job-1', 'state' => 'queued']),
         ]);
 
-        $this->newRest($http, $ledger)->submit($this->feederRequest('job-1', 7, ['I1']));
+        $this->newRest($http, $ledger)->submit($this->finderRequest('job-1', 7, ['I1']));
 
         self::assertCount(1, $http->sent);
         self::assertSame('Bearer secret-token', $http->sent[0]->getHeaderLine('Authorization'));
@@ -591,7 +591,7 @@ final class RestJobTransportTest extends TempDirTestCase
 
         try {
             $this->newRest($rejecting, new RestPendingLedger($this->tmp . '/rp2'))
-                ->submit($this->feederRequest('job-1', 7, ['I1']));
+                ->submit($this->finderRequest('job-1', 7, ['I1']));
             self::fail('Expected a RuntimeException for a rejected submission.');
         } catch (RuntimeException $exception) {
             self::assertStringNotContainsString('secret-token', $exception->getMessage());
@@ -701,7 +701,7 @@ final class RestJobTransportTest extends TempDirTestCase
             new ResponseValidator()
         );
 
-        $transport->submit($this->feederRequest('job-1', 7, ['I1']));
+        $transport->submit($this->finderRequest('job-1', 7, ['I1']));
 
         self::assertFalse($http->sent[0]->hasHeader('Authorization'));
     }
@@ -764,23 +764,23 @@ final class RestJobTransportTest extends TempDirTestCase
     }
 
     /**
-     * Builds a feeder request with one candidate per person id.
+     * Builds a finder request with one candidate per person id.
      *
      * @param string       $jobId     The job identifier.
      * @param int          $treeId    The tree identifier.
      * @param list<string> $personIds The requested person ids.
      *
-     * @return FeederRequest The assembled request.
+     * @return FinderRequest The assembled request.
      */
-    private function feederRequest(string $jobId, int $treeId, array $personIds): FeederRequest
+    private function finderRequest(string $jobId, int $treeId, array $personIds): FinderRequest
     {
         $candidates = [];
 
         foreach ($personIds as $personId) {
-            $candidates[] = new FeederCandidateRequest($personId, []);
+            $candidates[] = new FinderCandidateRequest($personId, []);
         }
 
-        return new FeederRequest(
+        return new FinderRequest(
             1,
             $jobId,
             new DateTimeImmutable('2024-05-21T08:29:55+00:00'),

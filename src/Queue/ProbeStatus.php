@@ -15,9 +15,8 @@ namespace MagicSunday\ObituaryMatcher\Queue;
  * The outcome of a finder capabilities probe. A probe is {@see ProbeStatus::Reachable} when the
  * finder answered with a document that narrowed to a valid {@see FinderCapabilities},
  * {@see ProbeStatus::Unreachable} when the request failed at the transport layer (a connection error
- * or a non-success HTTP status), {@see ProbeStatus::Invalid} when the finder answered but the body
- * did not narrow to a valid capabilities document, and {@see ProbeStatus::NotApplicable} when no
- * finder is configured so no probe was attempted.
+ * or a non-success HTTP status), and {@see ProbeStatus::Invalid} when the finder answered but the body
+ * did not narrow to a valid capabilities document.
  *
  * @author  Rico Sonntag <mail@ricosonntag.de>
  * @license https://opensource.org/licenses/GPL-3.0 GNU General Public License v3.0
@@ -39,9 +38,4 @@ enum ProbeStatus
      * The finder answered but the body did not narrow to a valid capabilities document.
      */
     case Invalid;
-
-    /**
-     * No finder is configured, so no probe was attempted.
-     */
-    case NotApplicable;
 }

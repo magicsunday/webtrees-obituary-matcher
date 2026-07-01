@@ -62,12 +62,11 @@ final readonly class FinderCapabilitiesProbe
         private ClientInterface $http,
         private RequestFactoryInterface $requestFactory,
         private FinderConnection $connection,
-        private int $maxBytes = QueueLimits::FEEDER_FILE_MAX_BYTES,
+        private int $maxBytes = QueueLimits::FINDER_RESPONSE_MAX_BYTES,
     ) {
         // rtrim the base URL before joining so a configured trailing slash never doubles into
-        // `{baseUrl}//capabilities`. A REST connection always carries a non-null base URL; the ?? '' is a
-        // defensive fallback that keeps the join total.
-        $this->url = rtrim($connection->baseUrl() ?? '', '/') . '/capabilities';
+        // `{baseUrl}//capabilities`.
+        $this->url = rtrim($connection->baseUrl(), '/') . '/capabilities';
     }
 
     /**

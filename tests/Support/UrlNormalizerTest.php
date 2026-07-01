@@ -229,7 +229,7 @@ final class UrlNormalizerTest extends TestCase
 
     /**
      * Two URLs differing only in the case of their scheme normalise to the same lower-cased identity
-     * key, so a scheme-case variant cannot leak past the de-dup (ResponseReader lower-cases the
+     * key, so a scheme-case variant cannot leak past the de-dup (the response validator lower-cases the
      * scheme only for its allow-list check, not for the identity key).
      */
     #[Test]

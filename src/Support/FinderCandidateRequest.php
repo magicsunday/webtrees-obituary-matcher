@@ -12,13 +12,13 @@ declare(strict_types=1);
 namespace MagicSunday\ObituaryMatcher\Support;
 
 /**
- * The feeder-request portion describing a single candidate and its prioritised queries.
+ * The finder-request portion describing a single candidate and its prioritised queries.
  *
  * @author  Rico Sonntag <mail@ricosonntag.de>
  * @license https://opensource.org/licenses/GPL-3.0 GNU General Public License v3.0
  * @link    https://github.com/magicsunday/webtrees-obituary-matcher/
  */
-final readonly class FeederCandidateRequest
+final readonly class FinderCandidateRequest
 {
     /**
      * Constructor.
@@ -26,7 +26,7 @@ final readonly class FeederCandidateRequest
      * @param string               $personId      The candidate's stable identifier (e.g. the GEDCOM xref).
      * @param list<CandidateQuery> $queries       The prioritised, deduplicated plain-text queries.
      * @param list<string>         $excludedHosts The canonical hosts the candidate already has an open
-     *                                            match on; a feeder hint, always present (possibly empty).
+     *                                            match on; a finder hint, always present (possibly empty).
      */
     public function __construct(
         public string $personId,

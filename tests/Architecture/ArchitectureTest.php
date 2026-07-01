@@ -245,8 +245,8 @@ final class ArchitectureTest
      * The Webtrees layer is the composition boundary (the adapter plus the
      * module/controllers/review-UI and the queue-drain orchestrator). To
      * orchestrate a match it may drive the Matching apex (e.g. IngestService)
-     * and the Queue state machine (the file-drop queue the drain claims and
-     * finalizes: QueuePaths/QueueClient/FeederRequestReader/JobState), but it
+     * and the Queue transport (the REST job transport the drain submits to and
+     * finalizes through: RestJobTransport/RestPendingLedger/JobTransport), but it
      * must not reach directly into the pure scoring engine itself
      * (Parsing/Scoring). Keeping the adapter out of the scoring layers means the
      * engine is always composed through the Matching apex, never wired field by

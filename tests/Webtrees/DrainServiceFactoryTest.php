@@ -11,7 +11,6 @@ declare(strict_types=1);
 
 namespace MagicSunday\ObituaryMatcher\Test\Webtrees;
 
-use MagicSunday\ObituaryMatcher\Queue\QueuePaths;
 use MagicSunday\ObituaryMatcher\Support\FinderConnection;
 use MagicSunday\ObituaryMatcher\Webtrees\DrainServiceFactory;
 use PHPUnit\Framework\Attributes\CoversClass;
@@ -32,27 +31,11 @@ use function sys_get_temp_dir;
 final class DrainServiceFactoryTest extends TestCase
 {
     /**
-     * The factory wires the full drain graph over a queue root without error. A wiring typo (wrong arg
-     * order/arity/type) throws at construction, so a successful build with no exception is the contract
-     * this pins; the static return type already guarantees the concrete DrainService, so the test
-     * deliberately performs no assertion beyond "construction succeeds".
-     *
-     * @return void
-     */
-    #[Test]
-    public function createWiresTheDrainGraph(): void
-    {
-        $this->expectNotToPerformAssertions();
-
-        $paths = new QueuePaths(sys_get_temp_dir() . '/obituary-queue-test');
-
-        DrainServiceFactory::create($paths);
-    }
-
-    /**
      * The factory accepts a REST connection and an explicit ledger root and assembles the drain graph
-     * over the REST transport without error — pinning that the connection-driven REST branch wires
-     * without throwing (the contract; no return value to assert beyond successful construction).
+     * over the REST transport without error. A wiring typo (wrong arg order/arity/type) throws at
+     * construction, so a successful build with no exception is the contract this pins; the static return
+     * type already guarantees the concrete DrainService, so the test deliberately performs no assertion
+     * beyond "construction succeeds".
      *
      * @return void
      */
@@ -61,10 +44,9 @@ final class DrainServiceFactoryTest extends TestCase
     {
         $this->expectNotToPerformAssertions();
 
-        $paths      = new QueuePaths(sys_get_temp_dir() . '/obituary-queue-test');
         $connection = FinderConnection::rest('http://finder:8080', null);
         $root       = sys_get_temp_dir() . '/obituary-rest-pending-test';
 
-        DrainServiceFactory::create($paths, $connection, $root);
+        DrainServiceFactory::create($connection, $root);
     }
 }

@@ -14,7 +14,7 @@ namespace MagicSunday\ObituaryMatcher\Domain;
 use DateTimeImmutable;
 
 /**
- * The richer death-notice shape a feeder produces, normalised for the matching engine.
+ * The richer death-notice shape a finder produces, normalised for the matching engine.
  *
  * The raw display name is retained so later increments can re-extract roles without
  * re-fetching the source.

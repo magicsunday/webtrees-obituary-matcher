@@ -12,7 +12,7 @@ declare(strict_types=1);
 namespace MagicSunday\ObituaryMatcher\Domain;
 
 /**
- * The kind of death-related notice a feeder produced.
+ * The kind of death-related notice a finder produced.
  *
  * @author  Rico Sonntag <mail@ricosonntag.de>
  * @license https://opensource.org/licenses/GPL-3.0 GNU General Public License v3.0
@@ -48,7 +48,7 @@ enum NoticeType: string
     /**
      * Maps untrusted input to a case, defaulting to Obituary for an unknown value.
      *
-     * @param string $raw Raw notice-type string from an external feeder.
+     * @param string $raw Raw notice-type string from an external finder.
      *
      * @return self
      */

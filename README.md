@@ -55,7 +55,7 @@ The full product is two cooperating pieces; **this repository is only the engine
 * **A future webtrees module.** Embeds this engine, renders the explainable review screens inside the active webtrees
   theme (admin-only, control-panel and individual-page surfaces), and on admin confirm writes the death date plus a
   source citation back into the tree. **Nothing is ever written automatically.**
-* **A separate Python + Playwright feeder.** A standalone crawler that collects public obituary notices and normalises
+* **A separate Python + Playwright finder.** A standalone crawler that collects public obituary notices and normalises
   them into the engine's input shape. It lives outside this repository and is not a Composer dependency.
 
 

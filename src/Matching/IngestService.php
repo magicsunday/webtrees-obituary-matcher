@@ -26,14 +26,15 @@ use function sprintf;
 use function usort;
 
 /**
- * The Phase-2 vertical slice that turns a validated feeder response into persisted pending
+ * The Phase-2 vertical slice that turns a validated finder response into persisted pending
  * suggestions. It is handed the already-validated notices (keyed by person), and for every requested
  * person who still has a held candidate scores each scraped notice DIRECTLY with the enriched engine,
  * classifies the best result against the per-notice set and persists it to the passed store as a
  * pending match. The run is summarised into a typed {@see IngestResult} whose per-metric counts and
- * non-fatal warnings the caller records via {@see \MagicSunday\ObituaryMatcher\Queue\QueueClient::markIngested()}.
- * Reading and validating the transport response is the caller's responsibility (the drain reads it via
- * {@see \MagicSunday\ObituaryMatcher\Queue\ResponseReader}), keeping this service transport-agnostic.
+ * non-fatal warnings the caller records via {@see \MagicSunday\ObituaryMatcher\Queue\JobTransport::markIngested()}.
+ * Reading and validating the transport response is the caller's responsibility (the drain pulls it as a
+ * {@see \MagicSunday\ObituaryMatcher\Queue\CompletedJob} from the {@see \MagicSunday\ObituaryMatcher\Queue\JobTransport}),
+ * keeping this service transport-agnostic.
  *
  * @author  Rico Sonntag <mail@ricosonntag.de>
  * @license https://opensource.org/licenses/GPL-3.0 GNU General Public License v3.0
@@ -125,7 +126,7 @@ final readonly class IngestService
                 // no-op over a terminal (Confirmed/Rejected) row, and two within-response notices
                 // that collapse onto one key write twice but persist one row — counting either case
                 // unconditionally would overstate the number persisted. This count is destined for a
-                // single named entry of the per-metric counts map that QueueClient::markIngested
+                // single named entry of the per-metric counts map that JobTransport::markIngested
                 // records (not a bare scalar), so it must stay an exact persisted-row tally.
                 if (
                     $store->upsertPending($match)

@@ -38,7 +38,7 @@ final class NoticeMapper
     /**
      * Copies the engine-relevant subset of a death notice into an obituary record.
      *
-     * @param DeathNoticeRecord $notice Richer death-notice record produced by a feeder.
+     * @param DeathNoticeRecord $notice Richer death-notice record produced by a finder.
      *
      * @return ObituaryRecord
      */

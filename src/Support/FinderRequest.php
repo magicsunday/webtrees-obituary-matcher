@@ -15,13 +15,13 @@ use DateTimeImmutable;
 use DateTimeInterface;
 
 /**
- * A serialisable, schema-versioned request handed to the external obituary feeder.
+ * A serialisable, schema-versioned request handed to the external obituary finder.
  *
  * @author  Rico Sonntag <mail@ricosonntag.de>
  * @license https://opensource.org/licenses/GPL-3.0 GNU General Public License v3.0
  * @link    https://github.com/magicsunday/webtrees-obituary-matcher/
  */
-final readonly class FeederRequest
+final readonly class FinderRequest
 {
     /**
      * Constructor.
@@ -30,7 +30,7 @@ final readonly class FeederRequest
      * @param string                       $jobId         The caller-assigned job identifier.
      * @param DateTimeImmutable            $createdAt     The moment the request was assembled.
      * @param string                       $locale        The IETF BCP 47 locale tag (e.g. "de-DE").
-     * @param list<FeederCandidateRequest> $candidates    The per-candidate query bundles.
+     * @param list<FinderCandidateRequest> $candidates    The per-candidate query bundles.
      * @param int                          $treeId        The numeric webtrees tree identifier the request belongs to.
      */
     public function __construct(

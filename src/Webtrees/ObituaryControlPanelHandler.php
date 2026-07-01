@@ -28,8 +28,7 @@ use MagicSunday\ObituaryMatcher\Queue\CapabilitiesProbeResult;
 use MagicSunday\ObituaryMatcher\Queue\FinderCapabilities;
 use MagicSunday\ObituaryMatcher\Queue\FinderCapabilitiesProbe;
 use MagicSunday\ObituaryMatcher\Queue\ProbeStatus;
-use MagicSunday\ObituaryMatcher\Queue\QueueClient;
-use MagicSunday\ObituaryMatcher\Queue\QueuePaths;
+use MagicSunday\ObituaryMatcher\Queue\RestPendingLedger;
 use MagicSunday\ObituaryMatcher\Support\FinderConnection;
 use MagicSunday\ObituaryMatcher\Support\WebtreesInstallLocator;
 use MagicSunday\ObituaryMatcher\Ui\ControlPanelPresenter;
@@ -48,19 +47,18 @@ use function strlen;
 
 /**
  * The admin-only control-panel route handler. A GET renders the slim panel — the persisted age/limit
- * settings, the finder connection, the trees offered for a feeder trigger and the recent queue-job
- * status. A POST carries one action: `save` persists the settings STRICTLY (both validate in range or
+ * settings, the finder connection, the trees offered for a finder trigger and the number of open finder
+ * jobs. A POST carries one action: `save` persists the settings STRICTLY (both validate in range or
  * NEITHER is written, never coercing a malformed value to a default), `save-finder` persists the finder
- * connection STRICTLY, and `trigger` enqueues one bounded feeder job for a single tree using the
+ * connection STRICTLY, and `trigger` enqueues one bounded finder job for a single tree using the
  * PERSISTED settings — these three PRG-redirect with a flash. The `test` action is the deliberate
  * exception: it runs a read-only capabilities probe against the SUBMITTED finder connection and
  * RE-RENDERS the panel with a transient readout (no redirect, no flash, no persistence). Admin access
  * is enforced here because the route is directly callable.
  *
  * The settings are READ leniently (a corrupt/out-of-range stored preference falls back to the default,
- * never fatal) but WRITTEN strictly. The handler holds the only {@see \MagicSunday\ObituaryMatcher\Queue\JobStatus}/
- * {@see QueueClient}/{@see EnqueueService} references; the {@see ControlPanelPresenter} stays
- * webtrees-free and Queue-free.
+ * never fatal) but WRITTEN strictly. The handler holds the only {@see RestPendingLedger}/
+ * {@see EnqueueService} references; the {@see ControlPanelPresenter} stays webtrees-free and Queue-free.
  *
  * @author  Rico Sonntag <mail@ricosonntag.de>
  * @license https://opensource.org/licenses/GPL-3.0 GNU General Public License v3.0
@@ -112,11 +110,6 @@ class ObituaryControlPanelHandler implements RequestHandlerInterface
     private const int LIMIT_CEILING = 500;
 
     /**
-     * The number of recent jobs surfaced in the panel's status list.
-     */
-    private const int RECENT_JOBS = 20;
-
-    /**
      * The seconds to wait for the TCP connection to the finder before the capabilities probe treats it
      * as unreachable. Mirrors {@see JobTransportFactory}'s bound so the admin probe and the live
      * transport share the same reachability budget.
@@ -144,7 +137,7 @@ class ObituaryControlPanelHandler implements RequestHandlerInterface
 
     /**
      * Handles the control-panel request. A GET renders the panel; a POST applies the carried action
-     * (save settings or trigger a feeder run) and PRG-redirects with a flash.
+     * (save settings or trigger a finder run) and PRG-redirects with a flash.
      *
      * @param ServerRequestInterface $request The incoming request.
      *
@@ -185,7 +178,7 @@ class ObituaryControlPanelHandler implements RequestHandlerInterface
             'save'        => $this->saveSettings($request),
             'save-finder' => $this->saveFinder($request),
             'test'        => $this->testConnection($request),
-            'trigger'     => $this->triggerFeeder($request),
+            'trigger'     => $this->triggerFinder($request),
             default       => redirect(route(self::ROUTE_NAME)),
         };
     }
@@ -221,14 +214,21 @@ class ObituaryControlPanelHandler implements RequestHandlerInterface
     }
 
     /**
-     * Strictly persists the one finder connection. The `file` transport writes only `finder_transport`
-     * and deliberately leaves any stored `finder_base_url`/`finder_token` intact, so a file↔rest toggle
-     * keeps the REST data. The `rest` transport validates the base URL and (when present) the token at
-     * the single {@see FinderConnection::rest()} source FIRST: on a validation failure NOTHING is
-     * persisted (both-or-neither) and a danger flash is shown; on success the transport and base URL are
+     * Strictly persists the one REST finder connection. The base URL and (when present) the token are
+     * validated at the single {@see FinderConnection::rest()} source FIRST: on a validation failure
+     * NOTHING is persisted (both-or-neither) and a danger flash is shown; on success the base URL is
      * written, and the token is set only when one was supplied (a blank field keeps the existing token)
      * or explicitly cleared by the remove flag. The token VALUE is never logged, flashed or echoed.
-     * Always PRG-redirects.
+     *
+     * Activation is ATOMIC: the `finder_transport === 'rest'` consent marker that activates the
+     * connection in {@see self::finderConnection()} is first DEACTIVATED (set to a non-`'rest'` value),
+     * then the credentials are written, and the marker is REACTIVATED to `'rest'` only AFTER every
+     * credential write has succeeded. Each setPreference is an independently committed write, so without
+     * the leading deactivation an already-active (`'rest'`) install being re-pointed would keep REST live
+     * throughout the update — a base-URL write that landed before a failing token write would resolve the
+     * NEW URL with the STALE token. The deactivate-first/reactivate-last sequence guarantees a partial
+     * save NEVER leaves REST active against a half-written credential set, for an already-active install
+     * just as for a dormant legacy `'file'` one. Always PRG-redirects.
      *
      * @param ServerRequestInterface $request The incoming POST request.
      *
@@ -236,31 +236,9 @@ class ObituaryControlPanelHandler implements RequestHandlerInterface
      */
     private function saveFinder(ServerRequestInterface $request): ResponseInterface
     {
-        $transport = Validator::parsedBody($request)->string('transport', 'file');
-
-        if ($transport !== 'rest') {
-            $this->module->setPreference('finder_transport', 'file');
-            FlashMessages::addMessage(I18N::translate('Finder connection saved.'), 'success');
-
-            return redirect(route(self::ROUTE_NAME));
-        }
-
-        $baseUrl  = Validator::parsedBody($request)->string('base_url', '');
-        $tokenRaw = Validator::parsedBody($request)->string('token', '');
-        $remove   = Validator::parsedBody($request)->boolean('remove_token', false);
-
-        // Resolve the token under the REMOVE-wins precedence BEFORE validating, mirroring
-        // {@see self::testConnection()}: a remove discards the submitted token (so its content is never
-        // validated), else a non-empty submitted token is validated, else a blank field keeps the existing
-        // token (nothing new to validate). Validating the raw field first would refuse a remove because of
-        // the content of a token that was going to be discarded — breaking the REMOVE-wins invariant.
-        if ($remove) {
-            $token = null;
-        } elseif ($tokenRaw !== '') {
-            $token = $tokenRaw;
-        } else {
-            $token = null;
-        }
+        // A blank token field means "keep the existing token" at persist time, so it resolves to null
+        // here (nothing new to validate); the existing token stays untouched below.
+        [$baseUrl, $tokenRaw, $remove, $token] = $this->resolveFinderInput($request, null);
 
         try {
             // Validate the base URL and the resolved token's control characters in one go; the returned
@@ -272,7 +250,16 @@ class ObituaryControlPanelHandler implements RequestHandlerInterface
             return redirect(route(self::ROUTE_NAME));
         }
 
-        $this->module->setPreference('finder_transport', 'rest');
+        // DEACTIVATE the consent marker FIRST. The REST-only UI no longer offers a transport toggle, so
+        // `finder_transport` is purely the internal "REST explicitly configured" marker; clearing it
+        // before any credential write means that — because each setPreference is an independently
+        // committed write — a failure persisting the base URL or token (or another request interleaving)
+        // from here on leaves REST INACTIVE, for an already-active 'rest' install just as for a dormant
+        // legacy 'file' one. Without this leading deactivation an already-active install keeps the 'rest'
+        // marker throughout the update, so a base-URL write that committed before a failing token write
+        // would resolve the NEW URL against the STALE token.
+        $this->module->setPreference('finder_transport', '');
+
         $this->module->setPreference('finder_base_url', $baseUrl);
 
         if ($remove) {
@@ -281,38 +268,34 @@ class ObituaryControlPanelHandler implements RequestHandlerInterface
             $this->module->setPreference('finder_token', $tokenRaw);
         }
 
+        // REACTIVATE the consent marker LAST, only after every connection field has been committed. This
+        // lifts the migration gate in self::finderConnection() atomically — a legacy file-mode install
+        // with retained REST creds stays correctly dormant until a full save completes.
+        $this->module->setPreference('finder_transport', 'rest');
+
         FlashMessages::addMessage(I18N::translate('Finder connection saved.'), 'success');
 
         return redirect(route(self::ROUTE_NAME));
     }
 
     /**
-     * Runs a read-only capabilities probe against the SUBMITTED (not necessarily persisted) finder
-     * connection and RE-RENDERS the panel with a transient readout — the deliberate exception to the
-     * POST-redirect-GET contract, because a reachability test produces a result to show, not a state
-     * change to redirect past. The `file` transport is not probed at all (it has no endpoint), yielding
-     * a not-applicable readout. The token precedence matches {@see self::saveFinder()} (REMOVE wins): an
-     * explicit remove flag forces an unauthenticated probe, else a non-empty submitted token wins, else the
-     * persisted token is reused — so the admin can test a typed-but-unsaved token, or the stored one,
-     * without re-entering it, and ticking remove probes exactly what a save would persist. A base URL or
-     * token the {@see FinderConnection::rest()} source rejects yields an invalid readout WITHOUT probing.
-     * The probe never throws, but the seam wiring is still guarded so no probe fault escapes as a 500.
-     * The token VALUE is never logged, flashed or echoed — only the `tokenIsSet` boolean (from the
-     * PERSISTED preference) reaches the view.
+     * Reads the submitted REST finder input shared by the `save-finder` and `test` POST actions: the
+     * base URL, the raw submitted token field, the remove flag and the token resolved under the
+     * REMOVE-wins precedence (a remove discards the submitted token so its content is never validated,
+     * else a non-empty submitted token wins, else the $blankFallback is used). `save-finder` passes null
+     * as the blank fallback (a blank field keeps the existing token); `test` passes the persisted token
+     * so a blank re-test reuses it. Validating the remove-resolved token (not the raw field) keeps the
+     * REMOVE-wins invariant: a remove must succeed even when the discarded field carried a control
+     * character.
      *
-     * @param ServerRequestInterface $request The incoming POST request.
+     * @param ServerRequestInterface $request       The incoming POST request.
+     * @param string|null            $blankFallback The token to use when the field is blank and remove is unset.
      *
-     * @return ResponseInterface The re-rendered panel carrying the probe readout.
+     * @return array{0: string, 1: string, 2: bool, 3: string|null} The baseUrl, raw token field, remove flag and resolved token.
      */
-    private function testConnection(ServerRequestInterface $request): ResponseInterface
+    private function resolveFinderInput(ServerRequestInterface $request, ?string $blankFallback): array
     {
-        $transport = Validator::parsedBody($request)->string('transport', 'file');
-        $baseUrl   = Validator::parsedBody($request)->string('base_url', '');
-
-        if ($transport !== 'rest') {
-            return $this->renderTestResult($transport, $baseUrl, CapabilitiesProbeResult::notApplicable());
-        }
-
+        $baseUrl  = Validator::parsedBody($request)->string('base_url', '');
         $tokenRaw = Validator::parsedBody($request)->string('token', '');
         $remove   = Validator::parsedBody($request)->boolean('remove_token', false);
 
@@ -321,16 +304,43 @@ class ObituaryControlPanelHandler implements RequestHandlerInterface
         } elseif ($tokenRaw !== '') {
             $token = $tokenRaw;
         } else {
-            $persisted = $this->module->getPreference('finder_token', '');
-            $token     = $persisted === '' ? null : $persisted;
+            $token = $blankFallback;
         }
+
+        return [$baseUrl, $tokenRaw, $remove, $token];
+    }
+
+    /**
+     * Runs a read-only capabilities probe against the SUBMITTED (not necessarily persisted) finder
+     * connection and RE-RENDERS the panel with a transient readout — the deliberate exception to the
+     * POST-redirect-GET contract, because a reachability test produces a result to show, not a state
+     * change to redirect past. The token precedence matches {@see self::saveFinder()} (REMOVE wins): an
+     * explicit remove flag forces an unauthenticated probe, else a non-empty submitted token wins, else the
+     * persisted token is reused — so the admin can test a typed-but-unsaved token, or the stored one,
+     * without re-entering it, and ticking remove probes exactly what a save would persist. A missing base
+     * URL or a base URL/token the {@see FinderConnection::rest()} source rejects yields an invalid readout
+     * WITHOUT probing. The probe never throws, but the seam wiring is still guarded so no probe fault
+     * escapes as a 500. The token VALUE is never logged, flashed or echoed — only the `tokenIsSet` boolean
+     * (from the PERSISTED preference) reaches the view.
+     *
+     * @param ServerRequestInterface $request The incoming POST request.
+     *
+     * @return ResponseInterface The re-rendered panel carrying the probe readout.
+     */
+    private function testConnection(ServerRequestInterface $request): ResponseInterface
+    {
+        // A blank token field falls back to the persisted token so the admin can re-test the stored
+        // connection without re-entering the secret.
+        $persisted = $this->module->getPreference('finder_token', '');
+
+        [$baseUrl, , , $token] = $this->resolveFinderInput($request, $persisted === '' ? null : $persisted);
 
         try {
             $connection = FinderConnection::rest($baseUrl, $token);
         } catch (InvalidArgumentException) {
-            // A malformed base URL or a control-character token is rejected at the single source before
-            // any HTTP is attempted, so the readout reports the invalid configuration without probing.
-            return $this->renderTestResult($transport, $baseUrl, CapabilitiesProbeResult::invalid());
+            // A missing/malformed base URL or a control-character token is rejected at the single source
+            // before any HTTP is attempted, so the readout reports the invalid configuration without probing.
+            return $this->renderTestResult($baseUrl, CapabilitiesProbeResult::invalid());
         }
 
         try {
@@ -341,23 +351,21 @@ class ObituaryControlPanelHandler implements RequestHandlerInterface
             $result = CapabilitiesProbeResult::unreachable();
         }
 
-        return $this->renderTestResult($transport, $baseUrl, $result);
+        return $this->renderTestResult($baseUrl, $result);
     }
 
     /**
-     * Builds the finder view echoing the SUBMITTED transport and base URL plus the persisted
-     * token-is-set flag, maps the probe result to its plain readout and re-renders the panel.
+     * Builds the finder view echoing the SUBMITTED base URL plus the persisted token-is-set flag, maps
+     * the probe result to its plain readout and re-renders the panel.
      *
-     * @param string                  $transport The submitted transport, echoed back into the form.
-     * @param string                  $baseUrl   The submitted base URL, echoed back into the form.
-     * @param CapabilitiesProbeResult $result    The probe outcome to project into the readout.
+     * @param string                  $baseUrl The submitted base URL, echoed back into the form.
+     * @param CapabilitiesProbeResult $result  The probe outcome to project into the readout.
      *
      * @return ResponseInterface The re-rendered panel.
      */
-    private function renderTestResult(string $transport, string $baseUrl, CapabilitiesProbeResult $result): ResponseInterface
+    private function renderTestResult(string $baseUrl, CapabilitiesProbeResult $result): ResponseInterface
     {
         return $this->renderPanelWith(new FinderConnectionView(
-            $transport,
             $baseUrl,
             $this->module->getPreference('finder_token', '') !== '',
             $this->probeReadout($result),
@@ -377,10 +385,9 @@ class ObituaryControlPanelHandler implements RequestHandlerInterface
     private function probeReadout(CapabilitiesProbeResult $result): ProbeReadoutView
     {
         $statusKey = match ($result->status) {
-            ProbeStatus::Reachable     => 'reachable',
-            ProbeStatus::Unreachable   => 'unreachable',
-            ProbeStatus::Invalid       => 'invalid',
-            ProbeStatus::NotApplicable => 'not-applicable',
+            ProbeStatus::Reachable   => 'reachable',
+            ProbeStatus::Unreachable => 'unreachable',
+            ProbeStatus::Invalid     => 'invalid',
         };
 
         $capabilities = $result->capabilities;
@@ -413,16 +420,18 @@ class ObituaryControlPanelHandler implements RequestHandlerInterface
     }
 
     /**
-     * Triggers a per-tree feeder run with the PERSISTED settings: an unknown tree id flashes and
-     * redirects; otherwise the real EnqueueService is wired over the resolved queue root and one bounded
-     * job is enqueued. A null jobId (no candidate matched) flashes a distinct warning; a queue failure
+     * Triggers a per-tree finder run with the PERSISTED settings: an unknown tree id flashes and
+     * redirects; a finder connection that is not configured (no/invalid stored base URL) flashes and
+     * redirects; an unresolvable storage location flashes and redirects; otherwise the real
+     * EnqueueService is wired over the REST connection and the resolved ledger root and one bounded job
+     * is enqueued. A null jobId (no candidate matched) flashes a distinct warning; an enqueue failure
      * flashes a fixed error. Always PRG-redirects.
      *
      * @param ServerRequestInterface $request The incoming POST request.
      *
      * @return ResponseInterface The redirect response.
      */
-    private function triggerFeeder(ServerRequestInterface $request): ResponseInterface
+    private function triggerFinder(ServerRequestInterface $request): ResponseInterface
     {
         $treeId = Validator::parsedBody($request)->integer('tree', 0);
 
@@ -434,23 +443,24 @@ class ObituaryControlPanelHandler implements RequestHandlerInterface
             return redirect(route(self::ROUTE_NAME));
         }
 
-        $root = $this->queueRoot();
+        $connection = $this->finderConnection();
 
-        if ($root === null) {
-            FlashMessages::addMessage(I18N::translate('Search job could not be queued.'), 'danger');
+        if (!$connection instanceof FinderConnection) {
+            FlashMessages::addMessage(I18N::translate('Configure the finder connection first.'), 'danger');
 
             return redirect(route(self::ROUTE_NAME));
         }
 
-        $paths = new QueuePaths($root);
+        $restPendingRoot = $this->restPendingRoot();
+
+        if ($restPendingRoot === null) {
+            FlashMessages::addMessage(I18N::translate('The finder storage location is unavailable.'), 'danger');
+
+            return redirect(route(self::ROUTE_NAME));
+        }
 
         try {
-            // ensureLayout() lives INSIDE the try: it throws a RuntimeException when a state directory
-            // cannot be created (a non-writable queue root), which must flash + redirect like any other
-            // queue failure rather than escape handle() as an unhandled 500 (the PRG contract).
-            $paths->ensureLayout();
-
-            $summary = $this->enqueueService($paths)->enqueue(
+            $summary = $this->enqueueService($connection, $restPendingRoot)->enqueue(
                 $tree->id(),
                 $this->readLimit(),
                 $this->readMinAge(),
@@ -499,10 +509,9 @@ class ObituaryControlPanelHandler implements RequestHandlerInterface
 
     /**
      * Renders the panel around the given finder view: the prefilled settings, the trees offered for a
-     * trigger and the recent queue-job rows. Both the GET render and the `test` re-render share this
+     * trigger and the number of open finder jobs. Both the GET render and the `test` re-render share this
      * assembly, differing only in the finder view they pass (a probe-less GET view vs a test view
-     * carrying the readout). A null/missing queue root yields an empty job list WITHOUT creating the
-     * queue layout (a render is read-only). Protected so a test can capture the finder view it receives.
+     * carrying the readout). Protected so a test can capture the finder view it receives.
      *
      * @param FinderConnectionView $finder The finder view (with or without a probe readout) to render.
      *
@@ -523,7 +532,7 @@ class ObituaryControlPanelHandler implements RequestHandlerInterface
             $this->readMinAge(),
             $this->readLimit(),
             $trees,
-            $this->recentJobTuples(),
+            $this->openJobCount(),
             $finder,
         );
 
@@ -534,35 +543,21 @@ class ObituaryControlPanelHandler implements RequestHandlerInterface
     }
 
     /**
-     * Builds the recent-job tuples for the presenter. The queue root is resolved through the seam; a
-     * null/missing root (no queue laid out yet) yields an empty list WITHOUT creating it (read-only).
+     * The number of open (submitted-but-not-yet-drained) finder jobs for the panel readout. Resolved
+     * through the REST pending ledger over the seamed ledger root; a null/missing root (no install
+     * located, or the ledger never written) yields 0 WITHOUT creating it (a render is read-only).
      *
-     * @return list<array{jobId: string, stateKey: string, counts: array<string, int>, finishedAt: string|null}> The recent-job tuples.
+     * @return int The number of open finder jobs.
      */
-    private function recentJobTuples(): array
+    protected function openJobCount(): int
     {
-        $root = $this->queueRoot();
+        $root = $this->restPendingRoot();
 
         if ($root === null) {
-            return [];
+            return 0;
         }
 
-        $paths = new QueuePaths($root);
-
-        $tuples = [];
-
-        foreach ((new QueueClient($paths))->recentJobs(self::RECENT_JOBS) as $jobId => $status) {
-            // $status->counts is already narrowed to array<string, int> by QueueClient when it reads the
-            // on-disk status.json, so it can pass through to the presenter as-is.
-            $tuples[] = [
-                'jobId'      => $jobId,
-                'stateKey'   => $status->state->value,
-                'counts'     => $status->counts,
-                'finishedAt' => $status->finishedAt,
-            ];
-        }
-
-        return $tuples;
+        return (new RestPendingLedger($root))->openJobCount();
     }
 
     /**
@@ -575,7 +570,6 @@ class ObituaryControlPanelHandler implements RequestHandlerInterface
     private function finderConnectionView(): FinderConnectionView
     {
         return new FinderConnectionView(
-            $this->module->getPreference('finder_transport', 'file'),
             $this->module->getPreference('finder_base_url', ''),
             $this->module->getPreference('finder_token', '') !== '',
             null,
@@ -647,18 +641,6 @@ class ObituaryControlPanelHandler implements RequestHandlerInterface
     }
 
     /**
-     * Resolves the running instance's default queue root, or null when it cannot be located. A protected
-     * seam so a test can redirect it onto a throwaway queue without pointing the real locator at the
-     * test.
-     *
-     * @return string|null The queue root directory, or null when unresolvable.
-     */
-    protected function queueRoot(): ?string
-    {
-        return (new WebtreesInstallLocator(dirname(__DIR__, 2)))->defaultQueueRoot();
-    }
-
-    /**
      * The webtrees tree lookup. A seam so a test can pin it.
      *
      * @return TreeService The tree service.
@@ -669,44 +651,53 @@ class ObituaryControlPanelHandler implements RequestHandlerInterface
     }
 
     /**
-     * Builds the real enqueue producer over the given queue paths, mirroring the `tools/enqueue.php`
-     * wiring exactly. The transport is selected from the persisted finder connection; the REST ledger
-     * root is resolved from the locator only when the REST transport is selected. A seam so a test can
-     * inject a producer that throws (to pin the trigger path's always-PRG-redirect contract on a
-     * DomainException/RuntimeException from the producer).
+     * Builds the real enqueue producer over the given REST connection and ledger root, mirroring the
+     * `tools/enqueue.php` wiring exactly. A seam so a test can inject a producer that throws (to pin the
+     * trigger path's always-PRG-redirect contract on a DomainException/RuntimeException from the
+     * producer).
      *
-     * @param QueuePaths $paths The queue path builder rooted at the resolved queue root.
+     * @param FinderConnection $connection      The REST finder connection.
+     * @param string           $restPendingRoot The REST in-flight ledger root.
      *
      * @return EnqueueService The wired enqueue producer.
      */
-    protected function enqueueService(QueuePaths $paths): EnqueueService
+    protected function enqueueService(FinderConnection $connection, string $restPendingRoot): EnqueueService
     {
-        $connection      = $this->finderConnection();
-        $restPendingRoot = $connection->transport() === 'rest' ? $this->restPendingRoot() : null;
-
-        return EnqueueServiceFactory::create($paths, $connection, $restPendingRoot);
+        return EnqueueServiceFactory::create($connection, $restPendingRoot);
     }
 
     /**
-     * Reads the finder connection from module preferences. Pure #58 plumbing: until #58 adds the config
-     * UI every preference is unset, so `finder_transport` resolves to `file` and this returns the
-     * file-drop connection — the control panel behaves byte-for-byte as before. Once #58 sets the
-     * preferences, the admin "Enqueue now" path honours them.
+     * Reads the finder connection from module preferences, or null when it is not configured. The REST
+     * endpoint activates ONLY on explicit admin consent, recorded as `finder_transport === 'rest'` by a
+     * successful {@see self::saveFinder()}: any other stored value (the legacy `'file'` from a pre-cutover
+     * install, or the unset default) is treated as not configured (null) EVEN when a base URL lingers — so
+     * REST creds retained from a prior configuration are never silently reactivated and no person data is
+     * transmitted to an endpoint the admin had disabled. An empty stored base URL is likewise "not
+     * configured" (null); a stored-but-invalid base URL the {@see FinderConnection::rest()} source rejects
+     * is treated as not configured (null) rather than escaping as an exception. The token VALUE never
+     * leaves this method except into the connection.
      *
-     * @return FinderConnection The connection the persisted preferences describe.
+     * @return FinderConnection|null The configured REST connection, or null when not configured.
      */
-    protected function finderConnection(): FinderConnection
+    protected function finderConnection(): ?FinderConnection
     {
-        if ($this->module->getPreference('finder_transport', 'file') !== 'rest') {
-            return FinderConnection::file();
+        if ($this->module->getPreference('finder_transport', '') !== 'rest') {
+            return null;
+        }
+
+        $baseUrl = $this->module->getPreference('finder_base_url', '');
+
+        if ($baseUrl === '') {
+            return null;
         }
 
         $token = $this->module->getPreference('finder_token', '');
 
-        return FinderConnection::rest(
-            $this->module->getPreference('finder_base_url', ''),
-            $token === '' ? null : $token,
-        );
+        try {
+            return FinderConnection::rest($baseUrl, $token === '' ? null : $token);
+        } catch (InvalidArgumentException) {
+            return null;
+        }
     }
 
     /**
@@ -737,8 +728,7 @@ class ObituaryControlPanelHandler implements RequestHandlerInterface
 
     /**
      * Resolves the running instance's default REST in-flight ledger root, or null when it cannot be
-     * located. A protected seam (mirroring {@see self::queueRoot()}) so a test can redirect it onto a
-     * throwaway directory.
+     * located. A protected seam so a test can redirect it onto a throwaway directory.
      *
      * @return string|null The REST-pending ledger root, or null when unresolvable.
      */

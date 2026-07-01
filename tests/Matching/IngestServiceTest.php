@@ -57,7 +57,7 @@ use MagicSunday\ObituaryMatcher\Support\NoticeMapper;
 use MagicSunday\ObituaryMatcher\Support\ObituaryNameParser;
 use MagicSunday\ObituaryMatcher\Support\UrlNormalizer;
 /* jscpd:ignore-end */
-use MagicSunday\ObituaryMatcher\Test\Queue\QueueTempDirTestCase;
+use MagicSunday\ObituaryMatcher\Test\Support\TempDirTestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\Attributes\UsesClass;
@@ -68,7 +68,7 @@ use function json_decode;
 use const JSON_THROW_ON_ERROR;
 
 /**
- * Tests the response → score → persist vertical slice: a validated feeder response is mapped,
+ * Tests the response → score → persist vertical slice: a validated finder response is mapped,
  * scored by the enriched engine, classified and persisted as a pending suggestion — and a
  * person who was in the request but no longer has a held candidate is skipped without an error.
  *
@@ -120,10 +120,10 @@ use const JSON_THROW_ON_ERROR;
 #[UsesClass(StoredMatch::class)]
 #[UsesClass(UrlNormalizer::class)]
 /* jscpd:ignore-end */
-final class IngestServiceTest extends QueueTempDirTestCase
+final class IngestServiceTest extends TempDirTestCase
 {
     /**
-     * Ingests a validated feeder response for a still-held candidate, scores it with the enriched
+     * Ingests a validated finder response for a still-held candidate, scores it with the enriched
      * engine and persists the best result per notice as a pending suggestion.
      */
     #[Test]
@@ -198,7 +198,7 @@ final class IngestServiceTest extends QueueTempDirTestCase
      * Two notices in the same response whose URLs collapse onto one identity key (here two
      * utm-variant links for the same person) overwrite the same stored row. The count must reflect
      * the single distinct row actually persisted, not the two writes iterated — the count feeds
-     * QueueClient::markDone and may not overstate.
+     * JobTransport::markIngested and may not overstate.
      */
     #[Test]
     public function countsDistinctStoredSuggestionsWhenWithinResponseDuplicatesCollapse(): void
@@ -235,7 +235,7 @@ final class IngestServiceTest extends QueueTempDirTestCase
         $store->markRejected('I1', $store->allPending()[0]->obituaryUrl ?? '', 'reviewer rejected');
 
         // Re-ingesting the SAME notices must store nothing (the terminal row is a no-op) and therefore
-        // report zero — the count is destined for QueueClient::markIngested, so it may not overstate.
+        // report zero — the count is destined for JobTransport::markIngested, so it may not overstate.
         self::assertSame(
             0,
             $service->ingest($notices, ['I1' => $this->candidateMatchingErika()], $store)->matchesStored
@@ -257,7 +257,7 @@ final class IngestServiceTest extends QueueTempDirTestCase
     #[Test]
     public function aPersonWithAnEmptyNoticeListIsSkippedSilentlyWithoutAWarning(): void
     {
-        // results map I1 to an empty notice list (the feeder found no notice for the requested id).
+        // results map I1 to an empty notice list (the finder found no notice for the requested id).
         $notices = $this->notices('response-empty-notices.json', ['I1']);
         $store   = new FileMatchStore($this->tmp . '/store');
 
@@ -316,7 +316,7 @@ final class IngestServiceTest extends QueueTempDirTestCase
     }
 
     /**
-     * Builds the already-validated notices the ingest receives, by narrowing a feeder-response fixture
+     * Builds the already-validated notices the ingest receives, by narrowing a finder-response fixture
      * through the SAME {@see ResponseValidator} the drain uses — so the test feeds the ingest exactly
      * the seam shape it sees in production, without re-coupling to the on-disk reader.
      *

@@ -13,11 +13,10 @@ namespace MagicSunday\ObituaryMatcher\Queue;
 
 /**
  * The immutable result of a finder capabilities probe. The constructor is private so the value object
- * can only be built through the four named constructors, which makes every illegal state
+ * can only be built through the three named constructors, which makes every illegal state
  * unrepresentable: a {@see ProbeStatus::Reachable} result always carries its {@see FinderCapabilities}
  * and never an HTTP status, only an {@see ProbeStatus::Unreachable} result may carry an HTTP status,
- * and neither an {@see ProbeStatus::Invalid} nor a {@see ProbeStatus::NotApplicable} result carries
- * either of the optional fields.
+ * and an {@see ProbeStatus::Invalid} result carries neither of the optional fields.
  *
  * @author  Rico Sonntag <mail@ricosonntag.de>
  * @license https://opensource.org/licenses/GPL-3.0 GNU General Public License v3.0
@@ -71,15 +70,5 @@ final readonly class CapabilitiesProbeResult
     public static function invalid(): self
     {
         return new self(ProbeStatus::Invalid, null, null);
-    }
-
-    /**
-     * Builds the result of a probe that was not attempted because no finder is configured.
-     *
-     * @return self The not-applicable result.
-     */
-    public static function notApplicable(): self
-    {
-        return new self(ProbeStatus::NotApplicable, null, null);
     }
 }

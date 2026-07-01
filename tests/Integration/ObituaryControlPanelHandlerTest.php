@@ -31,29 +31,22 @@ use Fisharebest\Webtrees\View;
 use GuzzleHttp\Psr7\HttpFactory;
 use GuzzleHttp\Psr7\Response;
 use LogicException;
-use MagicSunday\ObituaryMatcher\Queue\AtomicFile;
 use MagicSunday\ObituaryMatcher\Queue\CapabilitiesProbeResult;
 use MagicSunday\ObituaryMatcher\Queue\CappedJsonBodyReader;
-use MagicSunday\ObituaryMatcher\Queue\FeederRequestReader;
-use MagicSunday\ObituaryMatcher\Queue\FileJobTransport;
 use MagicSunday\ObituaryMatcher\Queue\FinderCapabilities;
 use MagicSunday\ObituaryMatcher\Queue\FinderCapabilitiesProbe;
 use MagicSunday\ObituaryMatcher\Queue\FinderPortal;
-use MagicSunday\ObituaryMatcher\Queue\JobState;
 use MagicSunday\ObituaryMatcher\Queue\ProbeStatus;
-use MagicSunday\ObituaryMatcher\Queue\QueueClient;
 use MagicSunday\ObituaryMatcher\Queue\QueueLimits;
-use MagicSunday\ObituaryMatcher\Queue\QueuePaths;
-use MagicSunday\ObituaryMatcher\Queue\ResponseReader;
-use MagicSunday\ObituaryMatcher\Support\FeederRequestFactory;
+use MagicSunday\ObituaryMatcher\Queue\RestPendingLedger;
 use MagicSunday\ObituaryMatcher\Support\FinderConnection;
+use MagicSunday\ObituaryMatcher\Support\FinderRequestFactory;
 use MagicSunday\ObituaryMatcher\Support\QueryGenerator;
 use MagicSunday\ObituaryMatcher\Support\UrlHostNormalizer;
 use MagicSunday\ObituaryMatcher\Test\Queue\ScriptablePsr18Client;
 use MagicSunday\ObituaryMatcher\Ui\ControlPanelPresenter;
 use MagicSunday\ObituaryMatcher\Ui\ControlPanelView;
 use MagicSunday\ObituaryMatcher\Ui\FinderConnectionView;
-use MagicSunday\ObituaryMatcher\Ui\JobStatusRowView;
 use MagicSunday\ObituaryMatcher\Ui\ProbeReadoutView;
 use MagicSunday\ObituaryMatcher\Webtrees\CandidateRepository;
 use MagicSunday\ObituaryMatcher\Webtrees\EnqueueService;
@@ -72,23 +65,30 @@ use Psr\Http\Message\StreamInterface;
 use RuntimeException;
 use Throwable;
 
+use function array_keys;
+use function array_search;
 use function count;
-use function dirname;
+use function end;
 use function http_build_query;
+use function in_array;
 use function json_encode;
+use function str_contains;
+use function str_starts_with;
+use function strtolower;
 use function substr_count;
 
 use const JSON_THROW_ON_ERROR;
 
 /**
  * Integration tests for the admin control-panel route: the admin gate, the GET render (prefilled
- * settings, the tree list, the empty-queue state), the STRICT settings save (both-or-neither, no
- * coercion, in-range), and the per-tree feeder trigger (unknown tree, and the load-bearing
- * persisted-settings cap). The handler builds the REAL {@see EnqueueService}
- * wiring; only its queue root is seamed onto the throwaway test queue, so the trigger path exercises
- * the real enqueue. The helpers reuse {@see AbstractEnqueueTestCase}'s throwaway queue + candidate
- * seeders; the handler's {@see ObituaryControlPanelHandler::handle()} is invoked directly so the tests
- * pass before the route is registered (Task 5).
+ * settings, the tree list, the open-finder-job count), the STRICT settings save (both-or-neither, no
+ * coercion, in-range), the REST finder-connection save/test actions, and the per-tree finder trigger
+ * (unknown tree, not-configured guard, and the load-bearing persisted-settings cap). The trigger path's
+ * producer seam is redirected onto {@see AbstractEnqueueTestCase}'s producer over a
+ * {@see RecordingJobTransport} double, so the candidate-count assertions read the submitted request back
+ * off the transport; the REST ledger root is seamed onto a throwaway dir. The handler's
+ * {@see ObituaryControlPanelHandler::handle()} is invoked directly so the tests pass before the route is
+ * registered (Task 5).
  *
  * @author  Rico Sonntag <mail@ricosonntag.de>
  * @license https://opensource.org/licenses/GPL-3.0 GNU General Public License v3.0
@@ -97,7 +97,6 @@ use const JSON_THROW_ON_ERROR;
 #[CoversClass(ObituaryControlPanelHandler::class)]
 #[UsesClass(ControlPanelPresenter::class)]
 #[UsesClass(ControlPanelView::class)]
-#[UsesClass(JobStatusRowView::class)]
 #[UsesClass(FinderConnection::class)]
 #[UsesClass(FinderConnectionView::class)]
 #[UsesClass(ProbeReadoutView::class)]
@@ -184,49 +183,32 @@ final class ObituaryControlPanelHandlerTest extends AbstractEnqueueTestCase
         self::assertStringContainsString('90', $html);
         // The offered tree appears (the trigger form is rendered per tree).
         self::assertStringContainsString('panel-get', $html);
-        // The empty-queue state renders.
-        self::assertStringContainsString('No searches run yet.', $html);
+        // The no-open-jobs state renders.
+        self::assertStringContainsString('No finder jobs are currently open.', $html);
         // BOTH POST forms (save + the per-tree trigger) carry a CSRF token, or the live POST
         // would be bounced by webtrees' CheckCsrf middleware (the direct-handle() tests bypass it).
         self::assertGreaterThanOrEqual(2, substr_count($html, 'name="_csrf"'));
     }
 
     /**
-     * A GET render projects a multi-state queue: a done job and a running job each render their state
-     * label badge, the done job's non-empty counts render as generic `key=value` pairs and the running
-     * job's null finishedAt renders the `—` placeholder. This pins the Task 6 template completion —
-     * generic counts, the per-state labels and the null-finishedAt placeholder.
+     * A GET render surfaces the open finder-job count from the REST pending ledger: with one recorded
+     * entry the panel renders the "awaiting results" line rather than the no-open-jobs placeholder.
      *
      * @return void
      */
     #[Test]
-    public function getRendersJobStatesGenericCountsAndNullFinishedPlaceholder(): void
+    public function getRendersTheOpenFinderJobCount(): void
     {
-        $this->searchableTree('panel-states', 1);
+        $this->searchableTree('panel-open', 1);
 
-        // A terminal done job carrying a counts map and a finish timestamp, plus a non-terminal running
-        // job whose finishedAt is null — seeded straight into the handler's seamed queue root.
-        $this->seedStatusJob(
-            'job-0002-done',
-            JobState::Done,
-            ['counts' => ['candidates' => 4, 'notices' => 2], 'finishedAt' => '2026-06-23T10:15:35+00:00'],
-        );
-        $this->seedStatusJob('job-0001-run', JobState::Running, []);
+        // Record one in-flight REST job in the handler's seamed ledger root.
+        (new RestPendingLedger($this->restPendingDir()))
+            ->record('job-open-1', 1, ['I1'], '2026-06-23T10:00:00+00:00');
 
         $html = (string) $this->handler()->handle($this->panelRequest(RequestMethodInterface::METHOD_GET))->getBody();
 
-        // Each seeded state renders its i18n label badge.
-        self::assertStringContainsString('Done', $html);
-        self::assertStringContainsString('Running', $html);
-        // The done job's counts render generically as key=value pairs (keys are not hardcoded in the view),
-        // joined with a ', ' separator so two pairs read as "candidates=4, notices=2" and never run
-        // together as "4notices".
-        self::assertStringContainsString('candidates=4', $html);
-        self::assertStringContainsString('notices=2', $html);
-        self::assertStringContainsString('candidates=4, notices=2', $html);
-        self::assertStringNotContainsString('4notices', $html);
-        // The non-terminal running job's null finishedAt renders the placeholder.
-        self::assertStringContainsString('—', $html);
+        self::assertStringContainsString('awaiting results', $html);
+        self::assertStringNotContainsString('No finder jobs are currently open.', $html);
     }
 
     /**
@@ -321,6 +303,11 @@ final class ObituaryControlPanelHandlerTest extends AbstractEnqueueTestCase
     {
         $this->module->setPreference('min_age', '70');
         $this->module->setPreference('limit', '3');
+        // A configured finder connection so the trigger reaches the enqueue (the seamed producer writes to
+        // the throwaway queue regardless of transport). The REST consent marker is required to lift the
+        // activation gate in finderConnection().
+        $this->module->setPreference('finder_transport', 'rest');
+        $this->module->setPreference('finder_base_url', 'https://finder.example');
 
         // Five eligible candidates (born 1930, far over age 70, no death date): with limit 3 the producer
         // must cap the enqueued set to three.
@@ -333,6 +320,24 @@ final class ObituaryControlPanelHandlerTest extends AbstractEnqueueTestCase
 
         // The enqueued request honoured the persisted limit (3), not the default 50.
         self::assertLessThanOrEqual(3, $this->enqueuedCandidateCount());
+    }
+
+    /**
+     * Triggering with NO finder connection configured (empty stored base URL) flashes "configure the
+     * finder first" and PRG-redirects without enqueuing anything: the connection guard short-circuits the
+     * trigger path before the producer is wired.
+     *
+     * @return void
+     */
+    #[Test]
+    public function triggerWithoutAConfiguredFinderFlashesAndDoesNotEnqueue(): void
+    {
+        $tree = $this->searchableTree('panel-unconfigured', 1);
+
+        $response = $this->handler()->handle($this->panelPost(['action' => 'trigger', 'tree' => (string) $tree->id()]));
+
+        self::assertSame(StatusCodeInterface::STATUS_FOUND, $response->getStatusCode());
+        self::assertSame(0, $this->queuedJobCount());
     }
 
     /**
@@ -414,37 +419,38 @@ final class ObituaryControlPanelHandlerTest extends AbstractEnqueueTestCase
     }
 
     /**
-     * With no finder preferences set (the #58 config UI has not run), the connection the enqueue path
-     * builds is the default file-drop transport, so the control panel behaves byte-for-byte as before.
+     * With no finder base URL persisted, the connection the enqueue path builds is null ("not
+     * configured"), so the trigger path refuses to enqueue.
      *
      * @return void
      */
     #[Test]
-    public function theDefaultFinderPreferencesSelectTheFileTransport(): void
+    public function theDefaultFinderPreferencesAreNotConfigured(): void
     {
         $handler = new class($this->module) extends ObituaryControlPanelHandler {
             /**
              * Exposes the persisted finder connection for assertion.
              *
-             * @return FinderConnection The connection the module preferences select.
+             * @return FinderConnection|null The connection the module preferences select, or null.
              */
-            public function exposedConnection(): FinderConnection
+            public function exposedConnection(): ?FinderConnection
             {
                 return $this->finderConnection();
             }
         };
 
-        self::assertSame('file', $handler->exposedConnection()->transport());
+        self::assertNull($handler->exposedConnection());
     }
 
     /**
-     * Once `finder_transport=rest` (and the base URL) are persisted, the enqueue path builds the REST
-     * connection — the #58 plumbing the control panel honours once the config UI sets it.
+     * With the REST consent marker (finder_transport === 'rest') set and a valid base URL persisted, the
+     * enqueue path builds the REST connection carrying that base URL — the legitimate REST install keeps
+     * working.
      *
      * @return void
      */
     #[Test]
-    public function theRestFinderPreferenceSelectsTheRestTransport(): void
+    public function aStoredRestTransportWithAValidBaseUrlSelectsTheConnection(): void
     {
         $this->module->setPreference('finder_transport', 'rest');
         $this->module->setPreference('finder_base_url', 'http://finder:8080');
@@ -453,9 +459,9 @@ final class ObituaryControlPanelHandlerTest extends AbstractEnqueueTestCase
             /**
              * Exposes the persisted finder connection for assertion.
              *
-             * @return FinderConnection The connection the module preferences select.
+             * @return FinderConnection|null The connection the module preferences select, or null.
              */
-            public function exposedConnection(): FinderConnection
+            public function exposedConnection(): ?FinderConnection
             {
                 return $this->finderConnection();
             }
@@ -463,8 +469,249 @@ final class ObituaryControlPanelHandlerTest extends AbstractEnqueueTestCase
 
         $connection = $handler->exposedConnection();
 
-        self::assertSame('rest', $connection->transport());
+        self::assertInstanceOf(FinderConnection::class, $connection);
         self::assertSame('http://finder:8080', $connection->baseUrl());
+    }
+
+    /**
+     * A stored-but-invalid base URL (one the FinderConnection::rest() source rejects) is treated as "not
+     * configured" (null) rather than escaping as an exception. The consent marker is set so the rejection
+     * is exercised at the FinderConnection::rest() source rather than short-circuited by the transport
+     * gate.
+     *
+     * @return void
+     */
+    #[Test]
+    public function aStoredInvalidBaseUrlIsTreatedAsNotConfigured(): void
+    {
+        $this->module->setPreference('finder_transport', 'rest');
+        $this->module->setPreference('finder_base_url', 'ftp://nope');
+
+        $handler = new class($this->module) extends ObituaryControlPanelHandler {
+            /**
+             * Exposes the persisted finder connection for assertion.
+             *
+             * @return FinderConnection|null The connection the module preferences select, or null.
+             */
+            public function exposedConnection(): ?FinderConnection
+            {
+                return $this->finderConnection();
+            }
+        };
+
+        self::assertNull($handler->exposedConnection());
+    }
+
+    /**
+     * A legacy (pre-cutover) install that configured REST and then switched the transport radio back to
+     * `file` retained its REST creds (`finder_base_url`/`finder_token`) but gated them behind
+     * `finder_transport === 'rest'`. The REST-only cutover must NOT silently reactivate those retained
+     * creds: with `finder_transport === 'file'` the connection resolves to NOT configured even though a
+     * base URL and token linger.
+     *
+     * @return void
+     */
+    #[Test]
+    public function aLegacyFileTransportWithRetainedRestCredsIsNotConfigured(): void
+    {
+        $this->module->setPreference('finder_transport', 'file');
+        $this->module->setPreference('finder_base_url', 'https://finder.example');
+        $this->module->setPreference('finder_token', 'retained-secret');
+
+        $handler = new class($this->module) extends ObituaryControlPanelHandler {
+            /**
+             * Exposes the persisted finder connection for assertion.
+             *
+             * @return FinderConnection|null The connection the module preferences select, or null.
+             */
+            public function exposedConnection(): ?FinderConnection
+            {
+                return $this->finderConnection();
+            }
+        };
+
+        self::assertNull($handler->exposedConnection());
+    }
+
+    /**
+     * A triggered search on a legacy `file`-transport install with retained REST creds transmits NO
+     * candidate data: the connection guard short-circuits the trigger before the producer is wired, so
+     * nothing is enqueued and the admin sees the "configure the finder" flash. This is the privacy guard —
+     * a disabled REST endpoint must never silently receive person data after the cutover.
+     *
+     * @return void
+     */
+    #[Test]
+    public function triggerWithLegacyFileTransportDoesNotEnqueueOrSendData(): void
+    {
+        $this->module->setPreference('finder_transport', 'file');
+        $this->module->setPreference('finder_base_url', 'https://finder.example');
+        $this->module->setPreference('finder_token', 'retained-secret');
+
+        $tree = $this->searchableTree('panel-legacy-file', 1);
+
+        $response = $this->handler()->handle(
+            $this->panelPost(['action' => 'trigger', 'tree' => (string) $tree->id()])
+        );
+
+        self::assertSame(StatusCodeInterface::STATUS_FOUND, $response->getStatusCode());
+        self::assertSame(0, $this->queuedJobCount());
+    }
+
+    /**
+     * A successful `save-finder` REST save writes the explicit-consent marker (`finder_transport === 'rest'`)
+     * and the connection then activates: re-saving the connection lifts the migration gate for a legacy
+     * install. The REST-only UI no longer offers a transport toggle, so this marker is purely the internal
+     * "REST explicitly configured" flag.
+     *
+     * @return void
+     */
+    #[Test]
+    public function saveFinderPersistsTheRestConsentMarkerAndActivatesTheConnection(): void
+    {
+        $this->handler()->handle($this->panelPost([
+            'action'   => 'save-finder',
+            'base_url' => 'https://finder.example',
+            'token'    => 'secret',
+        ]));
+
+        self::assertSame('rest', $this->module->getPreference('finder_transport'));
+
+        $handler = new class($this->module) extends ObituaryControlPanelHandler {
+            /**
+             * Exposes the persisted finder connection for assertion.
+             *
+             * @return FinderConnection|null The connection the module preferences select, or null.
+             */
+            public function exposedConnection(): ?FinderConnection
+            {
+                return $this->finderConnection();
+            }
+        };
+
+        self::assertInstanceOf(FinderConnection::class, $handler->exposedConnection());
+    }
+
+    /**
+     * The REST activation marker (`finder_transport === 'rest'`) is written LAST, after the base URL and
+     * the token. Order is the privacy guard: each preference is an independently committed write, so if
+     * the base URL or token persistence fails (or another request interleaves) the marker must not yet
+     * have flipped REST on — otherwise the connection would activate against the stale credentials the
+     * admin was replacing. Since activation is now atomic, `finder_transport` is written TWICE — a leading
+     * deactivation to `''` then the trailing reactivation to `'rest'` — so this asserts against the LAST
+     * occurrence, the reactivation. Starting from a legacy `file` install with retained creds, the
+     * recorded write order proves the reactivation trails both connection fields. This fails on the
+     * marker-first ordering, where `finder_transport` was committed before the token.
+     *
+     * @return void
+     */
+    #[Test]
+    public function saveFinderWritesTheRestActivationMarkerLast(): void
+    {
+        // A legacy install that once configured REST then reverted to file, leaving dormant creds behind
+        // the consent gate; every field already exists, so each save below is an UPDATE.
+        $this->module->setPreference('finder_transport', 'file');
+        $this->module->setPreference('finder_base_url', 'https://stale.example');
+        $this->module->setPreference('finder_token', 'retained-secret');
+
+        $handler = $this->handler();
+
+        $writeOrder = $this->captureModuleSettingWriteOrder(function () use ($handler): void {
+            $handler->handle($this->panelPost([
+                'action'   => 'save-finder',
+                'base_url' => 'https://finder.example',
+                'token'    => 'fresh-secret',
+            ]));
+        });
+
+        // finder_transport is written twice (deactivate, then reactivate); the reactivation is the LAST
+        // occurrence and is the one that must trail both credential fields.
+        $transportIndices = array_keys($writeOrder, 'finder_transport', true);
+        $baseUrlIndex     = array_search('finder_base_url', $writeOrder, true);
+        $tokenIndex       = array_search('finder_token', $writeOrder, true);
+
+        self::assertNotSame([], $transportIndices, 'The activation marker was not persisted.');
+        self::assertIsInt($baseUrlIndex, 'The base URL was not persisted.');
+        self::assertIsInt($tokenIndex, 'The token was not persisted.');
+
+        $reactivationIndex = end($transportIndices);
+
+        self::assertGreaterThan(
+            $baseUrlIndex,
+            $reactivationIndex,
+            'The activation marker must be written after the base URL.',
+        );
+        self::assertGreaterThan(
+            $tokenIndex,
+            $reactivationIndex,
+            'The activation marker must be written after the token.',
+        );
+    }
+
+    /**
+     * Re-pointing an ALREADY-ACTIVE REST install is atomic: the consent marker is DEACTIVATED before any
+     * credential write and only REACTIVATED once both the base URL and the token have been committed. Each
+     * setPreference is an independently committed write, so without the leading deactivation a base-URL
+     * write that landed before a failing token write would leave REST live against the NEW URL and the
+     * STALE token — sending person data to a half-configured endpoint. Starting from an active `rest`
+     * install, the recorded write order proves the FIRST `finder_transport` write precedes both credential
+     * fields (deactivation) and the LAST one trails them (reactivation).
+     *
+     * @return void
+     */
+    #[Test]
+    public function saveFinderDeactivatesRestBeforeRewritingAnActiveInstallsCredentials(): void
+    {
+        // An install already actively using REST, re-pointed to a new endpoint with a new token.
+        $this->module->setPreference('finder_transport', 'rest');
+        $this->module->setPreference('finder_base_url', 'https://old.example');
+        $this->module->setPreference('finder_token', 'old-secret');
+
+        $handler = $this->handler();
+
+        $writeOrder = $this->captureModuleSettingWriteOrder(function () use ($handler): void {
+            $handler->handle($this->panelPost([
+                'action'   => 'save-finder',
+                'base_url' => 'https://new.example',
+                'token'    => 'new-secret',
+            ]));
+        });
+
+        $transportIndices = array_keys($writeOrder, 'finder_transport', true);
+        $baseUrlIndex     = array_search('finder_base_url', $writeOrder, true);
+        $tokenIndex       = array_search('finder_token', $writeOrder, true);
+
+        self::assertGreaterThanOrEqual(
+            2,
+            count($transportIndices),
+            'The consent marker must be written twice: a leading deactivation and a trailing reactivation.',
+        );
+        self::assertIsInt($baseUrlIndex, 'The base URL was not persisted.');
+        self::assertIsInt($tokenIndex, 'The token was not persisted.');
+
+        $deactivationIndex = $transportIndices[0];
+        $reactivationIndex = end($transportIndices);
+
+        self::assertLessThan(
+            $baseUrlIndex,
+            $deactivationIndex,
+            'REST must be deactivated before the base URL is rewritten.',
+        );
+        self::assertLessThan(
+            $tokenIndex,
+            $deactivationIndex,
+            'REST must be deactivated before the token is rewritten.',
+        );
+        self::assertGreaterThan(
+            $baseUrlIndex,
+            $reactivationIndex,
+            'REST must be reactivated only after the base URL is written.',
+        );
+        self::assertGreaterThan(
+            $tokenIndex,
+            $reactivationIndex,
+            'REST must be reactivated only after the token is written.',
+        );
     }
 
     /**
@@ -477,14 +724,12 @@ final class ObituaryControlPanelHandlerTest extends AbstractEnqueueTestCase
     public function saveFinderPersistsAValidRestConnection(): void
     {
         $response = $this->handler()->handle($this->panelPost([
-            'action'    => 'save-finder',
-            'transport' => 'rest',
-            'base_url'  => 'https://finder.example',
-            'token'     => 'secret',
+            'action'   => 'save-finder',
+            'base_url' => 'https://finder.example',
+            'token'    => 'secret',
         ]));
 
         self::assertSame(StatusCodeInterface::STATUS_FOUND, $response->getStatusCode());
-        self::assertSame('rest', $this->module->getPreference('finder_transport'));
         self::assertSame('https://finder.example', $this->module->getPreference('finder_base_url'));
         self::assertSame('secret', $this->module->getPreference('finder_token'));
     }
@@ -499,15 +744,13 @@ final class ObituaryControlPanelHandlerTest extends AbstractEnqueueTestCase
     public function saveFinderRejectsAnInvalidBaseUrlAndWritesNothing(): void
     {
         $response = $this->handler()->handle($this->panelPost([
-            'action'    => 'save-finder',
-            'transport' => 'rest',
-            'base_url'  => 'ftp://x',
-            'token'     => 'secret',
+            'action'   => 'save-finder',
+            'base_url' => 'ftp://x',
+            'token'    => 'secret',
         ]));
 
         self::assertSame(StatusCodeInterface::STATUS_FOUND, $response->getStatusCode());
         // Nothing persisted: every preference resolves to its unset default.
-        self::assertSame('', $this->module->getPreference('finder_transport'));
         self::assertSame('', $this->module->getPreference('finder_base_url'));
         self::assertSame('', $this->module->getPreference('finder_token'));
     }
@@ -524,13 +767,11 @@ final class ObituaryControlPanelHandlerTest extends AbstractEnqueueTestCase
         $this->module->setPreference('finder_token', 'old');
 
         $this->handler()->handle($this->panelPost([
-            'action'    => 'save-finder',
-            'transport' => 'rest',
-            'base_url'  => 'https://finder.example',
-            'token'     => '',
+            'action'   => 'save-finder',
+            'base_url' => 'https://finder.example',
+            'token'    => '',
         ]));
 
-        self::assertSame('rest', $this->module->getPreference('finder_transport'));
         self::assertSame('https://finder.example', $this->module->getPreference('finder_base_url'));
         self::assertSame('old', $this->module->getPreference('finder_token'));
     }
@@ -547,13 +788,12 @@ final class ObituaryControlPanelHandlerTest extends AbstractEnqueueTestCase
 
         $this->handler()->handle($this->panelPost([
             'action'       => 'save-finder',
-            'transport'    => 'rest',
             'base_url'     => 'https://finder.example',
             'token'        => '',
             'remove_token' => '1',
         ]));
 
-        self::assertSame('rest', $this->module->getPreference('finder_transport'));
+        self::assertSame('https://finder.example', $this->module->getPreference('finder_base_url'));
         self::assertSame('', $this->module->getPreference('finder_token'));
     }
 
@@ -573,36 +813,13 @@ final class ObituaryControlPanelHandlerTest extends AbstractEnqueueTestCase
 
         $this->handler()->handle($this->panelPost([
             'action'       => 'save-finder',
-            'transport'    => 'rest',
             'base_url'     => 'https://finder.example',
             'token'        => "typed\n",
             'remove_token' => '1',
         ]));
 
-        self::assertSame('rest', $this->module->getPreference('finder_transport'));
-        self::assertSame('', $this->module->getPreference('finder_token'));
-    }
-
-    /**
-     * Selecting the file transport persists `finder_transport=file` but leaves a previously stored REST
-     * base URL and token intact, so a file↔rest toggle keeps the REST data.
-     *
-     * @return void
-     */
-    #[Test]
-    public function saveFinderFileKeepsStoredRestData(): void
-    {
-        $this->module->setPreference('finder_base_url', 'https://finder.example');
-        $this->module->setPreference('finder_token', 'old');
-
-        $this->handler()->handle($this->panelPost([
-            'action'    => 'save-finder',
-            'transport' => 'file',
-        ]));
-
-        self::assertSame('file', $this->module->getPreference('finder_transport'));
         self::assertSame('https://finder.example', $this->module->getPreference('finder_base_url'));
-        self::assertSame('old', $this->module->getPreference('finder_token'));
+        self::assertSame('', $this->module->getPreference('finder_token'));
     }
 
     /**
@@ -720,28 +937,6 @@ final class ObituaryControlPanelHandlerTest extends AbstractEnqueueTestCase
         self::assertSame('unreachable', $handler->capturedProbe->statusKey);
         // The panel still rendered a non-empty body.
         self::assertNotSame('', (string) $response->getBody());
-    }
-
-    /**
-     * In file mode the `test` action does NOT probe at all: the readout is not-applicable, the probe seam
-     * was never invoked and the injected client recorded zero sent requests.
-     *
-     * @return void
-     */
-    #[Test]
-    public function testActionInFileModeIsNotApplicableAndDoesNotProbe(): void
-    {
-        $handler = $this->capturingHandler([]);
-
-        $handler->handle($this->panelPost([
-            'action'    => 'test',
-            'transport' => 'file',
-        ]));
-
-        self::assertNotNull($handler->capturedProbe);
-        self::assertSame('not-applicable', $handler->capturedProbe->statusKey);
-        self::assertSame(0, $handler->probeInvocations);
-        self::assertSame([], $handler->client->sent);
     }
 
     /**
@@ -935,8 +1130,8 @@ final class ObituaryControlPanelHandlerTest extends AbstractEnqueueTestCase
     /**
      * Builds a handler that drives the capabilities probe over a SCRIPTED PSR-18 double but lets the REAL
      * panel template render (it does NOT override renderPanelWith), so the tests assert on the actual
-     * rendered HTML — the readout escaping and the echoed form fields. The queue root is seamed onto the
-     * throwaway dir so the read-only render touches the isolated queue.
+     * rendered HTML — the readout escaping and the echoed form fields. The REST ledger root is seamed onto
+     * the throwaway dir so the read-only render's open-job count touches the isolated ledger.
      *
      * @param list<callable(RequestInterface): ResponseInterface> $script The scripted probe responders.
      *
@@ -944,23 +1139,23 @@ final class ObituaryControlPanelHandlerTest extends AbstractEnqueueTestCase
      */
     private function renderingProbeHandler(array $script): ObituaryControlPanelHandler
     {
-        return new class($this->module, $this->queueRoot, new ScriptablePsr18Client($script)) extends ObituaryControlPanelHandler {
+        return new class($this->module, $this->restPendingDir(), new ScriptablePsr18Client($script)) extends ObituaryControlPanelHandler {
             /**
-             * @param ObituaryMatcherModule $module    The module instance.
-             * @param string                $queueRoot The throwaway queue root injected for the test.
-             * @param ScriptablePsr18Client $client    The scripted client the probe sends through.
+             * @param ObituaryMatcherModule $module          The module instance.
+             * @param string                $restPendingRoot The throwaway REST ledger root injected for the test.
+             * @param ScriptablePsr18Client $client          The scripted client the probe sends through.
              */
             public function __construct(
                 ObituaryMatcherModule $module,
-                private readonly string $queueRoot,
+                private readonly string $restPendingRoot,
                 private readonly ScriptablePsr18Client $client,
             ) {
                 parent::__construct($module);
             }
 
-            protected function queueRoot(): string
+            protected function restPendingRoot(): string
             {
-                return $this->queueRoot;
+                return $this->restPendingRoot;
             }
 
             protected function capabilitiesProbe(FinderConnection $connection): FinderCapabilitiesProbe
@@ -973,32 +1168,32 @@ final class ObituaryControlPanelHandlerTest extends AbstractEnqueueTestCase
     /**
      * Builds a handler whose capabilities-probe seam THROWS (a wiring fault) and lets the REAL template
      * render, capturing the readout the re-render receives so a test can assert the action degraded the
-     * fault to an unreachable readout. The queue root is seamed onto the throwaway dir.
+     * fault to an unreachable readout. The REST ledger root is seamed onto the throwaway dir.
      *
      * @return ObituaryControlPanelHandler&object{capturedProbe: ?ProbeReadoutView} The throwing handler.
      */
     private function throwingProbeHandler(): ObituaryControlPanelHandler
     {
-        return new class($this->module, $this->queueRoot) extends ObituaryControlPanelHandler {
+        return new class($this->module, $this->restPendingDir()) extends ObituaryControlPanelHandler {
             /**
              * @var ProbeReadoutView|null The readout the re-render received, captured for assertions.
              */
             public ?ProbeReadoutView $capturedProbe = null;
 
             /**
-             * @param ObituaryMatcherModule $module    The module instance.
-             * @param string                $queueRoot The throwaway queue root injected for the test.
+             * @param ObituaryMatcherModule $module          The module instance.
+             * @param string                $restPendingRoot The throwaway REST ledger root injected for the test.
              */
             public function __construct(
                 ObituaryMatcherModule $module,
-                private readonly string $queueRoot,
+                private readonly string $restPendingRoot,
             ) {
                 parent::__construct($module);
             }
 
-            protected function queueRoot(): string
+            protected function restPendingRoot(): string
             {
-                return $this->queueRoot;
+                return $this->restPendingRoot;
             }
 
             protected function capabilitiesProbe(FinderConnection $connection): FinderCapabilitiesProbe
@@ -1049,26 +1244,82 @@ final class ObituaryControlPanelHandlerTest extends AbstractEnqueueTestCase
     }
 
     /**
-     * Builds the handler under test, seamed onto the throwaway test queue root so the trigger path runs
-     * the REAL EnqueueService wiring against the isolated queue.
+     * Records, in commit order, the `finder_*` module-setting names WRITTEN to the database while the
+     * given operation runs, by scanning the Illuminate connection query log. The module's
+     * {@see ObituaryMatcherModule::setPreference()} is final and DB-backed (no override seam), so the
+     * query log is the clean recorder of the actual persistence order — only the updateOrInsert
+     * UPDATE/INSERT statements count, never the exists() SELECT.
      *
-     * @return ObituaryControlPanelHandler The handler whose queue root points at the temp dir.
+     * @param callable(): void $operation The operation whose preference writes are recorded.
+     *
+     * @return list<string> The finder setting names in the order they were written.
+     */
+    private function captureModuleSettingWriteOrder(callable $operation): array
+    {
+        $connection = DB::connection();
+        $connection->flushQueryLog();
+        $connection->enableQueryLog();
+
+        try {
+            $operation();
+        } finally {
+            $connection->disableQueryLog();
+        }
+
+        $order = [];
+
+        foreach ($connection->getQueryLog() as $entry) {
+            $query = strtolower($entry['query']);
+
+            if (
+                !str_contains($query, 'module_setting')
+                || (!str_starts_with($query, 'update') && !str_starts_with($query, 'insert'))
+            ) {
+                continue;
+            }
+
+            foreach (['finder_base_url', 'finder_token', 'finder_transport'] as $settingName) {
+                if (in_array($settingName, $entry['bindings'], true)) {
+                    $order[] = $settingName;
+                }
+            }
+        }
+
+        return $order;
+    }
+
+    /**
+     * Builds the handler under test, seamed onto the throwaway REST ledger root and the harness's
+     * producer over a {@see RecordingJobTransport} double, so the trigger path's enqueue is exercised
+     * against isolated storage and the candidate-count assertions read the submitted request back off
+     * the transport.
+     *
+     * @return ObituaryControlPanelHandler The seamed handler.
      */
     private function handler(): ObituaryControlPanelHandler
     {
-        return new class($this->module, $this->queueRoot) extends ObituaryControlPanelHandler {
+        return new class($this->module, $this->restPendingDir(), $this->enqueueService()) extends ObituaryControlPanelHandler {
             /**
-             * @param ObituaryMatcherModule $module    The module instance.
-             * @param string                $queueRoot The throwaway queue root injected for the test.
+             * @param ObituaryMatcherModule $module          The module instance.
+             * @param string                $restPendingRoot The throwaway REST ledger root injected for the test.
+             * @param EnqueueService        $producer        The producer over the recording transport.
              */
-            public function __construct(ObituaryMatcherModule $module, private readonly string $queueRoot)
-            {
+            public function __construct(
+                ObituaryMatcherModule $module,
+                private readonly string $restPendingRoot,
+                private readonly EnqueueService $producer,
+            ) {
                 parent::__construct($module);
             }
 
-            protected function queueRoot(): string
+            protected function restPendingRoot(): string
             {
-                return $this->queueRoot;
+                return $this->restPendingRoot;
+            }
+
+            protected function enqueueService(FinderConnection $connection, string $restPendingRoot): EnqueueService
+            {
+                return $this->producer;
             }
         };
     }
@@ -1076,7 +1327,8 @@ final class ObituaryControlPanelHandlerTest extends AbstractEnqueueTestCase
     /**
      * Builds a handler whose producer always throws the given exception from enqueue(), so the
      * trigger path's exception handling (always PRG-redirect) can be exercised without a real
-     * producer failure. The queue root is still seamed onto the throwaway dir.
+     * producer failure. A finder is configured so the trigger reaches the producer; the REST ledger
+     * root is seamed onto the throwaway dir.
      *
      * @param Throwable $exception The exception the seamed producer throws from enqueue().
      *
@@ -1084,47 +1336,44 @@ final class ObituaryControlPanelHandlerTest extends AbstractEnqueueTestCase
      */
     private function throwingHandler(Throwable $exception): ObituaryControlPanelHandler
     {
-        return new class($this->module, $this->queueRoot, $exception) extends ObituaryControlPanelHandler {
+        // A configured finder so the trigger path reaches the (throwing) producer rather than the
+        // not-configured guard: both the consent marker and the base URL are required to lift the gate.
+        $this->module->setPreference('finder_transport', 'rest');
+        $this->module->setPreference('finder_base_url', 'https://finder.example');
+
+        return new class($this->module, $this->restPendingDir(), $exception) extends ObituaryControlPanelHandler {
             /**
-             * @param ObituaryMatcherModule $module    The module instance.
-             * @param string                $queueRoot The throwaway queue root injected for the test.
-             * @param Throwable             $exception The exception the seamed producer throws.
+             * @param ObituaryMatcherModule $module          The module instance.
+             * @param string                $restPendingRoot The throwaway REST ledger root injected for the test.
+             * @param Throwable             $exception       The exception the seamed producer throws.
              */
             public function __construct(
                 ObituaryMatcherModule $module,
-                private readonly string $queueRoot,
+                private readonly string $restPendingRoot,
                 private readonly Throwable $exception,
             ) {
                 parent::__construct($module);
             }
 
-            protected function queueRoot(): string
+            protected function restPendingRoot(): string
             {
-                return $this->queueRoot;
+                return $this->restPendingRoot;
             }
 
-            protected function enqueueService(QueuePaths $paths): EnqueueService
+            protected function enqueueService(FinderConnection $connection, string $restPendingRoot): EnqueueService
             {
-                $exception = $this->exception;
-
-                return new class($paths, $exception) extends EnqueueService {
+                return new class($this->exception) extends EnqueueService {
                     /**
-                     * @param QueuePaths $paths     The queue path builder.
-                     * @param Throwable  $exception The exception to throw from enqueue().
+                     * @param Throwable $exception The exception to throw from enqueue().
                      */
-                    public function __construct(QueuePaths $paths, private readonly Throwable $exception)
+                    public function __construct(private readonly Throwable $exception)
                     {
                         parent::__construct(
                             new CandidateRepository(),
-                            new FeederRequestFactory(new QueryGenerator()),
+                            new FinderRequestFactory(new QueryGenerator()),
                             new UrlHostNormalizer(),
                             new TreeService(new GedcomImportService()),
-                            new FileJobTransport(
-                                new QueueClient($paths),
-                                new ResponseReader($paths, QueueLimits::FEEDER_FILE_MAX_BYTES),
-                                new FeederRequestReader($paths, QueueLimits::FEEDER_FILE_MAX_BYTES),
-                                $paths,
-                            ),
+                            new RecordingJobTransport(),
                         );
                     }
 
@@ -1196,22 +1445,14 @@ final class ObituaryControlPanelHandlerTest extends AbstractEnqueueTestCase
     }
 
     /**
-     * Seeds a job's status.json into the handler's seamed queue root, so the GET render's recent-jobs
-     * projection ({@see QueueClient::recentJobs()}) hydrates and renders it. Mirrors how
-     * QueueClientTest seeds a terminal status: write the status.json into the job's state directory.
+     * The throwaway REST in-flight ledger root, isolated under the test's store root so it is removed in
+     * tearDown. The handlers seam {@see ObituaryControlPanelHandler::restPendingRoot()} onto it.
      *
-     * @param string               $jobId The job identifier (also the directory name).
-     * @param JobState             $state The state directory to seed the job into.
-     * @param array<string, mixed> $extra Extra status.json fields (e.g. counts, finishedAt) merged in.
-     *
-     * @return void
+     * @return string The throwaway REST ledger root.
      */
-    private function seedStatusJob(string $jobId, JobState $state, array $extra): void
+    private function restPendingDir(): string
     {
-        $path = $this->paths()->stateDir($state, $jobId) . '/status.json';
-
-        AtomicFile::ensureDirectory(dirname($path));
-        AtomicFile::writeJson($path, ['state' => $state->value] + $extra);
+        return $this->storeRoot . '/rest-pending';
     }
 
     /**
@@ -1225,21 +1466,15 @@ final class ObituaryControlPanelHandlerTest extends AbstractEnqueueTestCase
     }
 
     /**
-     * The candidate count of the single queued job's request.json.
+     * The candidate count of the single submitted job's request.
      *
-     * @return int The number of candidates written into the queued request.
+     * @return int The number of candidates in the submitted request.
      */
     private function enqueuedCandidateCount(): int
     {
         $jobIds = $this->queuedJobIds();
         self::assertCount(1, $jobIds);
 
-        $path = $this->paths()->stateRoot(JobState::Queued->value) . '/' . $jobIds[0] . '/request.json';
-        $data = AtomicFile::readJsonCapped($path, QueueLimits::FEEDER_FILE_MAX_BYTES);
-
-        /** @var list<array<string, mixed>> $candidates */
-        $candidates = $data['candidates'];
-
-        return count($candidates);
+        return count($this->queuedCandidates($jobIds[0]));
     }
 }

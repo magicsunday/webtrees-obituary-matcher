@@ -12,10 +12,10 @@ declare(strict_types=1);
 namespace MagicSunday\ObituaryMatcher\Queue;
 
 /**
- * Shared numeric limits for the queue layer. Holds the single source of truth for the feeder-file
- * size cap that the queue readers apply ({@see ResponseReader} as its default, {@see FeederRequestReader}
- * as an explicit argument) and both composition-root factories pass, so the 5 MiB ceiling lives in
- * exactly one place.
+ * Shared numeric limits for the queue layer. Holds the single source of truth for the finder-response
+ * size cap that the REST transport ({@see RestJobTransport}) and the capabilities probe
+ * ({@see FinderCapabilitiesProbe}) default their body reader to, so the 5 MiB ceiling lives in exactly
+ * one place.
  *
  * @author  Rico Sonntag <mail@ricosonntag.de>
  * @license https://opensource.org/licenses/GPL-3.0 GNU General Public License v3.0
@@ -24,10 +24,10 @@ namespace MagicSunday\ObituaryMatcher\Queue;
 final class QueueLimits
 {
     /**
-     * The maximum number of bytes a single feeder request/response file is read into memory,
-     * guarding the queue readers against an oversized on-disk file (5 MiB).
+     * The maximum number of bytes a single finder response body is read into memory, guarding the
+     * response reader against an oversized finder response (5 MiB).
      */
-    public const int FEEDER_FILE_MAX_BYTES = 5_242_880;
+    public const int FINDER_RESPONSE_MAX_BYTES = 5_242_880;
 
     /**
      * Static-only utility: no instances.

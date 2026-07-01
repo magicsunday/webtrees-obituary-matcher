@@ -13,6 +13,7 @@ namespace MagicSunday\ObituaryMatcher\Queue;
 
 use FilesystemIterator;
 use InvalidArgumentException;
+use MagicSunday\ObituaryMatcher\Support\JobId;
 use RuntimeException;
 use SplFileInfo;
 use Throwable;
@@ -31,13 +32,13 @@ use function unlink;
 
 /**
  * Slim local record of in-flight REST transport jobs. The REST transport submits a job to a remote
- * feeder and has no shared queue directory to scan for outstanding work, so it remembers each submitted
+ * finder and has no shared queue directory to scan for outstanding work, so it remembers each submitted
  * job here as a tiny `{root}/{jobId}.json` file. The ledger is the producer side's only memory of what
  * is still pending; a consumer drains it and removes each entry once the remote result is ingested.
  *
  * Every read is poison-tolerant: a malformed, foreign or structurally invalid file is skipped, never
  * fatal, so one corrupt entry can never abort the scan. The jobId becomes a filename, so it is validated
- * against the queue's authoritative path-traversal guard ({@see QueuePaths::isJobDirectoryName()}, the
+ * against the path-safety guard ({@see JobId::isSafeForStorage()}, the
  * `^[A-Za-z0-9_-]{1,64}$` pattern) before it ever becomes a path.
  *
  * @author  Rico Sonntag <mail@ricosonntag.de>
@@ -50,7 +51,7 @@ final readonly class RestPendingLedger
      * @var int The maximum number of bytes a single ledger entry is read into memory. A ledger entry is
      *          a tiny object (jobId, treeId, a list of requested person xrefs, a timestamp); 64 KiB is
      *          generous headroom for thousands of xrefs while still bounding a hostile or corrupt file
-     *          far below the 5 MiB feeder-file cap.
+     *          far below the 5 MiB finder-file cap.
      */
     private const int ENTRY_MAX_BYTES = 65_536;
 
@@ -151,8 +152,7 @@ final readonly class RestPendingLedger
         }
 
         // A root that exists but is unreadable makes the FilesystemIterator constructor throw an
-        // UnexpectedValueException. Mirroring QueueClient::recentJobs, the scan yields nothing rather
-        // than crashing the caller.
+        // UnexpectedValueException. The scan yields nothing rather than crashing the caller.
         try {
             $iterator = new FilesystemIterator($this->root, FilesystemIterator::SKIP_DOTS);
         } catch (UnexpectedValueException) {
@@ -199,6 +199,48 @@ final readonly class RestPendingLedger
 
             yield $narrowed;
         }
+    }
+
+    /**
+     * Counts every pending ledger FILE whose basename is a path-safe jobId, regardless of whether its
+     * CONTENT narrows cleanly. A poisoned, oversized or structurally-invalid entry still represents a
+     * remote job that was submitted and not yet drained, so it counts as open here (in contrast to
+     * {@see self::entries()}/{@see self::jobIds()}, which skip such files). Returns 0 when the ledger
+     * root does not exist or cannot be read. Mirrors the {@see self::entries()} scan (FilesystemIterator
+     * + isFile + `.json` suffix, UnexpectedValueException-guarded) so a path-safe DIRECTORY named
+     * `*.json` is NOT miscounted and an unreadable root cannot break the control-panel render.
+     *
+     * @return int The number of open finder jobs in the ledger.
+     */
+    public function openJobCount(): int
+    {
+        if (!is_dir($this->root)) {
+            return 0;
+        }
+
+        $count = 0;
+
+        try {
+            foreach (new FilesystemIterator($this->root, FilesystemIterator::SKIP_DOTS) as $entry) {
+                if (!$entry instanceof SplFileInfo) {
+                    continue;
+                }
+
+                $name = $entry->getFilename();
+
+                if (
+                    $entry->isFile()
+                    && str_ends_with($name, '.json')
+                    && JobId::isSafeForStorage(substr($name, 0, -5))
+                ) {
+                    ++$count;
+                }
+            }
+        } catch (UnexpectedValueException) {
+            return 0;
+        }
+
+        return $count;
     }
 
     /**
@@ -279,10 +321,10 @@ final readonly class RestPendingLedger
     }
 
     /**
-     * Reports whether a jobId is a path-safe filename by delegating to the queue's authoritative
-     * path-traversal guard ({@see QueuePaths::isJobDirectoryName()}, the `^[A-Za-z0-9_-]{1,64}$`
-     * pattern). The guard is a stateless predicate on the candidate name, so it is called statically —
-     * reusing the single source of truth for the pattern instead of duplicating the regular expression.
+     * Reports whether a jobId is a path-safe filename by delegating to the path-safety guard
+     * ({@see JobId::isSafeForStorage()}, the `^[A-Za-z0-9_-]{1,64}$` pattern). The guard is a stateless
+     * predicate on the candidate name, so it is called statically — reusing the single source of truth
+     * for the pattern instead of duplicating the regular expression.
      *
      * @param string $jobId The candidate job identifier.
      *
@@ -290,6 +332,6 @@ final readonly class RestPendingLedger
      */
     private function isValidJobId(string $jobId): bool
     {
-        return QueuePaths::isJobDirectoryName($jobId);
+        return JobId::isSafeForStorage($jobId);
     }
 }

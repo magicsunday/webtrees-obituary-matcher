@@ -11,13 +11,12 @@ declare(strict_types=1);
 
 namespace MagicSunday\ObituaryMatcher\Queue;
 
-use MagicSunday\ObituaryMatcher\Support\FeederRequest;
+use MagicSunday\ObituaryMatcher\Support\FinderRequest;
 
 /**
- * The transport seam between the webtrees-side enqueue/drain orchestration and the work-item carrier.
- * Both the on-disk file-drop queue ({@see FileJobTransport}) and the future REST transport implement
- * it, so {@see \MagicSunday\ObituaryMatcher\Webtrees\EnqueueService} and
- * {@see \MagicSunday\ObituaryMatcher\Webtrees\DrainService} stay oblivious to where the jobs live: they
+ * Boundary between the orchestration services ({@see \MagicSunday\ObituaryMatcher\Webtrees\EnqueueService}/{@see \MagicSunday\ObituaryMatcher\Webtrees\DrainService})
+ * and the external finder job backend. Currently REST-only in production ({@see RestJobTransport});
+ * retained as the service seam and the test double point so the services stay HTTP/ledger-free: they
  * submit a request, pull completed/failed outcomes, finalise each one, and ask the transport for the
  * enqueue-side in-flight set and the drain-summary stale tally.
  *
@@ -28,20 +27,20 @@ use MagicSunday\ObituaryMatcher\Support\FeederRequest;
 interface JobTransport
 {
     /**
-     * Submits a feeder request for processing and returns the job identifier it was filed under.
+     * Submits a finder request for processing and returns the job identifier it was filed under.
      *
-     * @param FeederRequest $request The request to submit.
+     * @param FinderRequest $request The request to submit.
      *
      * @return string The submitted job's identifier.
      */
-    public function submit(FeederRequest $request): string;
+    public function submit(FinderRequest $request): string;
 
     /**
      * Yields the outcome of every completed job: a {@see CompletedJob} carrying the decoded notices
      * for a job that produced a result, or a {@see FailedJob} carrying a reason category for a job
-     * whose per-job read failed. The file transport claims each job before yielding it, so a yielded
-     * job is owned by this caller and MUST be finalised via {@see markIngested}, {@see markFailed} or
-     * {@see release}.
+     * whose per-job read failed. A yielded job is owned by this caller and MUST be finalised via
+     * {@see markIngested}, {@see markFailed} or {@see release} so the transport can retire it from the
+     * pending set.
      *
      * @return iterable<CompletedJob|FailedJob> The per-job outcomes.
      */
@@ -90,9 +89,9 @@ interface JobTransport
 
     /**
      * The number of jobs left stranded mid-ingest by an earlier run (the drain summary's stale tally).
-     * The file transport counts the directories stuck in the ingesting state; the REST transport
-     * returns 0 — its pending jobs stay pollable in the ledger and are never "claimed", so there is no
-     * stuck-in-ingesting state to count.
+     * The REST transport returns 0 — its pending jobs stay pollable in the ledger and are never
+     * "claimed" into an intermediate state, so there is no stuck-in-ingesting state to count; the count
+     * stays on the seam for a transport that DOES claim jobs and could strand one on a mid-ingest crash.
      *
      * @return int The stale job count.
      */

@@ -15,7 +15,7 @@ use DateTimeImmutable;
 use MagicSunday\ObituaryMatcher\Domain\PersonCandidate;
 
 /**
- * Assembles a schema-versioned feeder request from tree person candidates.
+ * Assembles a schema-versioned finder request from tree person candidates.
  *
  * The factory is pure: it derives each candidate's prioritised queries via the injected
  * {@see QueryGenerator} and carries no I/O or webtrees coupling.
@@ -24,7 +24,7 @@ use MagicSunday\ObituaryMatcher\Domain\PersonCandidate;
  * @license https://opensource.org/licenses/GPL-3.0 GNU General Public License v3.0
  * @link    https://github.com/magicsunday/webtrees-obituary-matcher/
  */
-final readonly class FeederRequestFactory
+final readonly class FinderRequestFactory
 {
     /**
      * The schema version stamped onto every request this factory builds.
@@ -42,7 +42,7 @@ final readonly class FeederRequestFactory
     }
 
     /**
-     * Builds a feeder request bundling each candidate's prioritised, deduplicated queries and the
+     * Builds a finder request bundling each candidate's prioritised, deduplicated queries and the
      * portals it already has an open match on.
      *
      * @param string                      $jobId                   The caller-assigned job identifier.
@@ -52,7 +52,7 @@ final readonly class FeederRequestFactory
      * @param int                         $treeId                  The numeric webtrees tree identifier the request belongs to.
      * @param array<string, list<string>> $excludedHostsByPersonId Per-personId canonical excluded hosts.
      *
-     * @return FeederRequest The assembled, serialisable request.
+     * @return FinderRequest The assembled, serialisable request.
      */
     public function build(
         string $jobId,
@@ -61,18 +61,18 @@ final readonly class FeederRequestFactory
         array $candidates,
         int $treeId,
         array $excludedHostsByPersonId = [],
-    ): FeederRequest {
+    ): FinderRequest {
         $candidateRequests = [];
 
         foreach ($candidates as $candidate) {
-            $candidateRequests[] = new FeederCandidateRequest(
+            $candidateRequests[] = new FinderCandidateRequest(
                 $candidate->id,
                 $this->queryGenerator->generate($candidate),
                 $excludedHostsByPersonId[$candidate->id] ?? [],
             );
         }
 
-        return new FeederRequest(
+        return new FinderRequest(
             self::SCHEMA_VERSION,
             $jobId,
             $createdAt,

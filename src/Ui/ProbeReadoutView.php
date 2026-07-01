@@ -26,7 +26,7 @@ final readonly class ProbeReadoutView
     /**
      * Constructor.
      *
-     * @param string                                                                        $statusKey      The probe-status key (`reachable`|`unreachable`|`invalid`|`not-applicable`); the template maps it to a label.
+     * @param string                                                                        $statusKey      The probe-status key (`reachable`|`unreachable`|`invalid`); the template maps it to a label.
      * @param int|null                                                                      $httpStatus     The observed HTTP status code, or null when no response was received.
      * @param string|null                                                                   $finderId       The finder identifier reported by the probe, or null when unknown.
      * @param string|null                                                                   $finderVersion  The finder version reported by the probe, or null when unknown.

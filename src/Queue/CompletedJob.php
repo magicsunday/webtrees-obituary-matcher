@@ -15,8 +15,8 @@ use MagicSunday\ObituaryMatcher\Domain\DeathNoticeRecord;
 
 /**
  * Transport-neutral outcome of a finder job that completed successfully: the validated death notices
- * the finder returned, keyed by the requested person id. Both the file-drop queue and the future REST
- * transport produce this same value object so the ingest path stays oblivious to the transport.
+ * the finder returned, keyed by the requested person id. The REST transport produces this value object
+ * through the {@see JobTransport} seam, so the ingest path stays oblivious to the transport.
  *
  * @author  Rico Sonntag <mail@ricosonntag.de>
  * @license https://opensource.org/licenses/GPL-3.0 GNU General Public License v3.0

@@ -12,10 +12,10 @@ declare(strict_types=1);
 namespace MagicSunday\ObituaryMatcher\Queue;
 
 use DateTimeInterface;
-use InvalidArgumentException;
 use JsonException;
-use MagicSunday\ObituaryMatcher\Support\FeederRequest;
 use MagicSunday\ObituaryMatcher\Support\FinderConnection;
+use MagicSunday\ObituaryMatcher\Support\FinderRequest;
+use MagicSunday\ObituaryMatcher\Support\JobId;
 use Psr\Http\Client\ClientExceptionInterface;
 use Psr\Http\Client\ClientInterface;
 use Psr\Http\Message\RequestFactoryInterface;
@@ -31,17 +31,15 @@ use function rtrim;
 use function sprintf;
 
 /**
- * The REST {@see JobTransport}: it submits feeder jobs to a remote HTTP endpoint and polls their
- * outcome, mapping the transport-neutral lifecycle onto plain HTTP over a PSR-18 client. Unlike the
- * file transport there is no shared queue directory to scan, so each submitted job is remembered in a
- * local {@see RestPendingLedger} and a drain polls `GET /jobs/{id}` for every still-pending entry.
+ * The REST {@see JobTransport}: it submits finder jobs to a remote HTTP endpoint and polls their
+ * outcome, mapping the transport-neutral lifecycle onto plain HTTP over a PSR-18 client. There is no
+ * shared queue directory to scan, so each submitted job is remembered in a local
+ * {@see RestPendingLedger} and a drain polls `GET /jobs/{id}` for every still-pending entry.
  *
  * The remote endpoint speaks the published #56 contract directly: `GET /jobs/{id}` returns the whole
  * `job-response` document — a top-level `state` plus `results` once the state is `done`. The body is
- * handed to the SAME {@see ResponseValidator} the file transport uses, which reads only
- * `schemaVersion`/`jobId`/`results` and ignores the extra `state` key, so a REST body and a file
- * `response.json` validate byte-identically and the per-job reason categories stay uniform across the
- * transport seam.
+ * handed to {@see ResponseValidator}, which reads only `schemaVersion`/`jobId`/`results` and ignores
+ * the extra `state` key, so the per-job reason categories stay uniform across the transport seam.
  *
  * The bearer token is a secret: it travels only in the `Authorization` header and is never written
  * into a built URL, an exception message or a log line — a transport-level failure is reported with
@@ -87,8 +85,6 @@ final readonly class RestJobTransport implements JobTransport
      * @param FinderConnection        $connection     The REST connection (base URL and optional token).
      * @param ResponseValidator       $validator      The shared, transport-neutral response validator.
      * @param int                     $maxBytes       The maximum number of response-body bytes read into memory.
-     *
-     * @throws InvalidArgumentException When the connection carries no base URL (not a REST connection).
      */
     public function __construct(
         private ClientInterface $http,
@@ -97,17 +93,9 @@ final readonly class RestJobTransport implements JobTransport
         private RestPendingLedger $ledger,
         private FinderConnection $connection,
         private ResponseValidator $validator,
-        private int $maxBytes = QueueLimits::FEEDER_FILE_MAX_BYTES,
+        private int $maxBytes = QueueLimits::FINDER_RESPONSE_MAX_BYTES,
     ) {
-        $baseUrl = $connection->baseUrl();
-
-        if ($baseUrl === null) {
-            throw new InvalidArgumentException(
-                'RestJobTransport requires a REST connection carrying a base URL.'
-            );
-        }
-
-        $this->baseUrl = rtrim($baseUrl, '/');
+        $this->baseUrl = rtrim($connection->baseUrl(), '/');
     }
 
     /**
@@ -117,14 +105,14 @@ final readonly class RestJobTransport implements JobTransport
      * can poll it. The remote must answer 202 and echo back the same jobId; a non-202 status or a
      * mismatched/absent jobId is a submission failure reported with the base URL only (never the token).
      *
-     * @param FeederRequest $request The request to submit.
+     * @param FinderRequest $request The request to submit.
      *
      * @return string The submitted job's identifier.
      *
      * @throws RuntimeException When the submission is refused, the response is unreadable or its jobId
      *                          does not match the submitted job.
      */
-    public function submit(FeederRequest $request): string
+    public function submit(FinderRequest $request): string
     {
         // POST first, record second: the job enters the local ledger only AFTER the remote has accepted
         // it (202). A drain may run concurrently with this submission (the enqueue side is a web request,
@@ -240,7 +228,7 @@ final readonly class RestJobTransport implements JobTransport
      * needed (a failed ingest takes {@see self::markFailed()}, which preserves the remote job). The ledger
      * removal is the authoritative local state, so it happens first and unconditionally; the remote DELETE
      * is wrapped so a failure or error response can never resurrect the entry. The ingest counts and
-     * warnings are the file transport's status bookkeeping and have no REST equivalent.
+     * warnings are status bookkeeping for a claim-based transport and have no REST equivalent.
      *
      * @param string             $jobId    The job identifier to finalise.
      * @param array<string, int> $counts   The per-metric ingest counts (unused by the REST transport).
@@ -259,8 +247,8 @@ final readonly class RestJobTransport implements JobTransport
      * Drops the job from the local poll set but PRESERVES it on the remote: a failed job is removed from
      * the ledger (so it is not re-polled — unless the unlink itself fails on a read-only/permission-denied
      * ledger filesystem, a bounded self-healing degradation tracked in issue #71) yet deliberately NOT
-     * deleted remotely. This mirrors the file transport, which parks a failed job in `failed-ingest/` with its
-     * payload retained rather than discarding it, so a transient local fault that surfaces as
+     * deleted remotely. Preserving the remote job rather than discarding it means a transient local fault
+     * that surfaces as
      * `ingest_failed` (a disk-full or permission error while persisting the matches) does not destroy the
      * only copy of the finder's result — the remote keeps the job for manual recovery. Only a SUCCESSFUL
      * ingest ({@see self::markIngested()}) deletes the remote job. The category and warnings have no REST
@@ -274,8 +262,8 @@ final readonly class RestJobTransport implements JobTransport
      */
     public function markFailed(string $jobId, string $reasonCategory, array $warnings = []): void
     {
-        // Remove from the ledger only — never DELETE. The remote retains the failed job so its result is
-        // recoverable, exactly as the file transport preserves a failed job's payload in failed-ingest/.
+        // Remove from the ledger only — never DELETE. The remote retains the failed job so its result
+        // stays recoverable; only a successful ingest deletes the remote job.
         $this->ledger->remove($jobId);
     }
 
@@ -327,13 +315,13 @@ final readonly class RestJobTransport implements JobTransport
      * the job (HTTP 202). A connect fault or a non-202 status means the remote did not accept the job —
      * there is nothing to compensate — and is reported with the base URL only, never the token.
      *
-     * @param FeederRequest $request The request being submitted.
+     * @param FinderRequest $request The request being submitted.
      *
      * @return ResponseInterface The accepted (202) response, for acknowledgement verification.
      *
      * @throws RuntimeException When the remote is unreachable or refuses the submission.
      */
-    private function sendSubmission(FeederRequest $request): ResponseInterface
+    private function sendSubmission(FinderRequest $request): ResponseInterface
     {
         $httpRequest = $this->request('POST', $this->baseUrl . '/jobs')
             ->withHeader('Content-Type', 'application/json')
@@ -367,13 +355,13 @@ final readonly class RestJobTransport implements JobTransport
      * the accepted remote job before surfacing it. Reported with the base URL only, never the token.
      *
      * @param ResponseInterface $response The accepted (202) response to verify.
-     * @param FeederRequest     $request  The request whose jobId the acknowledgement must echo.
+     * @param FinderRequest     $request  The request whose jobId the acknowledgement must echo.
      *
      * @return void
      *
      * @throws RuntimeException When the acknowledgement body is unreadable or names a different job.
      */
-    private function assertAcknowledged(ResponseInterface $response, FeederRequest $request): void
+    private function assertAcknowledged(ResponseInterface $response, FinderRequest $request): void
     {
         $body = $this->decodeBody($response);
 
@@ -404,7 +392,7 @@ final readonly class RestJobTransport implements JobTransport
         // originates from a path-safe source — a minted id or a ledger entry the RestPendingLedger
         // narrowed to its validated filename basename — so this guard is defence-in-depth, mirroring the
         // same path-safety the poll URL gets from the ledger rather than from a sink-local check.
-        if (!QueuePaths::isJobDirectoryName($jobId)) {
+        if (!JobId::isSafeForStorage($jobId)) {
             return;
         }
 
@@ -467,18 +455,18 @@ final readonly class RestJobTransport implements JobTransport
         try {
             return json_encode($payload, AtomicFile::JSON_ENCODE_FLAGS);
         } catch (JsonException) {
-            throw new RuntimeException('Failed to encode the feeder request payload.');
+            throw new RuntimeException('Failed to encode the finder request payload.');
         }
     }
 
     /**
-     * Extracts the requested person ids from a feeder request's candidate bundles.
+     * Extracts the requested person ids from a finder request's candidate bundles.
      *
-     * @param FeederRequest $request The request whose candidate person ids are collected.
+     * @param FinderRequest $request The request whose candidate person ids are collected.
      *
      * @return list<string> The requested person ids, in request order.
      */
-    private function personIdsOf(FeederRequest $request): array
+    private function personIdsOf(FinderRequest $request): array
     {
         $personIds = [];
 

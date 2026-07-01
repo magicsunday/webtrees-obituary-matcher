@@ -18,7 +18,7 @@ use MagicSunday\ObituaryMatcher\Matching\StoredMatch;
 
 /**
  * Seeds a tree-scoped match store with a single synthetic suggestion so a developer can see the
- * individual tab on a real instance without running the producer, feeder or scoring engine. The
+ * individual tab on a real instance without running the producer, finder or scoring engine. The
  * payload is fabricated, never derived from real obituary data: the source URL points at a reserved
  * `.example`/`.test` domain and the only fact written is the death date passed in by the caller, so
  * no third-party personal data ever reaches the store (DSGVO). The class is a static-only utility: it
