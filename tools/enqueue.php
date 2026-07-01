@@ -40,11 +40,10 @@ declare(strict_types=1);
  */
 
 use Fisharebest\Webtrees\I18N;
-use MagicSunday\ObituaryMatcher\Support\FinderConnection;
-use MagicSunday\ObituaryMatcher\Support\WebtreesInstallLocator;
 use MagicSunday\ObituaryMatcher\Webtrees\EnqueueService;
 use MagicSunday\ObituaryMatcher\Webtrees\EnqueueServiceFactory;
 use MagicSunday\ObituaryMatcher\Webtrees\HeadlessBootstrap;
+use MagicSunday\ObituaryMatcher\Webtrees\RestCliBootstrap;
 
 // This file lives in the global namespace, so `use function`/`use const` for built-ins is a no-op
 // that emits a warning under newer PHP; the built-ins are referenced unqualified directly, matching
@@ -88,13 +87,18 @@ $baseUrlOption     = $options['base-url'] ?? null;
 $tokenOption       = $options['token'] ?? null;
 $restPendingOption = $options['rest-pending'] ?? null;
 
-// --base-url is REQUIRED: the producer submits the job to the REST finder. A missing/empty base URL is
-// a misuse; fail loud.
-if (
-    !is_string($baseUrlOption)
-    || ($baseUrlOption === '')
-) {
-    fwrite(STDERR, '--base-url=<url> is required (the REST finder endpoint).' . PHP_EOL);
+// Resolve the REST wiring (the required --base-url, the in-flight ledger root and the validated finder
+// connection) through the shared bootstrap BEFORE the expensive boot, so a CLI/connection misuse fails
+// fast with a fixed hint and the token never spills into a stack trace.
+try {
+    [$connection, $restPendingRoot] = RestCliBootstrap::resolve(
+        $baseUrlOption,
+        $tokenOption,
+        $restPendingOption,
+        dirname(__DIR__),
+    );
+} catch (RuntimeException $exception) {
+    fwrite(STDERR, $exception->getMessage() . PHP_EOL);
 
     exit(1);
 }
@@ -130,39 +134,12 @@ $minAge = (is_string($minAgeOption) && ctype_digit($minAgeOption) && ((int) $min
 // non-zero. The PDOException-first arm ordering and the guarded sink live in that shared method.
 HeadlessBootstrap::bootForCli('enqueue');
 
-// Resolve the REST in-flight ledger root: the explicit --rest-pending, else the running instance's
-// default rest-pending dir resolved through the layout-independent locator (relative to this module's
-// root, which is the tools/ parent). The ledger creates the directory on first record, so a
-// default-resolved root that is merely absent is NOT an error.
-$restPendingRoot = is_string($restPendingOption)
-    ? $restPendingOption
-    : (new WebtreesInstallLocator(dirname(__DIR__)))->defaultRestPendingRoot();
-
-if (!is_string($restPendingRoot)) {
-    fwrite(STDERR, 'Could not locate the running-instance rest-pending dir beside this module; pass --rest-pending=<dir> explicitly.' . PHP_EOL);
-
-    exit(1);
-}
-
 // Resolve the locale from the booted instance language so the finder queries carry the instance's
 // configured language tag.
 $locale = I18N::languageTag();
 
-// Build the REST finder connection. A malformed --base-url (not http(s), or carrying a control
-// character) is rejected by FinderConnection::rest(); catch it and fail loud rather than letting the
-// stack trace (with the token in a header build's frame) reach STDERR.
-$token = (is_string($tokenOption) && ($tokenOption !== '')) ? $tokenOption : null;
-
-try {
-    $connection = FinderConnection::rest($baseUrlOption, $token);
-} catch (InvalidArgumentException) {
-    fwrite(STDERR, 'Invalid REST connection: --base-url must be an http(s) URL and neither --base-url nor --token may contain control characters.' . PHP_EOL);
-
-    exit(1);
-}
-
-// Assemble the producer object graph. The reference year defaults to null (the current year) — it is a
-// service-only seam with no CLI flag.
+// Assemble the producer object graph over the connection and ledger root resolved above. The reference
+// year defaults to null (the current year) — it is a service-only seam with no CLI flag.
 $enqueueService = EnqueueServiceFactory::create($connection, $restPendingRoot);
 
 try {
