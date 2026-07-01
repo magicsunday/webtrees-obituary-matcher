@@ -133,7 +133,10 @@ final class RestCliBootstrap
         // collapse to '' and are rejected together with a relative value: a relative root would resolve
         // differently across enqueue's and drain's working directories, and a root-level ledger would
         // scan/write/remove *.json entries at '/' — under a privileged cron/container touching unrelated
-        // files.
+        // files. This lexical guard targets ACCIDENTAL misuse; root-equivalent dot-segment forms ('/.',
+        // '/foo/..') are deliberately not rejected, because the root is an operator-supplied CLI argument
+        // (a trusted boundary — the operator already holds the process's filesystem access), and the only
+        // total defence, realpath(), would wrongly reject a valid nonexistent first-run root.
         $normalized = rtrim($restPendingOption, '/');
 
         if (
