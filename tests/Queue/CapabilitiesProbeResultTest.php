@@ -76,11 +76,6 @@ final class CapabilitiesProbeResultTest extends TestCase
         self::assertSame(ProbeStatus::Invalid, CapabilitiesProbeResult::invalid()->status);
         self::assertNull(CapabilitiesProbeResult::invalid()->capabilities);
         self::assertNull(CapabilitiesProbeResult::invalid()->httpStatus);
-
-        $notApplicable = CapabilitiesProbeResult::notApplicable();
-        self::assertSame(ProbeStatus::NotApplicable, $notApplicable->status);
-        self::assertNull($notApplicable->capabilities);
-        self::assertNull($notApplicable->httpStatus);
     }
 
     /**

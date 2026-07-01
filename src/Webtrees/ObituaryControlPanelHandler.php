@@ -385,10 +385,9 @@ class ObituaryControlPanelHandler implements RequestHandlerInterface
     private function probeReadout(CapabilitiesProbeResult $result): ProbeReadoutView
     {
         $statusKey = match ($result->status) {
-            ProbeStatus::Reachable     => 'reachable',
-            ProbeStatus::Unreachable   => 'unreachable',
-            ProbeStatus::Invalid       => 'invalid',
-            ProbeStatus::NotApplicable => 'not-applicable',
+            ProbeStatus::Reachable   => 'reachable',
+            ProbeStatus::Unreachable => 'unreachable',
+            ProbeStatus::Invalid     => 'invalid',
         };
 
         $capabilities = $result->capabilities;
