@@ -27,11 +27,6 @@ use MagicSunday\ObituaryMatcher\Domain\PersonCandidate;
 final readonly class FinderRequestFactory
 {
     /**
-     * The schema version stamped onto every request this factory builds.
-     */
-    public const int SCHEMA_VERSION = 3;
-
-    /**
      * Constructor.
      *
      * @param QueryGenerator $queryGenerator The pure query generator used per candidate.
@@ -44,6 +39,13 @@ final readonly class FinderRequestFactory
     /**
      * Builds a finder request bundling each candidate's prioritised, deduplicated queries and the
      * portals it already has an open match on.
+     *
+     * PRECONDITION: every candidate must carry a searchable name
+     * ({@see PersonName::hasSearchableName()}). The contract requires a non-empty `names` array per
+     * candidate, and a nameless candidate would make the whole {@see FinderRequest::toArray()} body
+     * violate the schema and be rejected by the finder. The sole caller, {@see EnqueueService::enqueue()},
+     * enforces this by skipping unsearchable candidates before this call; this factory trusts that
+     * upstream filter rather than re-checking (there is no other request-build path).
      *
      * @param string                      $jobId                   The caller-assigned job identifier.
      * @param DateTimeImmutable           $createdAt               The moment the request is assembled.
@@ -67,13 +69,13 @@ final readonly class FinderRequestFactory
         foreach ($candidates as $candidate) {
             $candidateRequests[] = new FinderCandidateRequest(
                 $candidate->id,
+                $candidate->name,
                 $this->queryGenerator->generate($candidate),
                 $excludedHostsByPersonId[$candidate->id] ?? [],
             );
         }
 
         return new FinderRequest(
-            self::SCHEMA_VERSION,
             $jobId,
             $createdAt,
             $locale,

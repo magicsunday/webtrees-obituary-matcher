@@ -28,13 +28,14 @@ use PHPUnit\Framework\TestCase;
 final class FinderRequestTest extends TestCase
 {
     /**
-     * The numeric tree identifier passed into the constructor round-trips into the serialised array.
+     * The serialised body carries the published contract top-level: the contract MAJOR (1), the job
+     * id, the locale and the candidates — and NONE of the internal envelope fields (`treeId`,
+     * `createdAt`), which stay accessible on the object for the transport ledger only.
      */
     #[Test]
-    public function treeIdRoundTripsIntoTheSerialisedArray(): void
+    public function toArrayEmitsTheContractTopLevelWithoutInternalEnvelopeFields(): void
     {
         $request = new FinderRequest(
-            2,
             'job-1',
             new DateTimeImmutable('2026-06-20T00:00:00+00:00'),
             'de-DE',
@@ -42,6 +43,17 @@ final class FinderRequestTest extends TestCase
             11,
         );
 
-        self::assertSame(11, $request->toArray()['treeId']);
+        $body = $request->toArray();
+
+        self::assertSame(1, $body['schemaVersion']);
+        self::assertSame('job-1', $body['jobId']);
+        self::assertSame('de-DE', $body['locale']);
+        self::assertSame([], $body['candidates']);
+        self::assertArrayNotHasKey('treeId', $body);
+        self::assertArrayNotHasKey('createdAt', $body);
+
+        // The internal envelope fields remain readable on the object for the RestPendingLedger.
+        self::assertSame(11, $request->treeId);
+        self::assertSame('2026-06-20T00:00:00+00:00', $request->createdAt->format('Y-m-d\TH:i:sP'));
     }
 }

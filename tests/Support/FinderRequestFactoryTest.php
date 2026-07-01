@@ -44,15 +44,16 @@ use PHPUnit\Framework\TestCase;
 final class FinderRequestFactoryTest extends TestCase
 {
     /**
-     * The factory produces a request with the correct schema version, job metadata, and per-candidate query arrays.
+     * The factory produces a contract-shaped request: the contract MAJOR (1), the job metadata, and a
+     * per-candidate body carrying the projected `names` and the pre-built `queryHints`.
      */
     #[Test]
-    public function buildsRequestWithSchemaVersionAndPerCandidateQueries(): void
+    public function buildsContractShapedRequestWithNamesAndQueryHints(): void
     {
         $c = new PersonCandidate(
             'I1',
             Gender::Female,
-            new PersonName(['Erika'], null, 'Mustermann', 'Mueller', ['Mustermann']),
+            new PersonName(['Erika'], null, 'Mustermann', 'Mueller', ['Schmidt']),
             DateRange::year(1938),
             null,
             [],
@@ -62,31 +63,46 @@ final class FinderRequestFactoryTest extends TestCase
         $req     = $factory->build('job-1', new DateTimeImmutable('2026-06-20T00:00:00+00:00'), 'de-DE', [$c], 11);
 
         $array = $req->toArray();
-        self::assertSame(3, $array['schemaVersion']);
+        self::assertSame(1, $array['schemaVersion']);
         self::assertSame('job-1', $array['jobId']);
         self::assertSame('de-DE', $array['locale']);
-        self::assertSame(11, $array['treeId']);
-        self::assertSame('I1', $array['candidates'][0]['personId']);
-        self::assertNotEmpty($array['candidates'][0]['queries']);
+        self::assertArrayNotHasKey('treeId', $array);
+        self::assertArrayNotHasKey('createdAt', $array);
 
-        // Each query is serialised with its plain text, numeric priority and dedup key. The
-        // precise array shape already proves the keys exist, so assert their values carry the
-        // generated query through unchanged.
-        $firstQuery = $array['candidates'][0]['queries'][0];
-        self::assertSame('Erika Mustermann 1938', $firstQuery['query']);
-        self::assertSame(1, $firstQuery['priority']);
-        self::assertSame('erika mustermann 1938', $firstQuery['dedupKey']);
+        $candidate = $array['candidates'][0];
+        self::assertSame('I1', $candidate['personId']);
+        self::assertArrayNotHasKey('excludedHosts', $candidate);
+        self::assertArrayNotHasKey('queries', $candidate);
+
+        // The decomposed name projects onto one entry per known form: primary (given + surname),
+        // birth (the distinct Geburtsname) and married.
+        self::assertSame(
+            [
+                ['kind' => 'primary', 'given' => 'Erika', 'surname' => 'Mustermann'],
+                ['kind' => 'birth', 'surname' => 'Mueller'],
+                ['kind' => 'married', 'surname' => 'Schmidt'],
+            ],
+            $candidate['names']
+        );
+
+        // Each query is serialised as a contract query hint with its plain text, dedup key and
+        // numeric priority carried through unchanged.
+        // The priority-1 query is given + married surname + birth year (see QueryGenerator).
+        $firstHint = $candidate['queryHints'][0];
+        self::assertSame('Erika Schmidt 1938', $firstHint['query']);
+        self::assertSame('erika schmidt 1938', $firstHint['dedupKey']);
+        self::assertSame(1, $firstHint['priority']);
     }
 
     /**
-     * The factory threads a per-personId excludedHosts map onto the matching candidate and
-     * serialises it; a candidate absent from the map serialises an empty list. Pins the
-     * schema-3 bump.
+     * The factory threads a per-personId excludedHosts map onto the matching candidate object, but the
+     * hint stays OFF the wire (not part of the published contract); a candidate absent from the map
+     * carries an empty list.
      *
      * @return void
      */
     #[Test]
-    public function buildThreadsExcludedHostsOntoTheMatchingCandidate(): void
+    public function buildThreadsExcludedHostsOntoTheCandidateObjectButNotTheWire(): void
     {
         $candidates = [
             new PersonCandidate(
@@ -118,10 +134,14 @@ final class FinderRequestFactoryTest extends TestCase
             ['I1' => ['example.test', 'other.test']],
         );
 
-        $array = $request->toArray();
+        // The hint is threaded onto the candidate object.
+        self::assertSame(['example.test', 'other.test'], $request->candidates[0]->excludedHosts);
+        self::assertSame([], $request->candidates[1]->excludedHosts);
 
-        self::assertSame(3, $array['schemaVersion']);
-        self::assertSame(['example.test', 'other.test'], $array['candidates'][0]['excludedHosts']);
-        self::assertSame([], $array['candidates'][1]['excludedHosts']);
+        // ... but never serialised onto the wire.
+        $array = $request->toArray();
+        self::assertSame(1, $array['schemaVersion']);
+        self::assertArrayNotHasKey('excludedHosts', $array['candidates'][0]);
+        self::assertArrayNotHasKey('excludedHosts', $array['candidates'][1]);
     }
 }
