@@ -23,6 +23,7 @@ use MagicSunday\ObituaryMatcher\Domain\PersonName;
 use MagicSunday\ObituaryMatcher\Domain\Place;
 use MagicSunday\ObituaryMatcher\Parsing\ObituaryDateParser;
 use MagicSunday\ObituaryMatcher\Queue\AtomicFile;
+use MagicSunday\ObituaryMatcher\Queue\BodyFault;
 use MagicSunday\ObituaryMatcher\Queue\CappedJsonBodyReader;
 use MagicSunday\ObituaryMatcher\Queue\CompletedJob;
 use MagicSunday\ObituaryMatcher\Queue\FailedJob;
@@ -67,6 +68,7 @@ use const JSON_THROW_ON_ERROR;
  */
 #[CoversClass(RestJobTransport::class)]
 #[UsesClass(RestPendingLedger::class)]
+#[UsesClass(BodyFault::class)]
 #[UsesClass(CappedJsonBodyReader::class)]
 #[UsesClass(AtomicFile::class)]
 #[UsesClass(JobId::class)]
@@ -233,50 +235,54 @@ final class RestJobTransportTest extends TempDirTestCase
     }
 
     /**
-     * A 200 whose body is not valid JSON is not a terminal signal: it is skipped and the ledger entry
-     * is kept for the next drain.
+     * A 200 whose body is not valid JSON is a PERMANENT fault: the #56 contract reproduces the stored
+     * response verbatim on every re-GET, so it is terminally failed as `response_invalid` rather than
+     * polled forever.
      *
      * @return void
      */
     #[Test]
-    public function anUndecodableBodyLeavesTheJobInFlight(): void
+    public function anUndecodableBodyIsTerminallyFailed(): void
     {
         $ledger = new RestPendingLedger($this->tmp . '/rp');
         $ledger->record('job-1', 7, ['I1'], '2024-05-21T08:29:55Z');
 
-        $http      = $this->http([static fn (): ResponseInterface => self::raw(200, '{not json')]);
-        $transport = $this->newRest($http, $ledger);
+        $http     = $this->http([static fn (): ResponseInterface => self::raw(200, '{not json')]);
+        $outcomes = iterator_to_array($this->newRest($http, $ledger)->fetchCompleted());
 
-        self::assertSame([], iterator_to_array($transport->fetchCompleted()));
-        self::assertSame(['job-1'], $ledger->jobIds());
+        self::assertCount(1, $outcomes);
+        self::assertInstanceOf(FailedJob::class, $outcomes[0]);
+        self::assertSame('response_invalid', $outcomes[0]->reasonCategory);
     }
 
     /**
-     * A 200 body larger than the byte cap is skipped (not read into memory), leaving the job in flight.
+     * A 200 body larger than the byte cap is a PERMANENT fault: the oversized stored response recurs on
+     * every re-GET, so it is terminally failed as `response_invalid`.
      *
      * @return void
      */
     #[Test]
-    public function anOversizedBodyLeavesTheJobInFlight(): void
+    public function anOversizedBodyIsTerminallyFailed(): void
     {
         $ledger = new RestPendingLedger($this->tmp . '/rp');
         $ledger->record('job-1', 7, ['I1'], '2024-05-21T08:29:55Z');
 
-        // A 50-byte cap against a normal done body (well over 50 bytes) forces the oversize skip path.
-        $http      = $this->http([fn (): ResponseInterface => self::json(200, $this->doneBody('job-1', 'I1'))]);
-        $transport = $this->newRest($http, $ledger, 50);
+        // A 50-byte cap against a normal done body (well over 50 bytes) forces the oversize path.
+        $http     = $this->http([fn (): ResponseInterface => self::json(200, $this->doneBody('job-1', 'I1'))]);
+        $outcomes = iterator_to_array($this->newRest($http, $ledger, 50)->fetchCompleted());
 
-        self::assertSame([], iterator_to_array($transport->fetchCompleted()));
-        self::assertSame(['job-1'], $ledger->jobIds());
+        self::assertCount(1, $outcomes);
+        self::assertInstanceOf(FailedJob::class, $outcomes[0]);
+        self::assertSame('response_invalid', $outcomes[0]->reasonCategory);
     }
 
     /**
-     * The response body stream is released on its two value-returning read paths — the oversize-skip
-     * (read returns null) and the full read (read returns the contents) — rather than left open until
-     * garbage collection, so a long-running drain cannot accumulate sockets/file descriptors. A closed
-     * Guzzle stream reports `isReadable() === false`; the assertion runs while the test still holds the
-     * stream, so it reflects the transport's explicit close(), not a GC teardown. The third read exit
-     * path — a torn read — is pinned separately by {@see aTornBodyReadAlsoClosesTheStream()}.
+     * The response body stream is released on its two value-returning read paths — the oversize read
+     * (BodyFault::Permanent) and the full read (the contents) — rather than left open until garbage
+     * collection, so a long-running drain cannot accumulate sockets/file descriptors. A closed Guzzle
+     * stream reports `isReadable() === false`; the assertion runs while the test still holds the stream,
+     * so it reflects the transport's explicit close(), not a GC teardown. The third read exit path — a
+     * torn read — is pinned separately by {@see aTornBodyReadAlsoClosesTheStream()}.
      *
      * @param int $maxBytes         The response-body byte cap selecting the exit path.
      * @param int $expectedOutcomes The number of outcomes the path is expected to yield.
@@ -303,16 +309,17 @@ final class RestJobTransportTest extends TempDirTestCase
 
     /**
      * The two value-returning read exit paths of {@see RestJobTransport::fetchCompleted()}: an oversized
-     * body (cap below the body size) that is skipped, and a fully read body (production cap) that yields
-     * one CompletedJob.
+     * body (cap below the body size) that is terminally failed as one FailedJob, and a fully read body
+     * (production cap) that yields one CompletedJob. Both release the stream and yield exactly one
+     * outcome.
      *
      * @return array<string, array{int, int}> The cap and the expected outcome count per path.
      */
     public static function bodyStreamCloseScenarios(): array
     {
         return [
-            'oversized body skipped (read returns null)'  => [50, 0],
-            'fully read body (read returns the contents)' => [5_242_880, 1],
+            'oversized body terminally failed (BodyFault::Permanent)' => [50, 1],
+            'fully read body (read returns the contents)'             => [5_242_880, 1],
         ];
     }
 
@@ -403,23 +410,24 @@ final class RestJobTransportTest extends TempDirTestCase
     }
 
     /**
-     * A 200 body that is valid JSON but NOT an object (a bare scalar such as `42`) is skipped, leaving
-     * the job in flight — covering the non-object decode guard that keeps a scalar from being treated as
-     * a lifecycle envelope.
+     * A 200 body that is valid JSON but NOT an object (a bare scalar such as `42`) is a PERMANENT fault:
+     * the non-object decode guard classifies it as unusable and the stored response recurs on every
+     * re-GET, so it is terminally failed as `response_invalid`.
      *
      * @return void
      */
     #[Test]
-    public function aNonObjectBodyLeavesTheJobInFlight(): void
+    public function aNonObjectBodyIsTerminallyFailed(): void
     {
         $ledger = new RestPendingLedger($this->tmp . '/rp');
         $ledger->record('job-1', 7, ['I1'], '2024-05-21T08:29:55Z');
 
-        $http      = $this->http([static fn (): ResponseInterface => self::raw(200, '42')]);
-        $transport = $this->newRest($http, $ledger);
+        $http     = $this->http([static fn (): ResponseInterface => self::raw(200, '42')]);
+        $outcomes = iterator_to_array($this->newRest($http, $ledger)->fetchCompleted());
 
-        self::assertSame([], iterator_to_array($transport->fetchCompleted()));
-        self::assertSame(['job-1'], $ledger->jobIds());
+        self::assertCount(1, $outcomes);
+        self::assertInstanceOf(FailedJob::class, $outcomes[0]);
+        self::assertSame('response_invalid', $outcomes[0]->reasonCategory);
     }
 
     /**

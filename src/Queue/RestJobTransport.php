@@ -150,8 +150,10 @@ final readonly class RestJobTransport implements JobTransport
      * and yields nothing; a 404 yields a `finder_job_missing` {@see FailedJob}; a 200 is decoded and
      * branched on the top-level `state` — `queued`/`running` skip, `failed` yields `finder_failed`,
      * and `done` validates the body (a validation reject → `response_invalid`, otherwise a
-     * {@see CompletedJob}). An undecodable or oversized 200 body, or an unknown state, is treated as
-     * not-yet-ready and skipped so a job is only ever terminally failed on an explicit signal.
+     * {@see CompletedJob}). A 200 whose body a torn mid-read leaves {@see BodyFault::Transient} is kept
+     * and retried; one that is {@see BodyFault::Permanent} (oversized, malformed or non-object — the #56
+     * contract reproduces it verbatim on every re-GET) is terminally failed as `response_invalid` rather
+     * than polled forever. An unknown or non-string state is treated as not-yet-ready and skipped.
      *
      * @return iterable<CompletedJob|FailedJob> The per-job outcomes.
      */
@@ -186,8 +188,14 @@ final readonly class RestJobTransport implements JobTransport
 
             $body = $this->decodeBody($response);
 
-            if ($body === null) {
-                // An undecodable or oversized 200 body is not a terminal signal — skip and retry.
+            if ($body instanceof BodyFault) {
+                if ($body === BodyFault::Permanent) {
+                    // The stored response is unusable and the contract will reproduce it verbatim on every
+                    // re-GET; terminally fail it so it leaves the poll set instead of being polled forever.
+                    yield new FailedJob($jobId, $treeId, $personIds, 'response_invalid');
+                }
+
+                // Transient torn read: keep the ledger entry and retry on the next drain.
                 continue;
             }
 
@@ -366,7 +374,7 @@ final readonly class RestJobTransport implements JobTransport
         $body = $this->decodeBody($response);
 
         if (
-            ($body === null)
+            ($body instanceof BodyFault)
             || (($body['jobId'] ?? null) !== $request->jobId)
         ) {
             throw new RuntimeException(
@@ -426,16 +434,18 @@ final readonly class RestJobTransport implements JobTransport
     }
 
     /**
-     * Reads a response body under the byte cap and decodes it to a JSON object, or returns null when the
-     * body exceeds the cap, is torn mid-read, is not valid JSON, or does not decode to an object. Delegates
-     * to the shared {@see CappedJsonBodyReader} so the capabilities probe and this transport apply one
-     * audited capped-read-and-close discipline.
+     * Reads a response body under the byte cap and decodes it to a JSON object, or returns a
+     * {@see BodyFault} when the body is unusable — {@see BodyFault::Transient} for a torn mid-read a re-GET
+     * may recover, {@see BodyFault::Permanent} for a body that exceeds the cap, is not valid JSON, or does
+     * not decode to an object. Delegates to the shared {@see CappedJsonBodyReader} so the capabilities
+     * probe and this transport apply one audited capped-read-and-close discipline.
      *
      * @param ResponseInterface $response The response whose body is read.
      *
-     * @return array<int|string, mixed>|null The decoded object, or null when it is unusable.
+     * @return array<int|string, mixed>|BodyFault The decoded object, or the fault classifying why it is
+     *                                            unusable.
      */
-    private function decodeBody(ResponseInterface $response): ?array
+    private function decodeBody(ResponseInterface $response): array|BodyFault
     {
         return CappedJsonBodyReader::decode($response, $this->maxBytes);
     }
