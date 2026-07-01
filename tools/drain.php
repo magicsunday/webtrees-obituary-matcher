@@ -18,25 +18,28 @@ declare(strict_types=1);
  * outcome to an exit code.
  *
  * `--tree` is the NUMERIC webtrees tree id (the integer primary key); when omitted every tree is
- * drained. `--base-url` is REQUIRED: the REST base URL of the obituary finder, and `--token` is the
- * optional bearer token. `--rest-pending` is the in-flight ledger root directory (defaults to the
- * running instance's `data/obituary-matcher/rest-pending`, resolved relative to this module's install
- * location). `--limit` caps the number of done jobs processed this run (default 20). All are `=`-form
- * long options. The `--base-url`/`--token` MUST match the control-panel finder config (reading
- * persisted module preferences from the CLI is deferred — it needs CLI module-instance resolution).
+ * drained. The finder connection (REST base URL and optional bearer token) is NOT passed on the command
+ * line: it is read from the SAVED control-panel config of the registered module, under the same REST
+ * consent gate the admin UI enforces, so the module must have REST configured and enabled
+ * (`finder_transport === 'rest'` plus a valid stored base URL) or this adapter refuses to run. This keeps
+ * the token strictly out of argv and logs — it lives only in the persisted preference and the outbound
+ * Authorization header. `--rest-pending` is the in-flight ledger root directory (defaults to the running
+ * instance's `data/obituary-matcher/rest-pending`, resolved relative to this module's install location).
+ * `--limit` caps the number of done jobs processed this run (default 20). All are `=`-form long options.
  *
  * Usage:
- *   php tools/drain.php --base-url=https://finder.example [--token=secret]
- *       [--tree=1] [--rest-pending=/path/to/rest-pending] [--limit=20]
+ *   php tools/drain.php [--tree=1] [--rest-pending=/path/to/rest-pending] [--limit=20]
  *
- * Exit codes: 0 when no job failed, 1 when the boot fails, `--base-url` is missing/invalid, the ledger
- * root cannot be located, or any job moved to failed-ingest.
+ * Exit codes: 0 when no job failed, 1 when the boot fails, the module is not installed/enabled, the
+ * finder connection is not configured, the ledger root cannot be located, or any job moved to
+ * failed-ingest.
  *
  * @author  Rico Sonntag <mail@ricosonntag.de>
  * @license https://opensource.org/licenses/GPL-3.0 GNU General Public License v3.0
  * @link    https://github.com/magicsunday/webtrees-obituary-matcher/
  */
 
+use MagicSunday\ObituaryMatcher\Webtrees\CliModuleResolver;
 use MagicSunday\ObituaryMatcher\Webtrees\DrainServiceFactory;
 use MagicSunday\ObituaryMatcher\Webtrees\HeadlessBootstrap;
 use MagicSunday\ObituaryMatcher\Webtrees\RestCliBootstrap;
@@ -55,8 +58,6 @@ require __DIR__ . '/autoload.php';
 $options = getopt('', [
     'tree::',
     'limit::',
-    'base-url::',
-    'token::',
     'rest-pending::',
 ]);
 $options = $options === false ? [] : $options;
@@ -64,7 +65,7 @@ $options = $options === false ? [] : $options;
 // The optional-value (`::`) long options parse as `false` when passed without the `=` form
 // (`--tree 1`); reject that explicitly so a malformed flag gets a precise hint rather than being
 // silently coerced to its default below.
-foreach (['tree', 'limit', 'base-url', 'token', 'rest-pending'] as $flag) {
+foreach (['tree', 'limit', 'rest-pending'] as $flag) {
     if (
         array_key_exists($flag, $options)
         && !is_string($options[$flag])
@@ -77,25 +78,7 @@ foreach (['tree', 'limit', 'base-url', 'token', 'rest-pending'] as $flag) {
 
 $treeOption        = $options['tree'] ?? null;
 $limitOption       = $options['limit'] ?? null;
-$baseUrlOption     = $options['base-url'] ?? null;
-$tokenOption       = $options['token'] ?? null;
 $restPendingOption = $options['rest-pending'] ?? null;
-
-// Resolve the REST wiring (the required --base-url, the in-flight ledger root and the validated finder
-// connection) through the shared bootstrap BEFORE the expensive boot, so a CLI/connection misuse fails
-// fast with a fixed hint and the token never spills into a stack trace.
-try {
-    [$connection, $restPendingRoot] = RestCliBootstrap::resolve(
-        $baseUrlOption,
-        $tokenOption,
-        $restPendingOption,
-        dirname(__DIR__),
-    );
-} catch (RuntimeException $exception) {
-    fwrite(STDERR, $exception->getMessage() . PHP_EOL);
-
-    exit(1);
-}
 
 // A non-numeric --tree is a typo (or a `../`-style segment); fail loud instead of coercing it to
 // tree-0 via the (int) cast. An absent --tree means "every tree".
@@ -122,6 +105,32 @@ $limit = (is_string($limitOption) && ctype_digit($limitOption) && ((int) $limitO
 // routes the raw detail to the guarded error_log sink (the privacy-critical S46 handling) and exits
 // non-zero. The PDOException-first arm ordering and the guarded sink live in that shared method.
 HeadlessBootstrap::bootForCli('drain');
+
+// Resolve the REGISTERED module instance so the finder connection reads the SAME saved control-panel
+// preferences the admin UI wrote. Module discovery needs the booted runtime, so it runs after the boot.
+$module = CliModuleResolver::resolveActiveModule();
+
+if ($module === null) {
+    fwrite(STDERR, 'The obituary-matcher module is not installed or enabled in this webtrees instance.' . PHP_EOL);
+
+    exit(1);
+}
+
+// Resolve the REST wiring (the validated finder connection from the persisted config and the in-flight
+// ledger root) through the shared bootstrap. The connection is read from the saved control-panel config
+// under the same REST consent gate the admin UI enforces; a not-configured/disabled connection fails
+// fast with a fixed hint and the token never spills into argv or a stack trace.
+try {
+    [$connection, $restPendingRoot] = RestCliBootstrap::resolve(
+        $module,
+        $restPendingOption,
+        dirname(__DIR__),
+    );
+} catch (RuntimeException $exception) {
+    fwrite(STDERR, $exception->getMessage() . PHP_EOL);
+
+    exit(1);
+}
 
 // Assemble the drain graph over the connection and ledger root resolved above via its composition root
 // (the per-job store is wired inside DrainService).

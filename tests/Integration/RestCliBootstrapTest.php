@@ -9,15 +9,17 @@
 
 declare(strict_types=1);
 
-namespace MagicSunday\ObituaryMatcher\Test\Webtrees;
+namespace MagicSunday\ObituaryMatcher\Test\Integration;
 
+use Fisharebest\Webtrees\DB;
 use MagicSunday\ObituaryMatcher\Support\FinderConnection;
+use MagicSunday\ObituaryMatcher\Support\FinderConnectionResolver;
 use MagicSunday\ObituaryMatcher\Support\WebtreesInstallLocator;
+use MagicSunday\ObituaryMatcher\Webtrees\ObituaryMatcherModule;
 use MagicSunday\ObituaryMatcher\Webtrees\RestCliBootstrap;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\Attributes\UsesClass;
-use PHPUnit\Framework\TestCase;
 use RuntimeException;
 
 use function preg_quote;
@@ -26,9 +28,13 @@ use function uniqid;
 
 /**
  * Verifies the shared REST CLI bootstrap that `tools/enqueue.php` and `tools/drain.php` both use to
- * resolve their finder connection and ledger root: a valid option set yields the connection and the
- * explicit ledger root, and each misuse (missing base URL, unlocatable default ledger root, invalid
- * connection) throws a RuntimeException carrying the exact operator-facing hint — never the token.
+ * resolve their finder connection and ledger root. After the config-only cutover the connection is read
+ * from the PERSISTED module preferences (under the same REST consent gate the admin control panel
+ * enforces), NOT from `--base-url`/`--token` arguments: a module with `finder_transport === 'rest'` and a
+ * valid stored base URL yields the connection; a module with the transport unset/`'file'` or a
+ * stored-but-invalid base URL throws the not-configured hint (never echoing the stored credentials); and
+ * the `--rest-pending` absolute/empty/root/relative/default guards still hold once the connection
+ * resolves. It is an integration test because the module's preferences are DB-backed.
  *
  * @author  Rico Sonntag <mail@ricosonntag.de>
  * @license https://opensource.org/licenses/GPL-3.0 GNU General Public License v3.0
@@ -36,9 +42,57 @@ use function uniqid;
  */
 #[CoversClass(RestCliBootstrap::class)]
 #[UsesClass(FinderConnection::class)]
+#[UsesClass(FinderConnectionResolver::class)]
 #[UsesClass(WebtreesInstallLocator::class)]
-final class RestCliBootstrapTest extends TestCase
+final class RestCliBootstrapTest extends IntegrationTestCase
 {
+    /**
+     * The module instance under test, with a stable name so its preferences resolve to a seeded row.
+     */
+    private ObituaryMatcherModule $module;
+
+    /**
+     * Builds a module with a stable name and seeds its `module` row so the preference writes have their
+     * required foreign-key target.
+     *
+     * @return void
+     */
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        $this->module = new ObituaryMatcherModule();
+        // The webtrees `module.module_name` column is VARCHAR(32); keep the name within it so a settings
+        // write does not truncate on MySQL (SQLite does not enforce the length).
+        $this->module->setName('obituary-matcher-cli-test');
+
+        // module_setting.module_name carries a foreign key onto the module table, so a settings write
+        // needs a matching module row.
+        DB::table('module')->insert([
+            'module_name' => $this->module->name(),
+            'status'      => 'enabled',
+        ]);
+    }
+
+    /**
+     * Configures the module with a valid REST connection (the consent marker plus a base URL and, when
+     * given, a token).
+     *
+     * @param string      $baseUrl The base URL to persist.
+     * @param string|null $token   The token to persist, or null to leave it unset.
+     *
+     * @return void
+     */
+    private function configureRest(string $baseUrl, ?string $token = null): void
+    {
+        $this->module->setPreference('finder_transport', 'rest');
+        $this->module->setPreference('finder_base_url', $baseUrl);
+
+        if ($token !== null) {
+            $this->module->setPreference('finder_token', $token);
+        }
+    }
+
     /**
      * Builds a throwaway absolute ledger root under the system temp dir (the repo convention), unique per
      * call so parallel workers never collide. resolve() never touches the filesystem for an explicit
@@ -52,22 +106,18 @@ final class RestCliBootstrapTest extends TestCase
     }
 
     /**
-     * A valid base URL, token and explicit ledger root resolve to a REST connection carrying the base
-     * URL and token, plus the given ledger root verbatim.
+     * A module carrying a valid persisted REST connection and an explicit ledger root resolves to a REST
+     * connection carrying the stored base URL and token, plus the given ledger root verbatim.
      *
      * @return void
      */
     #[Test]
-    public function aValidOptionSetResolvesTheConnectionAndExplicitLedgerRoot(): void
+    public function aConfiguredRestModuleResolvesTheConnectionAndExplicitLedgerRoot(): void
     {
+        $this->configureRest('https://finder.example', 'secret-token');
         $ledgerRoot = $this->ledgerRoot();
 
-        [$connection, $restPendingRoot] = RestCliBootstrap::resolve(
-            'https://finder.example',
-            'secret-token',
-            $ledgerRoot,
-            sys_get_temp_dir(),
-        );
+        [$connection, $restPendingRoot] = RestCliBootstrap::resolve($this->module, $ledgerRoot, sys_get_temp_dir());
 
         self::assertSame('https://finder.example', $connection->baseUrl());
         self::assertSame('secret-token', $connection->token());
@@ -75,64 +125,95 @@ final class RestCliBootstrapTest extends TestCase
     }
 
     /**
-     * An absent or empty token resolves to a connection with no token (a blank field is not a token).
+     * A configured REST connection with no stored token resolves to a connection without a token (a blank
+     * preference is not a token).
      *
      * @return void
      */
     #[Test]
-    public function anAbsentOrEmptyTokenResolvesToNoToken(): void
+    public function anAbsentTokenResolvesToNoToken(): void
     {
-        $ledgerRoot = $this->ledgerRoot();
+        $this->configureRest('https://finder.example');
 
-        [$connectionForNull]  = RestCliBootstrap::resolve('https://finder.example', null, $ledgerRoot, sys_get_temp_dir());
-        [$connectionForBlank] = RestCliBootstrap::resolve('https://finder.example', '', $ledgerRoot, sys_get_temp_dir());
+        [$connection] = RestCliBootstrap::resolve($this->module, $this->ledgerRoot(), sys_get_temp_dir());
 
-        self::assertNull($connectionForNull->token());
-        self::assertNull($connectionForBlank->token());
+        self::assertNull($connection->token());
     }
 
     /**
-     * A missing base URL is a misuse: it throws the required-base-URL hint rather than building a
-     * connection.
+     * A module with no finder configuration (the unset-default transport) throws the not-configured hint
+     * rather than building a connection: REST activates only on explicit consent.
      *
      * @return void
      */
     #[Test]
-    public function aMissingBaseUrlThrowsTheRequiredHint(): void
-    {
-        $this->expectException(RuntimeException::class);
-        $this->expectExceptionMessageMatches('/' . preg_quote('--base-url=<url> is required', '/') . '/');
-
-        RestCliBootstrap::resolve(null, null, $this->ledgerRoot(), sys_get_temp_dir());
-    }
-
-    /**
-     * An empty base URL is likewise a misuse and throws the required-base-URL hint.
-     *
-     * @return void
-     */
-    #[Test]
-    public function anEmptyBaseUrlThrowsTheRequiredHint(): void
+    public function anUnconfiguredModuleThrowsTheNotConfiguredHint(): void
     {
         $this->expectException(RuntimeException::class);
-        $this->expectExceptionMessageMatches('/' . preg_quote('--base-url=<url> is required', '/') . '/');
+        $this->expectExceptionMessageMatches('/' . preg_quote('The finder connection is not configured', '/') . '/');
 
-        RestCliBootstrap::resolve('', null, $this->ledgerRoot(), sys_get_temp_dir());
+        RestCliBootstrap::resolve($this->module, $this->ledgerRoot(), sys_get_temp_dir());
     }
 
     /**
-     * An explicit but empty --rest-pending is a misuse: it throws the absolute-path hint rather than
-     * handing an empty ledger root to the transport.
+     * A legacy `file`-transport install with retained REST creds throws the not-configured hint: the
+     * dormant creds are never silently reactivated by the CLI. The retained token must not surface in the
+     * operator hint.
+     *
+     * @return void
+     */
+    #[Test]
+    public function aLegacyFileTransportThrowsTheNotConfiguredHintWithoutEchoingTheToken(): void
+    {
+        $this->module->setPreference('finder_transport', 'file');
+        $this->module->setPreference('finder_base_url', 'https://finder.example');
+        $this->module->setPreference('finder_token', 'retained-secret');
+
+        try {
+            RestCliBootstrap::resolve($this->module, $this->ledgerRoot(), sys_get_temp_dir());
+            self::fail('Expected a RuntimeException for a legacy file-transport install.');
+        } catch (RuntimeException $exception) {
+            self::assertStringContainsString('The finder connection is not configured', $exception->getMessage());
+            self::assertStringNotContainsString('retained-secret', $exception->getMessage());
+        }
+    }
+
+    /**
+     * A stored-but-invalid base URL (a non-http(s) scheme the FinderConnection source rejects) throws the
+     * not-configured hint rather than escaping as an exception, and the hint never echoes the stored
+     * token.
+     *
+     * @return void
+     */
+    #[Test]
+    public function aStoredInvalidBaseUrlThrowsTheNotConfiguredHintWithoutEchoingTheToken(): void
+    {
+        $this->configureRest('ftp://nope', 'secret-token');
+
+        try {
+            RestCliBootstrap::resolve($this->module, $this->ledgerRoot(), sys_get_temp_dir());
+            self::fail('Expected a RuntimeException for a stored-but-invalid base URL.');
+        } catch (RuntimeException $exception) {
+            self::assertStringContainsString('The finder connection is not configured', $exception->getMessage());
+            self::assertStringNotContainsString('secret-token', $exception->getMessage());
+        }
+    }
+
+    /**
+     * An explicit but empty --rest-pending is a misuse: with a valid connection configured it still throws
+     * the absolute-path hint rather than handing an empty ledger root to the transport.
      *
      * @return void
      */
     #[Test]
     public function anEmptyExplicitLedgerRootIsRejected(): void
     {
+        $this->configureRest('https://finder.example');
+
         $this->expectException(RuntimeException::class);
         $this->expectExceptionMessageMatches('/' . preg_quote('--rest-pending must be an absolute path', '/') . '/');
 
-        RestCliBootstrap::resolve('https://finder.example', null, '', sys_get_temp_dir());
+        RestCliBootstrap::resolve($this->module, '', sys_get_temp_dir());
     }
 
     /**
@@ -144,10 +225,12 @@ final class RestCliBootstrapTest extends TestCase
     #[Test]
     public function aRelativeExplicitLedgerRootIsRejected(): void
     {
+        $this->configureRest('https://finder.example');
+
         $this->expectException(RuntimeException::class);
         $this->expectExceptionMessageMatches('/' . preg_quote('--rest-pending must be an absolute path', '/') . '/');
 
-        RestCliBootstrap::resolve('https://finder.example', null, 'relative/rest-pending', sys_get_temp_dir());
+        RestCliBootstrap::resolve($this->module, 'relative/rest-pending', sys_get_temp_dir());
     }
 
     /**
@@ -160,10 +243,12 @@ final class RestCliBootstrapTest extends TestCase
     #[Test]
     public function aFilesystemRootLedgerRootIsRejected(): void
     {
+        $this->configureRest('https://finder.example');
+
         $this->expectException(RuntimeException::class);
         $this->expectExceptionMessageMatches('/' . preg_quote('--rest-pending must be an absolute path', '/') . '/');
 
-        RestCliBootstrap::resolve('https://finder.example', null, '/', sys_get_temp_dir());
+        RestCliBootstrap::resolve($this->module, '/', sys_get_temp_dir());
     }
 
     /**
@@ -175,9 +260,10 @@ final class RestCliBootstrapTest extends TestCase
     #[Test]
     public function aTrailingSeparatorOnTheLedgerRootIsNormalised(): void
     {
+        $this->configureRest('https://finder.example');
+
         [, $restPendingRoot] = RestCliBootstrap::resolve(
-            'https://finder.example',
-            null,
+            $this->module,
             '/var/lib/webtrees/rest-pending/',
             sys_get_temp_dir(),
         );
@@ -194,28 +280,12 @@ final class RestCliBootstrapTest extends TestCase
     #[Test]
     public function anUnlocatableDefaultLedgerRootThrowsThePassExplicitHint(): void
     {
+        $this->configureRest('https://finder.example');
+
         $this->expectException(RuntimeException::class);
         $this->expectExceptionMessageMatches('/' . preg_quote('Could not locate the running-instance rest-pending dir', '/') . '/');
 
         // sys_get_temp_dir() is not beside a webtrees config, so the locator cannot resolve a default.
-        RestCliBootstrap::resolve('https://finder.example', null, null, sys_get_temp_dir());
-    }
-
-    /**
-     * A base URL whose scheme is not http(s) is rejected at the FinderConnection source, surfaced as the
-     * fixed invalid-connection hint. The hint must not echo the token.
-     *
-     * @return void
-     */
-    #[Test]
-    public function anInvalidConnectionThrowsTheFixedHintWithoutEchoingTheToken(): void
-    {
-        try {
-            RestCliBootstrap::resolve('file:///etc/passwd', 'secret-token', $this->ledgerRoot(), sys_get_temp_dir());
-            self::fail('Expected a RuntimeException for a non-http(s) base URL.');
-        } catch (RuntimeException $exception) {
-            self::assertStringContainsString('Invalid REST connection', $exception->getMessage());
-            self::assertStringNotContainsString('secret-token', $exception->getMessage());
-        }
+        RestCliBootstrap::resolve($this->module, null, sys_get_temp_dir());
     }
 }
