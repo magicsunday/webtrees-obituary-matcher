@@ -11,22 +11,19 @@ declare(strict_types=1);
 
 namespace MagicSunday\ObituaryMatcher\Test\Integration;
 
-use function is_dir;
-use function is_link;
+use MagicSunday\ObituaryMatcher\Test\Support\RemovesFlatTempStoreTrait;
+
 use function mkdir;
-use function rmdir;
-use function scandir;
-use function sys_get_temp_dir;
-use function uniqid;
-use function unlink;
 
 /**
  * Shared plumbing for the store-coupled integration harnesses ({@see AbstractDrainTestCase} and
  * {@see AbstractEnqueueTestCase}): an isolated per-tree match-store root, created in {@see setUp()} and
  * recursively removed in {@see tearDown()}, so the assertions never touch the live webtrees data dir.
- * The transport is a {@see RecordingJobTransport} double, so the harness no longer lays out an on-disk
- * queue. The temp-dir leaf prefix is the one knob each concrete harness varies so its scenarios get a
- * distinct, identifiable working directory.
+ * The recursive temp-store teardown is shared with the other suites through
+ * {@see RemovesFlatTempStoreTrait} (this harness extends {@see IntegrationTestCase}, so the shared
+ * behaviour is a trait rather than a common base). The transport is a {@see RecordingJobTransport}
+ * double, so the harness no longer lays out an on-disk queue. The temp-dir leaf prefix is the one knob
+ * each concrete harness varies so its scenarios get a distinct, identifiable working directory.
  *
  * @author  Rico Sonntag <mail@ricosonntag.de>
  * @license https://opensource.org/licenses/GPL-3.0 GNU General Public License v3.0
@@ -34,13 +31,16 @@ use function unlink;
  */
 abstract class AbstractStoreTestCase extends IntegrationTestCase
 {
+    use RemovesFlatTempStoreTrait;
+
     /**
      * @var string The throwaway per-tree match-store base directory, isolated from the live data dir.
      */
     protected string $storeRoot;
 
     /**
-     * Create the throwaway store root.
+     * Create the throwaway store root. The trait records the path for the recursive teardown; it does not
+     * create the directory, so it is made here.
      *
      * @return void
      */
@@ -48,19 +48,19 @@ abstract class AbstractStoreTestCase extends IntegrationTestCase
     {
         parent::setUp();
 
-        $this->storeRoot = sys_get_temp_dir() . '/' . $this->tempDirPrefix() . uniqid('', true);
+        $this->storeRoot = $this->makeFlatStoreDir($this->tempDirPrefix());
 
         mkdir($this->storeRoot, 0o700, true);
     }
 
     /**
-     * Remove the throwaway store root.
+     * Remove the throwaway store root and everything below it.
      *
      * @return void
      */
     protected function tearDown(): void
     {
-        $this->removeRecursively($this->storeRoot);
+        $this->removeFlatStoreDir();
 
         parent::tearDown();
     }
@@ -72,48 +72,4 @@ abstract class AbstractStoreTestCase extends IntegrationTestCase
      * @return string The temp-dir leaf prefix.
      */
     abstract protected function tempDirPrefix(): string;
-
-    /**
-     * Recursively remove a directory tree.
-     *
-     * @param string $directory The directory to remove.
-     *
-     * @return void
-     */
-    protected function removeRecursively(string $directory): void
-    {
-        if (!is_dir($directory)) {
-            return;
-        }
-
-        $entries = scandir($directory);
-
-        if ($entries === false) {
-            $entries = [];
-        }
-
-        foreach ($entries as $entry) {
-            if (
-                ($entry === '.')
-                || ($entry === '..')
-            ) {
-                continue;
-            }
-
-            $path = $directory . '/' . $entry;
-
-            // A symlink to a directory reports is_dir() === true; recursing into it would delete the
-            // LINK TARGET's contents outside the temp dir. Unlink the link itself instead of traversing.
-            if (
-                is_dir($path)
-                && !is_link($path)
-            ) {
-                $this->removeRecursively($path);
-            } else {
-                unlink($path);
-            }
-        }
-
-        rmdir($directory);
-    }
 }
