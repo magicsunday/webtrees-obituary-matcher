@@ -16,6 +16,7 @@ use MagicSunday\ObituaryMatcher\Domain\PersonName;
 use function array_slice;
 use function count;
 use function implode;
+use function max;
 use function mb_substr;
 use function trim;
 
@@ -125,8 +126,8 @@ final readonly class FinderCandidateRequest
             }
         }
 
-        $given   = mb_substr(implode(' ', $cleanGivenNames), 0, self::MAX_NAME_FIELD_LENGTH, 'UTF-8');
-        $surname = mb_substr(trim($this->name->surname), 0, self::MAX_NAME_FIELD_LENGTH, 'UTF-8');
+        $given   = $this->boundedNameField(implode(' ', $cleanGivenNames));
+        $surname = $this->boundedNameField($this->name->surname);
         $primary = ['kind' => 'primary'];
 
         if ($given !== '') {
@@ -143,25 +144,25 @@ final readonly class FinderCandidateRequest
             $entries[] = $primary;
         }
 
-        $birthSurname = ($this->name->birthSurname === null) ? '' : trim($this->name->birthSurname);
+        $birthSurname = ($this->name->birthSurname === null) ? '' : $this->boundedNameField($this->name->birthSurname);
 
         if ($birthSurname !== '') {
-            $entries[] = ['kind' => 'birth', 'surname' => mb_substr($birthSurname, 0, self::MAX_NAME_FIELD_LENGTH, 'UTF-8')];
+            $entries[] = ['kind' => 'birth', 'surname' => $birthSurname];
         }
 
         foreach ($this->name->marriedSurnames as $marriedSurname) {
-            $trimmedMarried = trim($marriedSurname);
+            $married = $this->boundedNameField($marriedSurname);
 
-            if ($trimmedMarried !== '') {
-                $entries[] = ['kind' => 'married', 'surname' => mb_substr($trimmedMarried, 0, self::MAX_NAME_FIELD_LENGTH, 'UTF-8')];
+            if ($married !== '') {
+                $entries[] = ['kind' => 'married', 'surname' => $married];
             }
         }
 
         foreach ($this->name->aliases as $alias) {
-            $trimmedAlias = trim($alias);
+            $boundedAlias = $this->boundedNameField($alias);
 
-            if ($trimmedAlias !== '') {
-                $entries[] = ['kind' => 'alias', 'full' => mb_substr($trimmedAlias, 0, self::MAX_NAME_FIELD_LENGTH, 'UTF-8')];
+            if ($boundedAlias !== '') {
+                $entries[] = ['kind' => 'alias', 'full' => $boundedAlias];
             }
         }
 
@@ -173,15 +174,14 @@ final readonly class FinderCandidateRequest
     }
 
     /**
-     * Serialises the prioritised queries into contract query-hint entries (query + dedupKey required,
-     * priority carried through). Each field is truncated to its contract maximum
-     * ({@see self::MAX_QUERY_LENGTH}, {@see self::MAX_DEDUP_KEY_LENGTH}); a query whose dedupKey
-     * normalises to an empty string is skipped (the schema's `minLength: 1`), and the list is capped
+     * Serialises the prioritised queries into contract query-hint entries. Each of `query`/`dedupKey` is
+     * trimmed and truncated to its contract maximum ({@see self::MAX_QUERY_LENGTH},
+     * {@see self::MAX_DEDUP_KEY_LENGTH}); a hint whose `query` or `dedupKey` ends up blank is skipped (the
+     * schema's `minLength: 1`), `priority` is clamped to the schema minimum of 1, and the list is capped
      * to the first {@see self::MAX_QUERY_HINTS} (the queries arrive priority-ordered, so the least
-     * important hints are the ones dropped). `queryHints` is optional with no `minItems`, so an empty
-     * list stays contract-valid. The queries come from {@see QueryGenerator}, the sole producer, which
-     * never emits an empty `query` and always assigns `priority >= 1`; this projection bounds length and
-     * count and drops an empty-dedupKey hint, but trusts that producer for the `query`/`priority` minima.
+     * important hints are the ones dropped). `queryHints` is optional with no `minItems`, so a blank list
+     * stays contract-valid — the projection is therefore total: it emits a schema-valid hint list for any
+     * {@see CandidateQuery} contents (production queries come from {@see QueryGenerator}).
      *
      * @return list<array{query: string, dedupKey: string, priority: int}> The query hints.
      */
@@ -190,18 +190,25 @@ final readonly class FinderCandidateRequest
         $hints = [];
 
         foreach ($this->queries as $query) {
-            $dedupKey = mb_substr($query->dedupKey, 0, self::MAX_DEDUP_KEY_LENGTH, 'UTF-8');
+            $queryText = trim(mb_substr($query->query, 0, self::MAX_QUERY_LENGTH, 'UTF-8'));
+            $dedupKey  = trim(mb_substr($query->dedupKey, 0, self::MAX_DEDUP_KEY_LENGTH, 'UTF-8'));
 
-            // A QueryHint.dedupKey must be non-empty; a strip-word-only query normalises to '' — skip
-            // it rather than emit a schema-invalid hint.
+            // A QueryHint requires a non-empty `query` and `dedupKey` (the schema's `minLength: 1`); a
+            // strip-word-only query normalises to an empty dedupKey. Skip such a hint rather than emit a
+            // schema-invalid one — `queryHints` is optional, so dropping it stays contract-valid.
+            if ($queryText === '') {
+                continue;
+            }
+
             if ($dedupKey === '') {
                 continue;
             }
 
             $hints[] = [
-                'query'    => mb_substr($query->query, 0, self::MAX_QUERY_LENGTH, 'UTF-8'),
+                'query'    => $queryText,
                 'dedupKey' => $dedupKey,
-                'priority' => $query->priority,
+                // priority has a schema minimum of 1 (absent defaults to 1); clamp a non-positive value.
+                'priority' => max(1, $query->priority),
             ];
 
             if (count($hints) === self::MAX_QUERY_HINTS) {
@@ -210,5 +217,19 @@ final readonly class FinderCandidateRequest
         }
 
         return $hints;
+    }
+
+    /**
+     * Trims, truncates to the contract name-field maximum ({@see self::MAX_NAME_FIELD_LENGTH}) and trims
+     * again, so neither a padded source value nor a truncation landing on a space leaves a leading or
+     * trailing blank on the wire. UTF-8 keeps the cut on a character boundary.
+     *
+     * @param string $value The raw name token.
+     *
+     * @return string The trimmed, length-bounded name value (possibly empty).
+     */
+    private function boundedNameField(string $value): string
+    {
+        return trim(mb_substr(trim($value), 0, self::MAX_NAME_FIELD_LENGTH, 'UTF-8'));
     }
 }

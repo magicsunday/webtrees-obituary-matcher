@@ -273,6 +273,29 @@ final class JobRequestProducerContractTest extends TestCase
                 ),
                 ['queryHints' => [['query' => 'Mustermann', 'dedupKey' => 'mustermann', 'priority' => 2]]],
             ],
+            'a name field truncated on a space is trimmed clean' => [
+                new FinderCandidateRequest('I1', new PersonName([], null, str_repeat('a', 199) . ' bbbbb', null), []),
+                ['names' => [['kind' => 'primary', 'surname' => str_repeat('a', 199)]]],
+            ],
+            'a query that is empty after truncation is skipped' => [
+                new FinderCandidateRequest(
+                    'I1',
+                    new PersonName([], null, 'Mustermann', null),
+                    [
+                        new CandidateQuery('', 1, 'x'),
+                        new CandidateQuery('Mustermann', 2, 'mustermann'),
+                    ],
+                ),
+                ['queryHints' => [['query' => 'Mustermann', 'dedupKey' => 'mustermann', 'priority' => 2]]],
+            ],
+            'a non-positive priority is clamped to the schema minimum' => [
+                new FinderCandidateRequest(
+                    'I1',
+                    new PersonName([], null, 'Mustermann', null),
+                    [new CandidateQuery('Mustermann', 0, 'mustermann')],
+                ),
+                ['queryHints' => [['query' => 'Mustermann', 'dedupKey' => 'mustermann', 'priority' => 1]]],
+            ],
         ];
     }
 
