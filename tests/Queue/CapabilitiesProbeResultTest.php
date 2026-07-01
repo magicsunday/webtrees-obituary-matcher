@@ -22,7 +22,7 @@ use PHPUnit\Framework\TestCase;
 use ReflectionMethod;
 
 /**
- * Unit tests for the capabilities probe result value object — the four named constructors and the
+ * Unit tests for the capabilities probe result value object — the three named constructors and the
  * status/capabilities readout the admin control panel renders after probing a finder connection.
  *
  * @author  Rico Sonntag <mail@ricosonntag.de>
