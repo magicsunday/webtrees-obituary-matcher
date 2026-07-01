@@ -41,6 +41,7 @@ declare(strict_types=1);
 
 use MagicSunday\ObituaryMatcher\Webtrees\CliModuleResolver;
 use MagicSunday\ObituaryMatcher\Webtrees\DrainServiceFactory;
+use MagicSunday\ObituaryMatcher\Webtrees\FinderCliConfigurationException;
 use MagicSunday\ObituaryMatcher\Webtrees\HeadlessBootstrap;
 use MagicSunday\ObituaryMatcher\Webtrees\RestCliBootstrap;
 
@@ -126,8 +127,19 @@ try {
         $restPendingOption,
         dirname(__DIR__),
     );
-} catch (RuntimeException $exception) {
+} catch (FinderCliConfigurationException $exception) {
+    // A not-configured/disabled connection or an invalid --rest-pending path: the message is a fixed,
+    // secret-free operator hint (never the stored base URL or token), so it is safe to echo.
     fwrite(STDERR, $exception->getMessage() . PHP_EOL);
+
+    exit(1);
+} catch (Throwable $exception) {
+    // Any OTHER failure while resolving the connection — notably a database error from reading the
+    // persisted preferences, whose message could embed SQL/DSN — must NOT reach cron output. Print a
+    // fixed category and route the detail to the SAME guarded sink the bootstrap uses (error_log
+    // defaults to STDERR in CLI, so it only logs when a real sink is configured — the S46 lesson).
+    fwrite(STDERR, 'Could not resolve the finder configuration.' . PHP_EOL);
+    HeadlessBootstrap::logCliError('drain', $exception);
 
     exit(1);
 }

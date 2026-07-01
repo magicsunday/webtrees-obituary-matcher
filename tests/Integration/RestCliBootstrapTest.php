@@ -15,12 +15,12 @@ use Fisharebest\Webtrees\DB;
 use MagicSunday\ObituaryMatcher\Support\FinderConnection;
 use MagicSunday\ObituaryMatcher\Support\FinderConnectionResolver;
 use MagicSunday\ObituaryMatcher\Support\WebtreesInstallLocator;
+use MagicSunday\ObituaryMatcher\Webtrees\FinderCliConfigurationException;
 use MagicSunday\ObituaryMatcher\Webtrees\ObituaryMatcherModule;
 use MagicSunday\ObituaryMatcher\Webtrees\RestCliBootstrap;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\Attributes\UsesClass;
-use RuntimeException;
 
 use function preg_quote;
 use function sys_get_temp_dir;
@@ -149,7 +149,7 @@ final class RestCliBootstrapTest extends IntegrationTestCase
     #[Test]
     public function anUnconfiguredModuleThrowsTheNotConfiguredHint(): void
     {
-        $this->expectException(RuntimeException::class);
+        $this->expectException(FinderCliConfigurationException::class);
         $this->expectExceptionMessageMatches('/' . preg_quote('The finder connection is not configured', '/') . '/');
 
         RestCliBootstrap::resolve($this->module, $this->ledgerRoot(), sys_get_temp_dir());
@@ -171,8 +171,8 @@ final class RestCliBootstrapTest extends IntegrationTestCase
 
         try {
             RestCliBootstrap::resolve($this->module, $this->ledgerRoot(), sys_get_temp_dir());
-            self::fail('Expected a RuntimeException for a legacy file-transport install.');
-        } catch (RuntimeException $exception) {
+            self::fail('Expected a FinderCliConfigurationException for a legacy file-transport install.');
+        } catch (FinderCliConfigurationException $exception) {
             self::assertStringContainsString('The finder connection is not configured', $exception->getMessage());
             self::assertStringNotContainsString('retained-secret', $exception->getMessage());
         }
@@ -192,8 +192,8 @@ final class RestCliBootstrapTest extends IntegrationTestCase
 
         try {
             RestCliBootstrap::resolve($this->module, $this->ledgerRoot(), sys_get_temp_dir());
-            self::fail('Expected a RuntimeException for a stored-but-invalid base URL.');
-        } catch (RuntimeException $exception) {
+            self::fail('Expected a FinderCliConfigurationException for a stored-but-invalid base URL.');
+        } catch (FinderCliConfigurationException $exception) {
             self::assertStringContainsString('The finder connection is not configured', $exception->getMessage());
             self::assertStringNotContainsString('secret-token', $exception->getMessage());
         }
@@ -210,7 +210,7 @@ final class RestCliBootstrapTest extends IntegrationTestCase
     {
         $this->configureRest('https://finder.example');
 
-        $this->expectException(RuntimeException::class);
+        $this->expectException(FinderCliConfigurationException::class);
         $this->expectExceptionMessageMatches('/' . preg_quote('--rest-pending must be an absolute path', '/') . '/');
 
         RestCliBootstrap::resolve($this->module, '', sys_get_temp_dir());
@@ -227,7 +227,7 @@ final class RestCliBootstrapTest extends IntegrationTestCase
     {
         $this->configureRest('https://finder.example');
 
-        $this->expectException(RuntimeException::class);
+        $this->expectException(FinderCliConfigurationException::class);
         $this->expectExceptionMessageMatches('/' . preg_quote('--rest-pending must be an absolute path', '/') . '/');
 
         RestCliBootstrap::resolve($this->module, 'relative/rest-pending', sys_get_temp_dir());
@@ -245,7 +245,7 @@ final class RestCliBootstrapTest extends IntegrationTestCase
     {
         $this->configureRest('https://finder.example');
 
-        $this->expectException(RuntimeException::class);
+        $this->expectException(FinderCliConfigurationException::class);
         $this->expectExceptionMessageMatches('/' . preg_quote('--rest-pending must be an absolute path', '/') . '/');
 
         RestCliBootstrap::resolve($this->module, '/', sys_get_temp_dir());
@@ -282,7 +282,7 @@ final class RestCliBootstrapTest extends IntegrationTestCase
     {
         $this->configureRest('https://finder.example');
 
-        $this->expectException(RuntimeException::class);
+        $this->expectException(FinderCliConfigurationException::class);
         $this->expectExceptionMessageMatches('/' . preg_quote('Could not locate the running-instance rest-pending dir', '/') . '/');
 
         // sys_get_temp_dir() is not beside a webtrees config, so the locator cannot resolve a default.

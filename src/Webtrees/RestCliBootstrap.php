@@ -14,7 +14,6 @@ namespace MagicSunday\ObituaryMatcher\Webtrees;
 use MagicSunday\ObituaryMatcher\Support\FinderConnection;
 use MagicSunday\ObituaryMatcher\Support\FinderConnectionResolver;
 use MagicSunday\ObituaryMatcher\Support\WebtreesInstallLocator;
-use RuntimeException;
 
 use function is_string;
 use function rtrim;
@@ -29,8 +28,9 @@ use function str_starts_with;
  * connection is NO LONGER taken from `--base-url`/`--token` arguments: it is resolved from the module's
  * saved preferences through {@see FinderConnectionResolver}, so the token only ever lives in the persisted
  * preference and the outbound Authorization header, never in argv or a log line. Every misuse throws a
- * {@see RuntimeException} whose message is the exact operator-facing hint; the caller prints it to STDERR
- * and exits non-zero.
+ * {@see FinderCliConfigurationException} whose message is the exact operator-facing hint; the caller
+ * prints it to STDERR and exits non-zero, while routing any OTHER {@see \Throwable} (e.g. a database error
+ * from reading the preferences) to the guarded log sink so no internal detail reaches cron output.
  *
  * @author  Rico Sonntag <mail@ricosonntag.de>
  * @license https://opensource.org/licenses/GPL-3.0 GNU General Public License v3.0
@@ -61,8 +61,8 @@ final class RestCliBootstrap
      *
      * @return array{FinderConnection, string} The validated connection and the resolved ledger root.
      *
-     * @throws RuntimeException When the finder connection is not configured (REST not enabled or no valid
-     *                          stored base URL), or the ledger root cannot be located.
+     * @throws FinderCliConfigurationException When the finder connection is not configured (REST not enabled or no valid
+     *                                         stored base URL), or the ledger root cannot be located.
      */
     public static function resolve(
         ObituaryMatcherModule $module,
@@ -80,7 +80,7 @@ final class RestCliBootstrap
         );
 
         if (!$connection instanceof FinderConnection) {
-            throw new RuntimeException(
+            throw new FinderCliConfigurationException(
                 'The finder connection is not configured or REST is not enabled — open the module control panel, enter the REST base URL and token, and save.',
             );
         }
@@ -105,7 +105,7 @@ final class RestCliBootstrap
      *
      * @return string The resolved absolute ledger root (any trailing separator removed).
      *
-     * @throws RuntimeException On an unlocatable default root or an empty/relative/filesystem-root explicit path.
+     * @throws FinderCliConfigurationException On an unlocatable default root or an empty/relative/filesystem-root explicit path.
      */
     private static function ledgerRoot(?string $restPendingOption, string $moduleRoot): string
     {
@@ -116,7 +116,7 @@ final class RestCliBootstrap
             $default = (new WebtreesInstallLocator($moduleRoot))->defaultRestPendingRoot();
 
             if (!is_string($default)) {
-                throw new RuntimeException(
+                throw new FinderCliConfigurationException(
                     'Could not locate the running-instance rest-pending dir beside this module; pass --rest-pending=<dir> explicitly.',
                 );
             }
@@ -139,7 +139,7 @@ final class RestCliBootstrap
             ($normalized === '')
             || !str_starts_with($restPendingOption, '/')
         ) {
-            throw new RuntimeException(
+            throw new FinderCliConfigurationException(
                 '--rest-pending must be an absolute path to a dedicated directory (e.g. /var/lib/webtrees/data/obituary-matcher/rest-pending).',
             );
         }
