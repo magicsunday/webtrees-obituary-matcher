@@ -40,6 +40,13 @@ final readonly class FinderRequestFactory
      * Builds a finder request bundling each candidate's prioritised, deduplicated queries and the
      * portals it already has an open match on.
      *
+     * PRECONDITION: every candidate must carry a searchable name
+     * ({@see PersonName::hasSearchableName()}). The contract requires a non-empty `names` array per
+     * candidate, and a nameless candidate would make the whole {@see FinderRequest::toArray()} body
+     * violate the schema and be rejected by the finder. The sole caller, {@see EnqueueService::enqueue()},
+     * enforces this by skipping unsearchable candidates before this call; this factory trusts that
+     * upstream filter rather than re-checking (there is no other request-build path).
+     *
      * @param string                      $jobId                   The caller-assigned job identifier.
      * @param DateTimeImmutable           $createdAt               The moment the request is assembled.
      * @param string                      $locale                  The IETF BCP 47 locale tag (e.g. "de-DE").

@@ -157,7 +157,9 @@ final readonly class FinderCandidateRequest
      * normalises to an empty string is skipped (the schema's `minLength: 1`), and the list is capped
      * to the first {@see self::MAX_QUERY_HINTS} (the queries arrive priority-ordered, so the least
      * important hints are the ones dropped). `queryHints` is optional with no `minItems`, so an empty
-     * list stays contract-valid.
+     * list stays contract-valid. The queries come from {@see QueryGenerator}, the sole producer, which
+     * never emits an empty `query` and always assigns `priority >= 1`; this projection bounds length and
+     * count and drops an empty-dedupKey hint, but trusts that producer for the `query`/`priority` minima.
      *
      * @return list<array{query: string, dedupKey: string, priority: int}> The query hints.
      */
