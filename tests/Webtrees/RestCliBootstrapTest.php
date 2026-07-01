@@ -22,6 +22,7 @@ use RuntimeException;
 
 use function preg_quote;
 use function sys_get_temp_dir;
+use function uniqid;
 
 /**
  * Verifies the shared REST CLI bootstrap that `tools/enqueue.php` and `tools/drain.php` both use to
@@ -39,6 +40,18 @@ use function sys_get_temp_dir;
 final class RestCliBootstrapTest extends TestCase
 {
     /**
+     * Builds a throwaway absolute ledger root under the system temp dir (the repo convention), unique per
+     * call so parallel workers never collide. resolve() never touches the filesystem for an explicit
+     * root, so the directory need not exist.
+     *
+     * @return string An absolute, unique ledger-root path.
+     */
+    private function ledgerRoot(): string
+    {
+        return sys_get_temp_dir() . '/obituary-matcher-' . uniqid('rp-', true);
+    }
+
+    /**
      * A valid base URL, token and explicit ledger root resolve to a REST connection carrying the base
      * URL and token, plus the given ledger root verbatim.
      *
@@ -47,16 +60,18 @@ final class RestCliBootstrapTest extends TestCase
     #[Test]
     public function aValidOptionSetResolvesTheConnectionAndExplicitLedgerRoot(): void
     {
+        $ledgerRoot = $this->ledgerRoot();
+
         [$connection, $restPendingRoot] = RestCliBootstrap::resolve(
             'https://finder.example',
             'secret-token',
-            '/tmp/rest-pending',
+            $ledgerRoot,
             sys_get_temp_dir(),
         );
 
         self::assertSame('https://finder.example', $connection->baseUrl());
         self::assertSame('secret-token', $connection->token());
-        self::assertSame('/tmp/rest-pending', $restPendingRoot);
+        self::assertSame($ledgerRoot, $restPendingRoot);
     }
 
     /**
@@ -67,8 +82,10 @@ final class RestCliBootstrapTest extends TestCase
     #[Test]
     public function anAbsentOrEmptyTokenResolvesToNoToken(): void
     {
-        [$connectionForNull]  = RestCliBootstrap::resolve('https://finder.example', null, '/tmp/rp', sys_get_temp_dir());
-        [$connectionForBlank] = RestCliBootstrap::resolve('https://finder.example', '', '/tmp/rp', sys_get_temp_dir());
+        $ledgerRoot = $this->ledgerRoot();
+
+        [$connectionForNull]  = RestCliBootstrap::resolve('https://finder.example', null, $ledgerRoot, sys_get_temp_dir());
+        [$connectionForBlank] = RestCliBootstrap::resolve('https://finder.example', '', $ledgerRoot, sys_get_temp_dir());
 
         self::assertNull($connectionForNull->token());
         self::assertNull($connectionForBlank->token());
@@ -86,7 +103,7 @@ final class RestCliBootstrapTest extends TestCase
         $this->expectException(RuntimeException::class);
         $this->expectExceptionMessageMatches('/' . preg_quote('--base-url=<url> is required', '/') . '/');
 
-        RestCliBootstrap::resolve(null, null, '/tmp/rp', sys_get_temp_dir());
+        RestCliBootstrap::resolve(null, null, $this->ledgerRoot(), sys_get_temp_dir());
     }
 
     /**
@@ -100,7 +117,37 @@ final class RestCliBootstrapTest extends TestCase
         $this->expectException(RuntimeException::class);
         $this->expectExceptionMessageMatches('/' . preg_quote('--base-url=<url> is required', '/') . '/');
 
-        RestCliBootstrap::resolve('', null, '/tmp/rp', sys_get_temp_dir());
+        RestCliBootstrap::resolve('', null, $this->ledgerRoot(), sys_get_temp_dir());
+    }
+
+    /**
+     * An explicit but empty --rest-pending is a misuse: it throws the absolute-path hint rather than
+     * handing an empty ledger root to the transport.
+     *
+     * @return void
+     */
+    #[Test]
+    public function anEmptyExplicitLedgerRootIsRejected(): void
+    {
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessageMatches('/' . preg_quote('--rest-pending must be a non-empty absolute path', '/') . '/');
+
+        RestCliBootstrap::resolve('https://finder.example', null, '', sys_get_temp_dir());
+    }
+
+    /**
+     * A relative --rest-pending is rejected: enqueue and drain run from different working directories, so
+     * a relative root would resolve to different ledgers and strand an accepted remote job.
+     *
+     * @return void
+     */
+    #[Test]
+    public function aRelativeExplicitLedgerRootIsRejected(): void
+    {
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessageMatches('/' . preg_quote('--rest-pending must be a non-empty absolute path', '/') . '/');
+
+        RestCliBootstrap::resolve('https://finder.example', null, 'relative/rest-pending', sys_get_temp_dir());
     }
 
     /**
@@ -129,7 +176,7 @@ final class RestCliBootstrapTest extends TestCase
     public function anInvalidConnectionThrowsTheFixedHintWithoutEchoingTheToken(): void
     {
         try {
-            RestCliBootstrap::resolve('file:///etc/passwd', 'secret-token', '/tmp/rp', sys_get_temp_dir());
+            RestCliBootstrap::resolve('file:///etc/passwd', 'secret-token', $this->ledgerRoot(), sys_get_temp_dir());
             self::fail('Expected a RuntimeException for a non-http(s) base URL.');
         } catch (RuntimeException $exception) {
             self::assertStringContainsString('Invalid REST connection', $exception->getMessage());

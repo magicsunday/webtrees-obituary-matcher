@@ -18,6 +18,7 @@ use RuntimeException;
 use SensitiveParameter;
 
 use function is_string;
+use function str_starts_with;
 
 /**
  * The shared REST bootstrap for the headless CLI adapters. After the REST cutover the `tools/enqueue.php`
@@ -67,18 +68,14 @@ final class RestCliBootstrap
     ): array {
         // --base-url is REQUIRED: every REST adapter talks to the finder endpoint. A missing/empty base
         // URL is a misuse; fail loud.
-        if (($baseUrlOption === null) || ($baseUrlOption === '')) {
+        if (
+            ($baseUrlOption === null)
+            || ($baseUrlOption === '')
+        ) {
             throw new RuntimeException('--base-url=<url> is required (the REST finder endpoint).');
         }
 
-        $restPendingRoot = $restPendingOption
-            ?? (new WebtreesInstallLocator($moduleRoot))->defaultRestPendingRoot();
-
-        if (!is_string($restPendingRoot)) {
-            throw new RuntimeException(
-                'Could not locate the running-instance rest-pending dir beside this module; pass --rest-pending=<dir> explicitly.',
-            );
-        }
+        $restPendingRoot = self::ledgerRoot($restPendingOption, $moduleRoot);
 
         $token = (($tokenOption !== null) && ($tokenOption !== '')) ? $tokenOption : null;
 
@@ -94,5 +91,50 @@ final class RestCliBootstrap
         }
 
         return [$connection, $restPendingRoot];
+    }
+
+    /**
+     * Resolves the in-flight ledger root: an explicit `--rest-pending` value (which MUST be a non-empty
+     * absolute path) or, when absent, the running instance's default resolved through the layout-
+     * independent locator relative to the module root. An explicit relative path is rejected because
+     * enqueue and drain routinely run from different working directories (cron, manual), so the same
+     * relative value would resolve to DIFFERENT ledgers and strand an accepted remote job — enqueue
+     * records it under one root while drain scans another and exits clean. The default-resolved root is
+     * always absolute (it is realpath-derived), so the absolute requirement never rejects it.
+     *
+     * @param string|null $restPendingOption The raw `--rest-pending` value (already narrowed to string|null).
+     * @param string      $moduleRoot        The module root directory the default is resolved from.
+     *
+     * @return string The resolved absolute ledger root.
+     *
+     * @throws RuntimeException On an unlocatable default root or an empty/relative explicit path.
+     */
+    private static function ledgerRoot(?string $restPendingOption, string $moduleRoot): string
+    {
+        // No explicit --rest-pending: resolve the running instance's default beside this module. A
+        // merely-absent default (nothing enqueued yet) is not an error for the ledger, but an
+        // UNLOCATABLE install is a misuse the caller must resolve with an explicit path.
+        if ($restPendingOption === null) {
+            $default = (new WebtreesInstallLocator($moduleRoot))->defaultRestPendingRoot();
+
+            if (!is_string($default)) {
+                throw new RuntimeException(
+                    'Could not locate the running-instance rest-pending dir beside this module; pass --rest-pending=<dir> explicitly.',
+                );
+            }
+
+            return $default;
+        }
+
+        if (
+            ($restPendingOption === '')
+            || !str_starts_with($restPendingOption, '/')
+        ) {
+            throw new RuntimeException(
+                '--rest-pending must be a non-empty absolute path (e.g. /var/lib/webtrees/data/obituary-matcher/rest-pending).',
+            );
+        }
+
+        return $restPendingOption;
     }
 }
