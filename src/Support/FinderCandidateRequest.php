@@ -125,8 +125,8 @@ final readonly class FinderCandidateRequest
             }
         }
 
-        $given   = mb_substr(implode(' ', $cleanGivenNames), 0, self::MAX_NAME_FIELD_LENGTH);
-        $surname = mb_substr(trim($this->name->surname), 0, self::MAX_NAME_FIELD_LENGTH);
+        $given   = mb_substr(implode(' ', $cleanGivenNames), 0, self::MAX_NAME_FIELD_LENGTH, 'UTF-8');
+        $surname = mb_substr(trim($this->name->surname), 0, self::MAX_NAME_FIELD_LENGTH, 'UTF-8');
         $primary = ['kind' => 'primary'];
 
         if ($given !== '') {
@@ -146,14 +146,14 @@ final readonly class FinderCandidateRequest
         $birthSurname = ($this->name->birthSurname === null) ? '' : trim($this->name->birthSurname);
 
         if ($birthSurname !== '') {
-            $entries[] = ['kind' => 'birth', 'surname' => mb_substr($birthSurname, 0, self::MAX_NAME_FIELD_LENGTH)];
+            $entries[] = ['kind' => 'birth', 'surname' => mb_substr($birthSurname, 0, self::MAX_NAME_FIELD_LENGTH, 'UTF-8')];
         }
 
         foreach ($this->name->marriedSurnames as $marriedSurname) {
             $trimmedMarried = trim($marriedSurname);
 
             if ($trimmedMarried !== '') {
-                $entries[] = ['kind' => 'married', 'surname' => mb_substr($trimmedMarried, 0, self::MAX_NAME_FIELD_LENGTH)];
+                $entries[] = ['kind' => 'married', 'surname' => mb_substr($trimmedMarried, 0, self::MAX_NAME_FIELD_LENGTH, 'UTF-8')];
             }
         }
 
@@ -161,7 +161,7 @@ final readonly class FinderCandidateRequest
             $trimmedAlias = trim($alias);
 
             if ($trimmedAlias !== '') {
-                $entries[] = ['kind' => 'alias', 'full' => mb_substr($trimmedAlias, 0, self::MAX_NAME_FIELD_LENGTH)];
+                $entries[] = ['kind' => 'alias', 'full' => mb_substr($trimmedAlias, 0, self::MAX_NAME_FIELD_LENGTH, 'UTF-8')];
             }
         }
 
@@ -190,7 +190,7 @@ final readonly class FinderCandidateRequest
         $hints = [];
 
         foreach ($this->queries as $query) {
-            $dedupKey = mb_substr($query->dedupKey, 0, self::MAX_DEDUP_KEY_LENGTH);
+            $dedupKey = mb_substr($query->dedupKey, 0, self::MAX_DEDUP_KEY_LENGTH, 'UTF-8');
 
             // A QueryHint.dedupKey must be non-empty; a strip-word-only query normalises to '' — skip
             // it rather than emit a schema-invalid hint.
@@ -199,7 +199,7 @@ final readonly class FinderCandidateRequest
             }
 
             $hints[] = [
-                'query'    => mb_substr($query->query, 0, self::MAX_QUERY_LENGTH),
+                'query'    => mb_substr($query->query, 0, self::MAX_QUERY_LENGTH, 'UTF-8'),
                 'dedupKey' => $dedupKey,
                 'priority' => $query->priority,
             ];
