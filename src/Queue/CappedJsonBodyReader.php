@@ -26,7 +26,8 @@ use const JSON_THROW_ON_ERROR;
  * Reads an untrusted PSR-7 response body under a byte cap and decodes it to a JSON object, or returns a
  * {@see BodyFault} when the body is unusable — {@see BodyFault::Transient} for a torn mid-read a re-GET
  * may recover, {@see BodyFault::Permanent} for a body that exceeds the cap, is not valid JSON, or does
- * not decode to an object. The reader closes the body stream on EVERY exit path and never throws, so its
+ * not decode to a non-empty JSON object (a top-level array or an empty `{}`/`[]` is not usable). The
+ * reader closes the body stream on EVERY exit path and never throws, so its
  * callers can isolate a single unusable body without aborting their wider loop.
  *
  * The same capped-read discipline is needed by both the REST job transport (which polls `GET /jobs/{id}`)
@@ -53,7 +54,8 @@ final class CappedJsonBodyReader
      * Reads the response body under the byte cap and decodes it to an associative array, or returns a
      * {@see BodyFault} classifying why it is unusable: {@see BodyFault::Transient} for a torn mid-read a
      * re-GET may recover, {@see BodyFault::Permanent} for a body that exceeds the cap, is not valid JSON,
-     * or does not decode to a JSON object. Never throws.
+     * or does not decode to a non-empty JSON object (a top-level array or empty `{}`/`[]` is unusable).
+     * Never throws.
      *
      * @param ResponseInterface $response The response whose body is read.
      * @param int               $maxBytes The maximum number of body bytes read into memory.

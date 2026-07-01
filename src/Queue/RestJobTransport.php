@@ -153,7 +153,9 @@ final readonly class RestJobTransport implements JobTransport
      * {@see CompletedJob}). A 200 whose body a torn mid-read leaves {@see BodyFault::Transient} is kept
      * and retried; one that is {@see BodyFault::Permanent} (oversized, malformed or non-object — the #56
      * contract reproduces it verbatim on every re-GET) is terminally failed as `response_invalid` rather
-     * than polled forever. An unknown or non-string state is treated as not-yet-ready and skipped.
+     * than polled forever. A missing or non-string state is likewise a structurally non-conforming
+     * response and is terminally failed as `response_invalid`; an unknown but plausible state STRING is
+     * treated as not-yet-ready and skipped (forward compatibility).
      *
      * @return iterable<CompletedJob|FailedJob> The per-job outcomes.
      */
@@ -447,7 +449,7 @@ final readonly class RestJobTransport implements JobTransport
      * Reads a response body under the byte cap and decodes it to a JSON object, or returns a
      * {@see BodyFault} when the body is unusable — {@see BodyFault::Transient} for a torn mid-read a re-GET
      * may recover, {@see BodyFault::Permanent} for a body that exceeds the cap, is not valid JSON, or does
-     * not decode to an object. Delegates to the shared {@see CappedJsonBodyReader} so the capabilities
+     * not decode to a non-empty JSON object. Delegates to the shared {@see CappedJsonBodyReader} so the capabilities
      * probe and this transport apply one audited capped-read-and-close discipline.
      *
      * @param ResponseInterface $response The response whose body is read.
