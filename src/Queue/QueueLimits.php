@@ -13,8 +13,9 @@ namespace MagicSunday\ObituaryMatcher\Queue;
 
 /**
  * Shared numeric limits for the queue layer. Holds the single source of truth for the finder-response
- * size cap that the REST transport's body reader ({@see CappedJsonBodyReader}) applies and the
- * composition-root factory passes, so the 5 MiB ceiling lives in exactly one place.
+ * size cap that the REST transport ({@see RestJobTransport}) and the capabilities probe
+ * ({@see FinderCapabilitiesProbe}) default their body reader to, so the 5 MiB ceiling lives in exactly
+ * one place.
  *
  * @author  Rico Sonntag <mail@ricosonntag.de>
  * @license https://opensource.org/licenses/GPL-3.0 GNU General Public License v3.0
