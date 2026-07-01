@@ -70,7 +70,7 @@ final readonly class PersonName
             return true;
         }
 
-        if (($this->birthSurname !== null) && (trim($this->birthSurname) !== '')) {
+        if (trim($this->birthSurname ?? '') !== '') {
             return true;
         }
 

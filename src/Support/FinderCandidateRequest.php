@@ -144,7 +144,7 @@ final readonly class FinderCandidateRequest
             $entries[] = $primary;
         }
 
-        $birthSurname = ($this->name->birthSurname === null) ? '' : $this->boundedNameField($this->name->birthSurname);
+        $birthSurname = $this->boundedNameField($this->name->birthSurname ?? '');
 
         if ($birthSurname !== '') {
             $entries[] = ['kind' => 'birth', 'surname' => $birthSurname];
