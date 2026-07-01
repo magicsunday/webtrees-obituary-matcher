@@ -11,7 +11,7 @@ declare(strict_types=1);
 
 /**
  * Developer-only CLI: seed a tree-scoped match store with one synthetic suggestion so the individual
- * tab can be inspected on a real instance without running the producer, feeder or scoring engine. The
+ * tab can be inspected on a real instance without running the producer, finder or scoring engine. The
  * written payload is fabricated (reserved `.example` domain, no real obituary data), so it is safe to
  * run against a development tree (DSGVO).
  *

@@ -78,8 +78,8 @@ final readonly class RelativeScorer
         foreach ($relatives as $relative) {
             $needle = ObituaryNameParser::parse($relative->name);
 
-            // Clamp an untrusted feeder confidence into [0.0, 1.0]; a non-finite value (NaN/Inf from a
-            // faulty feeder) is treated as zero-confidence, since min/max would otherwise map it to 1.0.
+            // Clamp an untrusted finder confidence into [0.0, 1.0]; a non-finite value (NaN/Inf from a
+            // faulty finder) is treated as zero-confidence, since min/max would otherwise map it to 1.0.
             $confidence = is_finite($relative->confidence)
                 ? max(0.0, min(1.0, $relative->confidence))
                 : 0.0;

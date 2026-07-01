@@ -24,7 +24,7 @@ use MagicSunday\ObituaryMatcher\Queue\FailedJob;
 use MagicSunday\ObituaryMatcher\Queue\JobTransport;
 use MagicSunday\ObituaryMatcher\Scoring\Classifier;
 use MagicSunday\ObituaryMatcher\Scoring\EnrichedMatchEngine;
-use MagicSunday\ObituaryMatcher\Support\FeederRequest;
+use MagicSunday\ObituaryMatcher\Support\FinderRequest;
 use MagicSunday\ObituaryMatcher\Webtrees\CandidateRepository;
 use MagicSunday\ObituaryMatcher\Webtrees\DrainService;
 use MagicSunday\ObituaryMatcher\Webtrees\MatchStoreFactory;
@@ -383,7 +383,7 @@ final class DrainServiceTest extends AbstractDrainTestCase
             /**
              * {@inheritDoc}
              */
-            public function submit(FeederRequest $request): string
+            public function submit(FinderRequest $request): string
             {
                 return $request->jobId;
             }

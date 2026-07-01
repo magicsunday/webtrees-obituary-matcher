@@ -17,9 +17,9 @@ use MagicSunday\ObituaryMatcher\Domain\Gender;
 use MagicSunday\ObituaryMatcher\Domain\PersonCandidate;
 use MagicSunday\ObituaryMatcher\Domain\PersonName;
 use MagicSunday\ObituaryMatcher\Support\CandidateQuery;
-use MagicSunday\ObituaryMatcher\Support\FeederCandidateRequest;
-use MagicSunday\ObituaryMatcher\Support\FeederRequest;
-use MagicSunday\ObituaryMatcher\Support\FeederRequestFactory;
+use MagicSunday\ObituaryMatcher\Support\FinderCandidateRequest;
+use MagicSunday\ObituaryMatcher\Support\FinderRequest;
+use MagicSunday\ObituaryMatcher\Support\FinderRequestFactory;
 use MagicSunday\ObituaryMatcher\Support\QueryGenerator;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\Test;
@@ -27,21 +27,21 @@ use PHPUnit\Framework\Attributes\UsesClass;
 use PHPUnit\Framework\TestCase;
 
 /**
- * Tests the pure factory that builds a serialisable feeder request from person candidates.
+ * Tests the pure factory that builds a serialisable finder request from person candidates.
  *
  * @author  Rico Sonntag <mail@ricosonntag.de>
  * @license https://opensource.org/licenses/GPL-3.0 GNU General Public License v3.0
  * @link    https://github.com/magicsunday/webtrees-obituary-matcher/
  */
-#[CoversClass(FeederRequestFactory::class)]
-#[CoversClass(FeederRequest::class)]
-#[CoversClass(FeederCandidateRequest::class)]
+#[CoversClass(FinderRequestFactory::class)]
+#[CoversClass(FinderRequest::class)]
+#[CoversClass(FinderCandidateRequest::class)]
 #[UsesClass(QueryGenerator::class)]
 #[UsesClass(CandidateQuery::class)]
 #[UsesClass(PersonCandidate::class)]
 #[UsesClass(PersonName::class)]
 #[UsesClass(DateRange::class)]
-final class FeederRequestFactoryTest extends TestCase
+final class FinderRequestFactoryTest extends TestCase
 {
     /**
      * The factory produces a request with the correct schema version, job metadata, and per-candidate query arrays.
@@ -58,7 +58,7 @@ final class FeederRequestFactoryTest extends TestCase
             [],
             DateRange::unknown()
         );
-        $factory = new FeederRequestFactory(new QueryGenerator());
+        $factory = new FinderRequestFactory(new QueryGenerator());
         $req     = $factory->build('job-1', new DateTimeImmutable('2026-06-20T00:00:00+00:00'), 'de-DE', [$c], 11);
 
         $array = $req->toArray();
@@ -109,7 +109,7 @@ final class FeederRequestFactoryTest extends TestCase
             ),
         ];
 
-        $request = (new FeederRequestFactory(new QueryGenerator()))->build(
+        $request = (new FinderRequestFactory(new QueryGenerator()))->build(
             'job-20260623T101530Z-a1b2c3d4',
             new DateTimeImmutable('2026-06-23T10:15:30Z'),
             'de-DE',

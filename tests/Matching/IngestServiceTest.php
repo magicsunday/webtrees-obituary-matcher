@@ -68,7 +68,7 @@ use function json_decode;
 use const JSON_THROW_ON_ERROR;
 
 /**
- * Tests the response → score → persist vertical slice: a validated feeder response is mapped,
+ * Tests the response → score → persist vertical slice: a validated finder response is mapped,
  * scored by the enriched engine, classified and persisted as a pending suggestion — and a
  * person who was in the request but no longer has a held candidate is skipped without an error.
  *
@@ -123,7 +123,7 @@ use const JSON_THROW_ON_ERROR;
 final class IngestServiceTest extends TempDirTestCase
 {
     /**
-     * Ingests a validated feeder response for a still-held candidate, scores it with the enriched
+     * Ingests a validated finder response for a still-held candidate, scores it with the enriched
      * engine and persists the best result per notice as a pending suggestion.
      */
     #[Test]
@@ -257,7 +257,7 @@ final class IngestServiceTest extends TempDirTestCase
     #[Test]
     public function aPersonWithAnEmptyNoticeListIsSkippedSilentlyWithoutAWarning(): void
     {
-        // results map I1 to an empty notice list (the feeder found no notice for the requested id).
+        // results map I1 to an empty notice list (the finder found no notice for the requested id).
         $notices = $this->notices('response-empty-notices.json', ['I1']);
         $store   = new FileMatchStore($this->tmp . '/store');
 
@@ -316,7 +316,7 @@ final class IngestServiceTest extends TempDirTestCase
     }
 
     /**
-     * Builds the already-validated notices the ingest receives, by narrowing a feeder-response fixture
+     * Builds the already-validated notices the ingest receives, by narrowing a finder-response fixture
      * through the SAME {@see ResponseValidator} the drain uses — so the test feeds the ingest exactly
      * the seam shape it sees in production, without re-coupling to the on-disk reader.
      *

@@ -17,9 +17,9 @@ use MagicSunday\ObituaryMatcher\Matching\MatchStatus;
 use MagicSunday\ObituaryMatcher\Matching\StoredMatch;
 use MagicSunday\ObituaryMatcher\Matching\StoredMatchKey;
 use MagicSunday\ObituaryMatcher\Queue\AtomicFile;
-use MagicSunday\ObituaryMatcher\Support\FeederCandidateRequest;
-use MagicSunday\ObituaryMatcher\Support\FeederRequest;
-use MagicSunday\ObituaryMatcher\Support\FeederRequestFactory;
+use MagicSunday\ObituaryMatcher\Support\FinderCandidateRequest;
+use MagicSunday\ObituaryMatcher\Support\FinderRequest;
+use MagicSunday\ObituaryMatcher\Support\FinderRequestFactory;
 use MagicSunday\ObituaryMatcher\Support\JobId;
 use MagicSunday\ObituaryMatcher\Support\QueryGenerator;
 use MagicSunday\ObituaryMatcher\Support\UrlHostNormalizer;
@@ -56,9 +56,9 @@ use PHPUnit\Framework\Attributes\UsesClass;
 #[UsesClass(ClassifiedMatch::class)]
 #[UsesClass(MatchStatus::class)]
 #[UsesClass(AtomicFile::class)]
-#[UsesClass(FeederCandidateRequest::class)]
-#[UsesClass(FeederRequest::class)]
-#[UsesClass(FeederRequestFactory::class)]
+#[UsesClass(FinderCandidateRequest::class)]
+#[UsesClass(FinderRequest::class)]
+#[UsesClass(FinderRequestFactory::class)]
 #[UsesClass(JobId::class)]
 #[UsesClass(QueryGenerator::class)]
 #[UsesClass(UrlHostNormalizer::class)]

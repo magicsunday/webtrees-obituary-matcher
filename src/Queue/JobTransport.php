@@ -11,7 +11,7 @@ declare(strict_types=1);
 
 namespace MagicSunday\ObituaryMatcher\Queue;
 
-use MagicSunday\ObituaryMatcher\Support\FeederRequest;
+use MagicSunday\ObituaryMatcher\Support\FinderRequest;
 
 /**
  * Boundary between the orchestration services ({@see \MagicSunday\ObituaryMatcher\Webtrees\EnqueueService}/{@see \MagicSunday\ObituaryMatcher\Webtrees\DrainService})
@@ -27,13 +27,13 @@ use MagicSunday\ObituaryMatcher\Support\FeederRequest;
 interface JobTransport
 {
     /**
-     * Submits a feeder request for processing and returns the job identifier it was filed under.
+     * Submits a finder request for processing and returns the job identifier it was filed under.
      *
-     * @param FeederRequest $request The request to submit.
+     * @param FinderRequest $request The request to submit.
      *
      * @return string The submitted job's identifier.
      */
-    public function submit(FeederRequest $request): string;
+    public function submit(FinderRequest $request): string;
 
     /**
      * Yields the outcome of every completed job: a {@see CompletedJob} carrying the decoded notices

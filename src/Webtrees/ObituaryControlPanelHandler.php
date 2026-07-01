@@ -137,7 +137,7 @@ class ObituaryControlPanelHandler implements RequestHandlerInterface
 
     /**
      * Handles the control-panel request. A GET renders the panel; a POST applies the carried action
-     * (save settings or trigger a feeder run) and PRG-redirects with a flash.
+     * (save settings or trigger a finder run) and PRG-redirects with a flash.
      *
      * @param ServerRequestInterface $request The incoming request.
      *

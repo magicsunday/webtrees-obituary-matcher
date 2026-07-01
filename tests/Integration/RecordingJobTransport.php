@@ -14,7 +14,7 @@ namespace MagicSunday\ObituaryMatcher\Test\Integration;
 use MagicSunday\ObituaryMatcher\Queue\CompletedJob;
 use MagicSunday\ObituaryMatcher\Queue\FailedJob;
 use MagicSunday\ObituaryMatcher\Queue\JobTransport;
-use MagicSunday\ObituaryMatcher\Support\FeederRequest;
+use MagicSunday\ObituaryMatcher\Support\FinderRequest;
 
 use function in_array;
 
@@ -33,7 +33,7 @@ use function in_array;
 final class RecordingJobTransport implements JobTransport
 {
     /**
-     * @var list<FeederRequest> The requests the producer submitted, in order.
+     * @var list<FinderRequest> The requests the producer submitted, in order.
      */
     public array $submitted = [];
 
@@ -67,7 +67,7 @@ final class RecordingJobTransport implements JobTransport
     /**
      * {@inheritDoc}
      */
-    public function submit(FeederRequest $request): string
+    public function submit(FinderRequest $request): string
     {
         $this->submitted[] = $request;
 

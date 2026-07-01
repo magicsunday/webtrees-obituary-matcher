@@ -13,8 +13,8 @@ namespace MagicSunday\ObituaryMatcher\Webtrees;
 
 use Fisharebest\Webtrees\Services\GedcomImportService;
 use Fisharebest\Webtrees\Services\TreeService;
-use MagicSunday\ObituaryMatcher\Support\FeederRequestFactory;
 use MagicSunday\ObituaryMatcher\Support\FinderConnection;
+use MagicSunday\ObituaryMatcher\Support\FinderRequestFactory;
 use MagicSunday\ObituaryMatcher\Support\QueryGenerator;
 use MagicSunday\ObituaryMatcher\Support\UrlHostNormalizer;
 
@@ -52,7 +52,7 @@ final class EnqueueServiceFactory
     {
         return new EnqueueService(
             new CandidateRepository(),
-            new FeederRequestFactory(new QueryGenerator()),
+            new FinderRequestFactory(new QueryGenerator()),
             new UrlHostNormalizer(),
             new TreeService(new GedcomImportService()),
             JobTransportFactory::create($connection, $restPendingRoot),

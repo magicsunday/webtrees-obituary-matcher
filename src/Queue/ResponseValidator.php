@@ -36,7 +36,7 @@ use function trim;
 use const PHP_URL_SCHEME;
 
 /**
- * Validates and decodes the UNTRUSTED, already-decoded response payload a feeder produced (read from a
+ * Validates and decodes the UNTRUSTED, already-decoded response payload a finder produced (read from a
  * REST transport body) into death-notice records keyed by the personId they belong to. The payload is scraped from external obituary sites, so NOTHING in it is
  * trusted: it is narrowed field by field with is_* guards before any value object is constructed, and
  * any failure throws {@see ResponseValidationException} (distinct from a plain IO failure of whatever

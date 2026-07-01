@@ -23,8 +23,8 @@ use MagicSunday\ObituaryMatcher\Matching\StoredMatch;
 use MagicSunday\ObituaryMatcher\Matching\StoredMatchKey;
 use MagicSunday\ObituaryMatcher\Queue\AtomicFile;
 use MagicSunday\ObituaryMatcher\Queue\JobTransport;
-use MagicSunday\ObituaryMatcher\Support\FeederRequest;
-use MagicSunday\ObituaryMatcher\Support\FeederRequestFactory;
+use MagicSunday\ObituaryMatcher\Support\FinderRequest;
+use MagicSunday\ObituaryMatcher\Support\FinderRequestFactory;
 use MagicSunday\ObituaryMatcher\Support\QueryGenerator;
 use MagicSunday\ObituaryMatcher\Support\UrlHostNormalizer;
 use MagicSunday\ObituaryMatcher\Webtrees\CandidateRepository;
@@ -97,10 +97,10 @@ abstract class AbstractEnqueueTestCase extends AbstractStoreTestCase
 
         $storeDir = $this->storeRoot;
 
-        return new class(new CandidateRepository(), new FeederRequestFactory(new QueryGenerator()), new UrlHostNormalizer(), new TreeService(new GedcomImportService()), $this->transport, $storeDir) extends EnqueueService {
+        return new class(new CandidateRepository(), new FinderRequestFactory(new QueryGenerator()), new UrlHostNormalizer(), new TreeService(new GedcomImportService()), $this->transport, $storeDir) extends EnqueueService {
             /**
              * @param CandidateRepository  $repository     The candidate repository.
-             * @param FeederRequestFactory $requestFactory The request assembler.
+             * @param FinderRequestFactory $requestFactory The request assembler.
              * @param UrlHostNormalizer    $hostNormalizer The canonical-host helper.
              * @param TreeService          $treeService    The tree lookup.
              * @param JobTransport         $transport      The job transport.
@@ -108,7 +108,7 @@ abstract class AbstractEnqueueTestCase extends AbstractStoreTestCase
              */
             public function __construct(
                 CandidateRepository $repository,
-                FeederRequestFactory $requestFactory,
+                FinderRequestFactory $requestFactory,
                 UrlHostNormalizer $hostNormalizer,
                 TreeService $treeService,
                 JobTransport $transport,
@@ -191,14 +191,14 @@ abstract class AbstractEnqueueTestCase extends AbstractStoreTestCase
     }
 
     /**
-     * The submitted {@see FeederRequest} carrying the given job id, failing the test when the producer
+     * The submitted {@see FinderRequest} carrying the given job id, failing the test when the producer
      * submitted no such request.
      *
      * @param string $jobId The submitted job id.
      *
-     * @return FeederRequest The matching submitted request.
+     * @return FinderRequest The matching submitted request.
      */
-    private function submittedRequestFor(string $jobId): FeederRequest
+    private function submittedRequestFor(string $jobId): FinderRequest
     {
         foreach ($this->transport->submitted as $request) {
             if ($request->jobId === $jobId) {

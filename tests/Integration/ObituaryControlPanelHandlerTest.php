@@ -39,8 +39,8 @@ use MagicSunday\ObituaryMatcher\Queue\FinderPortal;
 use MagicSunday\ObituaryMatcher\Queue\ProbeStatus;
 use MagicSunday\ObituaryMatcher\Queue\QueueLimits;
 use MagicSunday\ObituaryMatcher\Queue\RestPendingLedger;
-use MagicSunday\ObituaryMatcher\Support\FeederRequestFactory;
 use MagicSunday\ObituaryMatcher\Support\FinderConnection;
+use MagicSunday\ObituaryMatcher\Support\FinderRequestFactory;
 use MagicSunday\ObituaryMatcher\Support\QueryGenerator;
 use MagicSunday\ObituaryMatcher\Support\UrlHostNormalizer;
 use MagicSunday\ObituaryMatcher\Test\Queue\ScriptablePsr18Client;
@@ -1370,7 +1370,7 @@ final class ObituaryControlPanelHandlerTest extends AbstractEnqueueTestCase
                     {
                         parent::__construct(
                             new CandidateRepository(),
-                            new FeederRequestFactory(new QueryGenerator()),
+                            new FinderRequestFactory(new QueryGenerator()),
                             new UrlHostNormalizer(),
                             new TreeService(new GedcomImportService()),
                             new RecordingJobTransport(),

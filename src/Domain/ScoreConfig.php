@@ -67,7 +67,7 @@ final readonly class ScoreConfig
     /**
      * The conservative, provisional enriched-detail profile: the base caps are rebalanced to make
      * room for the relatives/age/cemetery signals. These weights are NOT tuned against real data
-     * yet — they hold until feeder-detail produces detail-page enrichment to evaluate against.
+     * yet — they hold until finder-detail produces detail-page enrichment to evaluate against.
      *
      * @return self
      */

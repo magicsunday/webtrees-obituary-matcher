@@ -13,8 +13,8 @@ namespace MagicSunday\ObituaryMatcher\Queue;
 
 use DateTimeInterface;
 use JsonException;
-use MagicSunday\ObituaryMatcher\Support\FeederRequest;
 use MagicSunday\ObituaryMatcher\Support\FinderConnection;
+use MagicSunday\ObituaryMatcher\Support\FinderRequest;
 use MagicSunday\ObituaryMatcher\Support\JobId;
 use Psr\Http\Client\ClientExceptionInterface;
 use Psr\Http\Client\ClientInterface;
@@ -31,7 +31,7 @@ use function rtrim;
 use function sprintf;
 
 /**
- * The REST {@see JobTransport}: it submits feeder jobs to a remote HTTP endpoint and polls their
+ * The REST {@see JobTransport}: it submits finder jobs to a remote HTTP endpoint and polls their
  * outcome, mapping the transport-neutral lifecycle onto plain HTTP over a PSR-18 client. Unlike the
  * file transport there is no shared queue directory to scan, so each submitted job is remembered in a
  * local {@see RestPendingLedger} and a drain polls `GET /jobs/{id}` for every still-pending entry.
@@ -95,7 +95,7 @@ final readonly class RestJobTransport implements JobTransport
         private RestPendingLedger $ledger,
         private FinderConnection $connection,
         private ResponseValidator $validator,
-        private int $maxBytes = QueueLimits::FEEDER_FILE_MAX_BYTES,
+        private int $maxBytes = QueueLimits::FINDER_RESPONSE_MAX_BYTES,
     ) {
         $this->baseUrl = rtrim($connection->baseUrl(), '/');
     }
@@ -107,14 +107,14 @@ final readonly class RestJobTransport implements JobTransport
      * can poll it. The remote must answer 202 and echo back the same jobId; a non-202 status or a
      * mismatched/absent jobId is a submission failure reported with the base URL only (never the token).
      *
-     * @param FeederRequest $request The request to submit.
+     * @param FinderRequest $request The request to submit.
      *
      * @return string The submitted job's identifier.
      *
      * @throws RuntimeException When the submission is refused, the response is unreadable or its jobId
      *                          does not match the submitted job.
      */
-    public function submit(FeederRequest $request): string
+    public function submit(FinderRequest $request): string
     {
         // POST first, record second: the job enters the local ledger only AFTER the remote has accepted
         // it (202). A drain may run concurrently with this submission (the enqueue side is a web request,
@@ -317,13 +317,13 @@ final readonly class RestJobTransport implements JobTransport
      * the job (HTTP 202). A connect fault or a non-202 status means the remote did not accept the job —
      * there is nothing to compensate — and is reported with the base URL only, never the token.
      *
-     * @param FeederRequest $request The request being submitted.
+     * @param FinderRequest $request The request being submitted.
      *
      * @return ResponseInterface The accepted (202) response, for acknowledgement verification.
      *
      * @throws RuntimeException When the remote is unreachable or refuses the submission.
      */
-    private function sendSubmission(FeederRequest $request): ResponseInterface
+    private function sendSubmission(FinderRequest $request): ResponseInterface
     {
         $httpRequest = $this->request('POST', $this->baseUrl . '/jobs')
             ->withHeader('Content-Type', 'application/json')
@@ -357,13 +357,13 @@ final readonly class RestJobTransport implements JobTransport
      * the accepted remote job before surfacing it. Reported with the base URL only, never the token.
      *
      * @param ResponseInterface $response The accepted (202) response to verify.
-     * @param FeederRequest     $request  The request whose jobId the acknowledgement must echo.
+     * @param FinderRequest     $request  The request whose jobId the acknowledgement must echo.
      *
      * @return void
      *
      * @throws RuntimeException When the acknowledgement body is unreadable or names a different job.
      */
-    private function assertAcknowledged(ResponseInterface $response, FeederRequest $request): void
+    private function assertAcknowledged(ResponseInterface $response, FinderRequest $request): void
     {
         $body = $this->decodeBody($response);
 
@@ -457,18 +457,18 @@ final readonly class RestJobTransport implements JobTransport
         try {
             return json_encode($payload, AtomicFile::JSON_ENCODE_FLAGS);
         } catch (JsonException) {
-            throw new RuntimeException('Failed to encode the feeder request payload.');
+            throw new RuntimeException('Failed to encode the finder request payload.');
         }
     }
 
     /**
-     * Extracts the requested person ids from a feeder request's candidate bundles.
+     * Extracts the requested person ids from a finder request's candidate bundles.
      *
-     * @param FeederRequest $request The request whose candidate person ids are collected.
+     * @param FinderRequest $request The request whose candidate person ids are collected.
      *
      * @return list<string> The requested person ids, in request order.
      */
-    private function personIdsOf(FeederRequest $request): array
+    private function personIdsOf(FinderRequest $request): array
     {
         $personIds = [];
 

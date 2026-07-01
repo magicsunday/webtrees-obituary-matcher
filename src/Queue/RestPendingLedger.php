@@ -32,7 +32,7 @@ use function unlink;
 
 /**
  * Slim local record of in-flight REST transport jobs. The REST transport submits a job to a remote
- * feeder and has no shared queue directory to scan for outstanding work, so it remembers each submitted
+ * finder and has no shared queue directory to scan for outstanding work, so it remembers each submitted
  * job here as a tiny `{root}/{jobId}.json` file. The ledger is the producer side's only memory of what
  * is still pending; a consumer drains it and removes each entry once the remote result is ingested.
  *
@@ -51,7 +51,7 @@ final readonly class RestPendingLedger
      * @var int The maximum number of bytes a single ledger entry is read into memory. A ledger entry is
      *          a tiny object (jobId, treeId, a list of requested person xrefs, a timestamp); 64 KiB is
      *          generous headroom for thousands of xrefs while still bounding a hostile or corrupt file
-     *          far below the 5 MiB feeder-file cap.
+     *          far below the 5 MiB finder-file cap.
      */
     private const int ENTRY_MAX_BYTES = 65_536;
 

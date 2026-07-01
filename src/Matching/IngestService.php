@@ -26,7 +26,7 @@ use function sprintf;
 use function usort;
 
 /**
- * The Phase-2 vertical slice that turns a validated feeder response into persisted pending
+ * The Phase-2 vertical slice that turns a validated finder response into persisted pending
  * suggestions. It is handed the already-validated notices (keyed by person), and for every requested
  * person who still has a held candidate scores each scraped notice DIRECTLY with the enriched engine,
  * classifies the best result against the per-notice set and persists it to the passed store as a

@@ -131,7 +131,7 @@ final class RelativeScorerTest extends TestCase
     }
 
     /**
-     * A confidence above 1.0 from a faulty feeder is clamped to 1.0 (full points, never more).
+     * A confidence above 1.0 from a faulty finder is clamped to 1.0 (full points, never more).
      */
     #[Test]
     public function confidenceAboveOneIsClampedToOne(): void
@@ -162,7 +162,7 @@ final class RelativeScorerTest extends TestCase
     }
 
     /**
-     * A NaN confidence from a faulty feeder is treated as zero-confidence, scoring 0 (not full points).
+     * A NaN confidence from a faulty finder is treated as zero-confidence, scoring 0 (not full points).
      */
     #[Test]
     public function nanConfidenceScoresZero(): void

@@ -22,7 +22,7 @@ use MagicSunday\ObituaryMatcher\Queue\JobTransport;
 use Throwable;
 
 /**
- * The Phase-2e orchestration boundary: it drains finished feeder jobs into the per-tree match stores.
+ * The Phase-2e orchestration boundary: it drains finished finder jobs into the per-tree match stores.
  * The transport ({@see JobTransport}) yields each completed job — a {@see CompletedJob} carrying its
  * validated notices, or a {@see FailedJob} carrying a per-job read fault category — so this service stays
  * oblivious to where the jobs live (the on-disk file queue or the REST ledger). The file transport yields
