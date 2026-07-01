@@ -13,6 +13,7 @@ namespace MagicSunday\ObituaryMatcher\Test\Queue;
 
 use GuzzleHttp\Psr7\HttpFactory;
 use GuzzleHttp\Psr7\Response;
+use MagicSunday\ObituaryMatcher\Queue\BodyFault;
 use MagicSunday\ObituaryMatcher\Queue\CapabilitiesProbeResult;
 use MagicSunday\ObituaryMatcher\Queue\CappedJsonBodyReader;
 use MagicSunday\ObituaryMatcher\Queue\FinderCapabilities;
@@ -42,6 +43,7 @@ use RuntimeException;
  * @link    https://github.com/magicsunday/webtrees-obituary-matcher/
  */
 #[CoversClass(FinderCapabilitiesProbe::class)]
+#[UsesClass(BodyFault::class)]
 #[UsesClass(CapabilitiesProbeResult::class)]
 #[UsesClass(CappedJsonBodyReader::class)]
 #[UsesClass(FinderCapabilities::class)]

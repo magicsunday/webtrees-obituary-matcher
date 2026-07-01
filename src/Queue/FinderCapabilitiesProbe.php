@@ -95,7 +95,9 @@ final readonly class FinderCapabilitiesProbe
 
         $body = CappedJsonBodyReader::decode($response, $this->maxBytes);
 
-        if ($body === null) {
+        if ($body instanceof BodyFault) {
+            // Any unusable body — transient torn read or permanent oversize/malformed/non-object — is
+            // reported as invalid; the probe does not split the two the way the poll transport does.
             return CapabilitiesProbeResult::invalid();
         }
 
