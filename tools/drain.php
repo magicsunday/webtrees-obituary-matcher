@@ -107,21 +107,22 @@ $limit = (is_string($limitOption) && ctype_digit($limitOption) && ((int) $limitO
 // non-zero. The PDOException-first arm ordering and the guarded sink live in that shared method.
 HeadlessBootstrap::bootForCli('drain');
 
-// Resolve the REGISTERED module instance so the finder connection reads the SAME saved control-panel
-// preferences the admin UI wrote. Module discovery needs the booted runtime, so it runs after the boot.
-$module = CliModuleResolver::resolveActiveModule();
-
-if ($module === null) {
-    fwrite(STDERR, 'The obituary-matcher module is not installed or enabled in this webtrees instance.' . PHP_EOL);
-
-    exit(1);
-}
-
-// Resolve the REST wiring (the validated finder connection from the persisted config and the in-flight
-// ledger root) through the shared bootstrap. The connection is read from the saved control-panel config
-// under the same REST consent gate the admin UI enforces; a not-configured/disabled connection fails
-// fast with a fixed hint and the token never spills into argv or a stack trace.
+// Resolve the REGISTERED module and its REST wiring inside ONE guarded block. Both the module discovery
+// and the persisted-config read touch the database, so a discovery/query fault is routed to the guarded
+// sink below rather than escaping to cron STDERR. The connection is read from the saved control-panel
+// config under the same REST consent gate the admin UI enforces; a not-configured/disabled connection
+// fails fast with a fixed hint and the token never spills into argv or a stack trace.
 try {
+    // Module discovery needs the booted runtime, so it runs after the boot; a disabled or absent module
+    // yields null and the CLI refuses (an inactive install must not drive the cron).
+    $module = CliModuleResolver::resolveActiveModule();
+
+    if ($module === null) {
+        fwrite(STDERR, 'The obituary-matcher module is not installed or enabled in this webtrees instance.' . PHP_EOL);
+
+        exit(1);
+    }
+
     [$connection, $restPendingRoot] = RestCliBootstrap::resolve(
         $module,
         $restPendingOption,
@@ -148,7 +149,20 @@ try {
 // (the per-job store is wired inside DrainService).
 $drainService = DrainServiceFactory::create($connection, $restPendingRoot);
 
-$summary = $drainService->drain($onlyTreeId, $limit);
+try {
+    $summary = $drainService->drain($onlyTreeId, $limit);
+} catch (Throwable $exception) {
+    // A DB/I-O fault DURING draining (TreeService::find / CandidateRepository::findByXrefs run webtrees
+    // queries OUTSIDE DrainService's inner try) would otherwise escape to PHP's default uncaught-exception
+    // handler and print the full message + stack trace (SQL text, connection name, absolute paths) to
+    // STDERR/cron mail. Catch every Throwable, print a fixed category, and route the detail to the SAME
+    // guarded sink the bootstrap uses (error_log defaults to STDERR in CLI, so it only logs when a real
+    // sink is configured — the S46 lesson). This mirrors the enqueue adapter's producer guard.
+    fwrite(STDERR, 'Drain failed.' . PHP_EOL);
+    HeadlessBootstrap::logCliError('drain', $exception);
+
+    exit(1);
+}
 
 fwrite(
     STDOUT,
