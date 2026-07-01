@@ -32,6 +32,11 @@ use function print_r;
 #[CoversClass(FinderConnection::class)]
 final class FinderConnectionTest extends TestCase
 {
+    /**
+     * A REST connection exposes the configured base URL and token through its accessors.
+     *
+     * @return void
+     */
     #[Test]
     public function restConnectionCarriesBaseUrlAndToken(): void
     {
@@ -41,6 +46,11 @@ final class FinderConnectionTest extends TestCase
         self::assertSame('secret-token', $c->token());
     }
 
+    /**
+     * A REST connection built with a null token exposes the base URL but carries no token.
+     *
+     * @return void
+     */
     #[Test]
     public function anUnauthenticatedConnectionCarriesNoToken(): void
     {
