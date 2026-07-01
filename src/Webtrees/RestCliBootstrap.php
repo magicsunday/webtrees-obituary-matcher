@@ -18,6 +18,7 @@ use RuntimeException;
 use SensitiveParameter;
 
 use function is_string;
+use function rtrim;
 use function str_starts_with;
 
 /**
@@ -94,20 +95,21 @@ final class RestCliBootstrap
     }
 
     /**
-     * Resolves the in-flight ledger root: an explicit `--rest-pending` value (which MUST be a non-empty
-     * absolute path) or, when absent, the running instance's default resolved through the layout-
-     * independent locator relative to the module root. An explicit relative path is rejected because
-     * enqueue and drain routinely run from different working directories (cron, manual), so the same
-     * relative value would resolve to DIFFERENT ledgers and strand an accepted remote job — enqueue
-     * records it under one root while drain scans another and exits clean. The default-resolved root is
-     * always absolute (it is realpath-derived), so the absolute requirement never rejects it.
+     * Resolves the in-flight ledger root: an explicit `--rest-pending` value (which MUST be an absolute
+     * path to a dedicated directory) or, when absent, the running instance's default resolved through the
+     * layout-independent locator relative to the module root. An explicit empty, relative, or filesystem-
+     * root value is rejected: enqueue and drain routinely run from different working directories (cron,
+     * manual), so a relative value would resolve to DIFFERENT ledgers and strand an accepted remote job,
+     * while a root-level ledger would scan/write/remove `*.json` entries at `/`. A trailing separator is
+     * normalised away. The default-resolved root is always absolute (it is realpath-derived), so the
+     * absolute requirement never rejects it.
      *
      * @param string|null $restPendingOption The raw `--rest-pending` value (already narrowed to string|null).
      * @param string      $moduleRoot        The module root directory the default is resolved from.
      *
-     * @return string The resolved absolute ledger root.
+     * @return string The resolved absolute ledger root (any trailing separator removed).
      *
-     * @throws RuntimeException On an unlocatable default root or an empty/relative explicit path.
+     * @throws RuntimeException On an unlocatable default root or an empty/relative/filesystem-root explicit path.
      */
     private static function ledgerRoot(?string $restPendingOption, string $moduleRoot): string
     {
@@ -126,15 +128,23 @@ final class RestCliBootstrap
             return $default;
         }
 
+        // An explicit --rest-pending MUST be an absolute path to a DEDICATED directory. Normalise a
+        // trailing separator first, so the empty string and the filesystem root ('/' or '//') both
+        // collapse to '' and are rejected together with a relative value: a relative root would resolve
+        // differently across enqueue's and drain's working directories, and a root-level ledger would
+        // scan/write/remove *.json entries at '/' — under a privileged cron/container touching unrelated
+        // files.
+        $normalized = rtrim($restPendingOption, '/');
+
         if (
-            ($restPendingOption === '')
+            ($normalized === '')
             || !str_starts_with($restPendingOption, '/')
         ) {
             throw new RuntimeException(
-                '--rest-pending must be a non-empty absolute path (e.g. /var/lib/webtrees/data/obituary-matcher/rest-pending).',
+                '--rest-pending must be an absolute path to a dedicated directory (e.g. /var/lib/webtrees/data/obituary-matcher/rest-pending).',
             );
         }
 
-        return $restPendingOption;
+        return $normalized;
     }
 }

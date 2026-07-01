@@ -130,7 +130,7 @@ final class RestCliBootstrapTest extends TestCase
     public function anEmptyExplicitLedgerRootIsRejected(): void
     {
         $this->expectException(RuntimeException::class);
-        $this->expectExceptionMessageMatches('/' . preg_quote('--rest-pending must be a non-empty absolute path', '/') . '/');
+        $this->expectExceptionMessageMatches('/' . preg_quote('--rest-pending must be an absolute path', '/') . '/');
 
         RestCliBootstrap::resolve('https://finder.example', null, '', sys_get_temp_dir());
     }
@@ -145,9 +145,44 @@ final class RestCliBootstrapTest extends TestCase
     public function aRelativeExplicitLedgerRootIsRejected(): void
     {
         $this->expectException(RuntimeException::class);
-        $this->expectExceptionMessageMatches('/' . preg_quote('--rest-pending must be a non-empty absolute path', '/') . '/');
+        $this->expectExceptionMessageMatches('/' . preg_quote('--rest-pending must be an absolute path', '/') . '/');
 
         RestCliBootstrap::resolve('https://finder.example', null, 'relative/rest-pending', sys_get_temp_dir());
+    }
+
+    /**
+     * The filesystem root itself is rejected: a root-level ledger would scan, write and remove *.json
+     * entries at `/` rather than in a dedicated directory. A trailing separator is normalised first, so
+     * both `/` and `//` are caught.
+     *
+     * @return void
+     */
+    #[Test]
+    public function aFilesystemRootLedgerRootIsRejected(): void
+    {
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessageMatches('/' . preg_quote('--rest-pending must be an absolute path', '/') . '/');
+
+        RestCliBootstrap::resolve('https://finder.example', null, '/', sys_get_temp_dir());
+    }
+
+    /**
+     * A trailing separator on an otherwise valid absolute ledger root is normalised away, so the resolved
+     * root never carries a trailing slash into the downstream path joins.
+     *
+     * @return void
+     */
+    #[Test]
+    public function aTrailingSeparatorOnTheLedgerRootIsNormalised(): void
+    {
+        [, $restPendingRoot] = RestCliBootstrap::resolve(
+            'https://finder.example',
+            null,
+            '/var/lib/webtrees/rest-pending/',
+            sys_get_temp_dir(),
+        );
+
+        self::assertSame('/var/lib/webtrees/rest-pending', $restPendingRoot);
     }
 
     /**
