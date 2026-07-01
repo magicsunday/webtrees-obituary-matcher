@@ -30,6 +30,7 @@ use MagicSunday\ObituaryMatcher\Queue\FinderCapabilitiesProbe;
 use MagicSunday\ObituaryMatcher\Queue\ProbeStatus;
 use MagicSunday\ObituaryMatcher\Queue\RestPendingLedger;
 use MagicSunday\ObituaryMatcher\Support\FinderConnection;
+use MagicSunday\ObituaryMatcher\Support\FinderConnectionResolver;
 use MagicSunday\ObituaryMatcher\Support\WebtreesInstallLocator;
 use MagicSunday\ObituaryMatcher\Ui\ControlPanelPresenter;
 use MagicSunday\ObituaryMatcher\Ui\FinderConnectionView;
@@ -681,23 +682,11 @@ class ObituaryControlPanelHandler implements RequestHandlerInterface
      */
     protected function finderConnection(): ?FinderConnection
     {
-        if ($this->module->getPreference('finder_transport', '') !== 'rest') {
-            return null;
-        }
-
-        $baseUrl = $this->module->getPreference('finder_base_url', '');
-
-        if ($baseUrl === '') {
-            return null;
-        }
-
-        $token = $this->module->getPreference('finder_token', '');
-
-        try {
-            return FinderConnection::rest($baseUrl, $token === '' ? null : $token);
-        } catch (InvalidArgumentException) {
-            return null;
-        }
+        return FinderConnectionResolver::fromConfig(
+            $this->module->getPreference('finder_transport', ''),
+            $this->module->getPreference('finder_base_url', ''),
+            $this->module->getPreference('finder_token', ''),
+        );
     }
 
     /**
