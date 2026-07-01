@@ -16,6 +16,7 @@ use MagicSunday\ObituaryMatcher\Domain\PersonName;
 use function array_slice;
 use function count;
 use function implode;
+use function mb_substr;
 
 /**
  * The finder-request portion describing a single candidate and its prioritised queries.
@@ -30,6 +31,26 @@ final readonly class FinderCandidateRequest
      * The maximum number of contract name-entry forms per candidate (the schema's `maxItems`).
      */
     private const int MAX_NAME_ENTRIES = 10;
+
+    /**
+     * The maximum length of a NameEntry `full`/`given`/`surname` field (the #56 contract's `maxLength`).
+     */
+    private const int MAX_NAME_FIELD_LENGTH = 200;
+
+    /**
+     * The maximum length of a QueryHint `query` (the #56 contract's `maxLength`).
+     */
+    private const int MAX_QUERY_LENGTH = 500;
+
+    /**
+     * The maximum length of a QueryHint `dedupKey` (the #56 contract's `maxLength`).
+     */
+    private const int MAX_DEDUP_KEY_LENGTH = 200;
+
+    /**
+     * The maximum number of contract query hints per candidate (the schema's `maxItems`).
+     */
+    private const int MAX_QUERY_HINTS = 50;
 
     /**
      * Constructor.
@@ -73,9 +94,14 @@ final readonly class FinderCandidateRequest
 
     /**
      * Projects the decomposed {@see PersonName} onto contract name-entry forms — primary, birth,
-     * married and alias — dropping any empty form and keeping at most {@see self::MAX_NAME_ENTRIES}
-     * (primary first). A candidate always carries a surname or a given name, so the list is non-empty;
-     * the schema's `minItems: 1` and the producer contract test pin that at the boundary.
+     * married and alias — dropping any empty form, truncating each field to the contract maximum
+     * ({@see self::MAX_NAME_FIELD_LENGTH}) and keeping at most {@see self::MAX_NAME_ENTRIES}
+     * (primary first).
+     *
+     * MUST stay in lockstep with {@see PersonName::hasSearchableName()}: the enqueue producer excludes
+     * every candidate for which that predicate is false, so a candidate that reaches here always
+     * carries at least one non-empty token and the list is non-empty (the schema's `minItems: 1`). The
+     * producer contract test pins that invariant at the boundary.
      *
      * @return list<array{kind?: string, full?: string, given?: string, surname?: string}> The projected name entries.
      */
@@ -83,36 +109,37 @@ final readonly class FinderCandidateRequest
     {
         $entries = [];
 
-        $given   = implode(' ', $this->name->givenNames);
+        $given   = mb_substr(implode(' ', $this->name->givenNames), 0, self::MAX_NAME_FIELD_LENGTH);
+        $surname = mb_substr($this->name->surname, 0, self::MAX_NAME_FIELD_LENGTH);
         $primary = ['kind' => 'primary'];
 
         if ($given !== '') {
             $primary['given'] = $given;
         }
 
-        if ($this->name->surname !== '') {
-            $primary['surname'] = $this->name->surname;
+        if ($surname !== '') {
+            $primary['surname'] = $surname;
         }
 
         // A bare {kind} entry would violate the schema's anyOf(full|surname|given); keep it only when
         // it carries at least one searchable field.
-        if (($given !== '') || ($this->name->surname !== '')) {
+        if (($given !== '') || ($surname !== '')) {
             $entries[] = $primary;
         }
 
         if (($this->name->birthSurname !== null) && ($this->name->birthSurname !== '')) {
-            $entries[] = ['kind' => 'birth', 'surname' => $this->name->birthSurname];
+            $entries[] = ['kind' => 'birth', 'surname' => mb_substr($this->name->birthSurname, 0, self::MAX_NAME_FIELD_LENGTH)];
         }
 
         foreach ($this->name->marriedSurnames as $marriedSurname) {
             if ($marriedSurname !== '') {
-                $entries[] = ['kind' => 'married', 'surname' => $marriedSurname];
+                $entries[] = ['kind' => 'married', 'surname' => mb_substr($marriedSurname, 0, self::MAX_NAME_FIELD_LENGTH)];
             }
         }
 
         foreach ($this->name->aliases as $alias) {
             if ($alias !== '') {
-                $entries[] = ['kind' => 'alias', 'full' => $alias];
+                $entries[] = ['kind' => 'alias', 'full' => mb_substr($alias, 0, self::MAX_NAME_FIELD_LENGTH)];
             }
         }
 
@@ -125,7 +152,12 @@ final readonly class FinderCandidateRequest
 
     /**
      * Serialises the prioritised queries into contract query-hint entries (query + dedupKey required,
-     * priority carried through).
+     * priority carried through). Each field is truncated to its contract maximum
+     * ({@see self::MAX_QUERY_LENGTH}, {@see self::MAX_DEDUP_KEY_LENGTH}); a query whose dedupKey
+     * normalises to an empty string is skipped (the schema's `minLength: 1`), and the list is capped
+     * to the first {@see self::MAX_QUERY_HINTS} (the queries arrive priority-ordered, so the least
+     * important hints are the ones dropped). `queryHints` is optional with no `minItems`, so an empty
+     * list stays contract-valid.
      *
      * @return list<array{query: string, dedupKey: string, priority: int}> The query hints.
      */
@@ -134,11 +166,23 @@ final readonly class FinderCandidateRequest
         $hints = [];
 
         foreach ($this->queries as $query) {
+            $dedupKey = mb_substr($query->dedupKey, 0, self::MAX_DEDUP_KEY_LENGTH);
+
+            // A QueryHint.dedupKey must be non-empty; a strip-word-only query normalises to '' — skip
+            // it rather than emit a schema-invalid hint.
+            if ($dedupKey === '') {
+                continue;
+            }
+
             $hints[] = [
-                'query'    => $query->query,
-                'dedupKey' => $query->dedupKey,
+                'query'    => mb_substr($query->query, 0, self::MAX_QUERY_LENGTH),
+                'dedupKey' => $dedupKey,
                 'priority' => $query->priority,
             ];
+
+            if (count($hints) === self::MAX_QUERY_HINTS) {
+                break;
+            }
         }
 
         return $hints;

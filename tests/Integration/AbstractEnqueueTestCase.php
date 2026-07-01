@@ -172,6 +172,20 @@ abstract class AbstractEnqueueTestCase extends AbstractStoreTestCase
     }
 
     /**
+     * The full submitted job's request in its JSON-ready contract-wire shape (schemaVersion, jobId,
+     * locale, candidates) — so a scenario can validate the exact body the producer POSTs against the
+     * published schema.
+     *
+     * @param string $jobId The submitted job id.
+     *
+     * @return array<string, mixed> The wire body.
+     */
+    protected function submittedRequestArray(string $jobId): array
+    {
+        return $this->submittedRequestFor($jobId)->toArray();
+    }
+
+    /**
      * The excludedHosts the producer threaded onto each submitted candidate, keyed by personId. The
      * hint is carried on the {@see FinderCandidateRequest} object but NOT on the contract wire, so this
      * reads it off the object graph rather than the serialised body.

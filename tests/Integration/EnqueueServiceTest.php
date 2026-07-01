@@ -11,6 +11,7 @@ declare(strict_types=1);
 
 namespace MagicSunday\ObituaryMatcher\Test\Integration;
 
+use JsonException;
 use MagicSunday\ObituaryMatcher\Domain\ClassifiedMatch;
 use MagicSunday\ObituaryMatcher\Matching\FileMatchStore;
 use MagicSunday\ObituaryMatcher\Matching\MatchStatus;
@@ -28,9 +29,15 @@ use MagicSunday\ObituaryMatcher\Webtrees\CandidateRepository;
 use MagicSunday\ObituaryMatcher\Webtrees\EnqueueService;
 use MagicSunday\ObituaryMatcher\Webtrees\EnqueueSummary;
 use MagicSunday\ObituaryMatcher\Webtrees\MatchStoreFactory;
+use Opis\JsonSchema\Validator;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\Attributes\UsesClass;
+
+use function json_decode;
+use function json_encode;
+
+use const JSON_THROW_ON_ERROR;
 
 /**
  * Integration scenarios for the {@see EnqueueService}: each pins the discriminating triple — the
@@ -58,6 +65,7 @@ use PHPUnit\Framework\Attributes\UsesClass;
 #[UsesClass(AtomicFile::class)]
 #[UsesClass(FinderCandidateRequest::class)]
 #[UsesClass(FinderRequest::class)]
+#[UsesClass(\MagicSunday\ObituaryMatcher\Domain\PersonName::class)]
 #[UsesClass(FinderRequestFactory::class)]
 #[UsesClass(JobId::class)]
 #[UsesClass(QueryGenerator::class)]
@@ -337,6 +345,58 @@ final class EnqueueServiceTest extends AbstractEnqueueTestCase
 
         // No job was submitted.
         self::assertSame([], $this->queuedJobIds());
+    }
+
+    /**
+     * (15) A nameless candidate — a webtrees `@P.N.`/`@N.N.` placeholder person (GEDCOM `1 NAME //`) —
+     * is excluded from the finder request: it cannot form a valid `CandidateFacts.names` entry (the
+     * contract's `minItems: 1`) and is unsearchable anyway. A batch of one nameless + one named
+     * candidate enqueues a request that validates against the published job-request schema and carries
+     * ONLY the named survivor; the summary's candidate count reflects only that survivor.
+     *
+     * @return void
+     *
+     * @throws JsonException If the produced body is not encodable/decodable JSON.
+     */
+    #[Test]
+    public function aNamelessCandidateIsExcludedFromTheRequest(): void
+    {
+        $tree = $this->importFixtureTree(
+            "0 HEAD\n1 SOUR t\n1 GEDC\n2 VERS 5.5.1\n1 CHAR UTF-8\n"
+            . "0 @I1@ INDI\n1 NAME Otto /Searchable/\n2 GIVN Otto\n2 SURN Searchable\n1 SEX M\n1 BIRT\n2 DATE 17 MAR 1930\n"
+            . "0 @I2@ INDI\n1 NAME //\n1 SEX M\n1 BIRT\n2 DATE 17 MAR 1930\n0 TRLR\n",
+            'enqueue-nameless',
+        );
+
+        $summary = $this->enqueueService()->enqueue($tree->id(), 50, 90, 'de-DE', self::REFERENCE_YEAR);
+
+        self::assertNotNull($summary->jobId);
+
+        // Only the nameable survivor is enqueued; the summary count reflects it, not the dropped
+        // nameless person (whose exclusion is silent by design — nothing to search).
+        self::assertSame(1, $summary->candidates);
+        self::assertSame(['I1'], $this->queuedPersonIds($summary->jobId));
+        self::assertNotContains('I2', $this->queuedPersonIds($summary->jobId));
+
+        // The submitted wire body validates against the published contract (object-faithful decode for
+        // opis, the same boundary shape the producer contract test uses).
+        $json = json_encode($this->submittedRequestArray($summary->jobId), JSON_THROW_ON_ERROR);
+        $body = json_decode($json, flags: JSON_THROW_ON_ERROR);
+
+        $validator = new Validator();
+        $resolver  = $validator->resolver();
+        self::assertNotNull($resolver);
+        $resolver->registerFile(
+            'https://raw.githubusercontent.com/magicsunday/webtrees-obituary-matcher/main/schemas/job-request.schema.json',
+            __DIR__ . '/../../schemas/job-request.schema.json',
+        );
+
+        $result = $validator->validate(
+            $body,
+            'https://raw.githubusercontent.com/magicsunday/webtrees-obituary-matcher/main/schemas/job-request.schema.json',
+        );
+
+        self::assertTrue($result->isValid(), 'The submitted request body does not validate against job-request.schema.json');
     }
 
     /**

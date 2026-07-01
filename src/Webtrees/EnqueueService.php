@@ -107,6 +107,14 @@ class EnqueueService
                 continue;
             }
 
+            // A candidate whose name collapsed to empty placeholders (webtrees `@P.N.`/`@N.N.`) cannot
+            // form a valid CandidateFacts.names entry (the contract's `minItems: 1`) and is unsearchable
+            // anyway; drop it silently so a single nameless person cannot invalidate the whole POST body.
+            // The EnqueueSummary candidate count therefore reflects only the nameable survivors.
+            if (!$candidate->name->hasSearchableName()) {
+                continue;
+            }
+
             $eligible[] = $candidate;
 
             if (count($eligible) === $limit) {
