@@ -72,8 +72,10 @@ use Psr\Http\Message\StreamInterface;
 use RuntimeException;
 use Throwable;
 
+use function array_keys;
 use function array_search;
 use function count;
+use function end;
 use function http_build_query;
 use function in_array;
 use function json_encode;
@@ -601,9 +603,11 @@ final class ObituaryControlPanelHandlerTest extends AbstractEnqueueTestCase
      * the token. Order is the privacy guard: each preference is an independently committed write, so if
      * the base URL or token persistence fails (or another request interleaves) the marker must not yet
      * have flipped REST on — otherwise the connection would activate against the stale credentials the
-     * admin was replacing. Starting from a legacy `file` install with retained creds, the recorded write
-     * order proves the marker trails both connection fields. This fails on the marker-first ordering,
-     * where `finder_transport` was committed before the token.
+     * admin was replacing. Since activation is now atomic, `finder_transport` is written TWICE — a leading
+     * deactivation to `''` then the trailing reactivation to `'rest'` — so this asserts against the LAST
+     * occurrence, the reactivation. Starting from a legacy `file` install with retained creds, the
+     * recorded write order proves the reactivation trails both connection fields. This fails on the
+     * marker-first ordering, where `finder_transport` was committed before the token.
      *
      * @return void
      */
@@ -626,22 +630,93 @@ final class ObituaryControlPanelHandlerTest extends AbstractEnqueueTestCase
             ]));
         });
 
-        $transportIndex = array_search('finder_transport', $writeOrder, true);
-        $baseUrlIndex   = array_search('finder_base_url', $writeOrder, true);
-        $tokenIndex     = array_search('finder_token', $writeOrder, true);
+        // finder_transport is written twice (deactivate, then reactivate); the reactivation is the LAST
+        // occurrence and is the one that must trail both credential fields.
+        $transportIndices = array_keys($writeOrder, 'finder_transport', true);
+        $baseUrlIndex     = array_search('finder_base_url', $writeOrder, true);
+        $tokenIndex       = array_search('finder_token', $writeOrder, true);
 
-        self::assertIsInt($transportIndex, 'The activation marker was not persisted.');
+        self::assertNotSame([], $transportIndices, 'The activation marker was not persisted.');
         self::assertIsInt($baseUrlIndex, 'The base URL was not persisted.');
         self::assertIsInt($tokenIndex, 'The token was not persisted.');
+
+        $reactivationIndex = end($transportIndices);
+
         self::assertGreaterThan(
             $baseUrlIndex,
-            $transportIndex,
+            $reactivationIndex,
             'The activation marker must be written after the base URL.',
         );
         self::assertGreaterThan(
             $tokenIndex,
-            $transportIndex,
+            $reactivationIndex,
             'The activation marker must be written after the token.',
+        );
+    }
+
+    /**
+     * Re-pointing an ALREADY-ACTIVE REST install is atomic: the consent marker is DEACTIVATED before any
+     * credential write and only REACTIVATED once both the base URL and the token have been committed. Each
+     * setPreference is an independently committed write, so without the leading deactivation a base-URL
+     * write that landed before a failing token write would leave REST live against the NEW URL and the
+     * STALE token — sending person data to a half-configured endpoint. Starting from an active `rest`
+     * install, the recorded write order proves the FIRST `finder_transport` write precedes both credential
+     * fields (deactivation) and the LAST one trails them (reactivation).
+     *
+     * @return void
+     */
+    #[Test]
+    public function saveFinderDeactivatesRestBeforeRewritingAnActiveInstallsCredentials(): void
+    {
+        // An install already actively using REST, re-pointed to a new endpoint with a new token.
+        $this->module->setPreference('finder_transport', 'rest');
+        $this->module->setPreference('finder_base_url', 'https://old.example');
+        $this->module->setPreference('finder_token', 'old-secret');
+
+        $handler = $this->handler();
+
+        $writeOrder = $this->captureModuleSettingWriteOrder(function () use ($handler): void {
+            $handler->handle($this->panelPost([
+                'action'   => 'save-finder',
+                'base_url' => 'https://new.example',
+                'token'    => 'new-secret',
+            ]));
+        });
+
+        $transportIndices = array_keys($writeOrder, 'finder_transport', true);
+        $baseUrlIndex     = array_search('finder_base_url', $writeOrder, true);
+        $tokenIndex       = array_search('finder_token', $writeOrder, true);
+
+        self::assertGreaterThanOrEqual(
+            2,
+            count($transportIndices),
+            'The consent marker must be written twice: a leading deactivation and a trailing reactivation.',
+        );
+        self::assertIsInt($baseUrlIndex, 'The base URL was not persisted.');
+        self::assertIsInt($tokenIndex, 'The token was not persisted.');
+
+        $deactivationIndex = $transportIndices[0];
+        $reactivationIndex = end($transportIndices);
+
+        self::assertLessThan(
+            $baseUrlIndex,
+            $deactivationIndex,
+            'REST must be deactivated before the base URL is rewritten.',
+        );
+        self::assertLessThan(
+            $tokenIndex,
+            $deactivationIndex,
+            'REST must be deactivated before the token is rewritten.',
+        );
+        self::assertGreaterThan(
+            $baseUrlIndex,
+            $reactivationIndex,
+            'REST must be reactivated only after the base URL is written.',
+        );
+        self::assertGreaterThan(
+            $tokenIndex,
+            $reactivationIndex,
+            'REST must be reactivated only after the token is written.',
         );
     }
 

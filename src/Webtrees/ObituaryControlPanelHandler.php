@@ -218,9 +218,17 @@ class ObituaryControlPanelHandler implements RequestHandlerInterface
      * validated at the single {@see FinderConnection::rest()} source FIRST: on a validation failure
      * NOTHING is persisted (both-or-neither) and a danger flash is shown; on success the base URL is
      * written, and the token is set only when one was supplied (a blank field keeps the existing token)
-     * or explicitly cleared by the remove flag. The token VALUE is never logged, flashed or echoed. A
-     * successful save also records the `finder_transport === 'rest'` consent marker that activates the
-     * connection in {@see self::finderConnection()}. Always PRG-redirects.
+     * or explicitly cleared by the remove flag. The token VALUE is never logged, flashed or echoed.
+     *
+     * Activation is ATOMIC: the `finder_transport === 'rest'` consent marker that activates the
+     * connection in {@see self::finderConnection()} is first DEACTIVATED (set to a non-`'rest'` value),
+     * then the credentials are written, and the marker is REACTIVATED to `'rest'` only AFTER every
+     * credential write has succeeded. Each setPreference is an independently committed write, so without
+     * the leading deactivation an already-active (`'rest'`) install being re-pointed would keep REST live
+     * throughout the update — a base-URL write that landed before a failing token write would resolve the
+     * NEW URL with the STALE token. The deactivate-first/reactivate-last sequence guarantees a partial
+     * save NEVER leaves REST active against a half-written credential set, for an already-active install
+     * just as for a dormant legacy `'file'` one. Always PRG-redirects.
      *
      * @param ServerRequestInterface $request The incoming POST request.
      *
@@ -242,6 +250,16 @@ class ObituaryControlPanelHandler implements RequestHandlerInterface
             return redirect(route(self::ROUTE_NAME));
         }
 
+        // DEACTIVATE the consent marker FIRST. The REST-only UI no longer offers a transport toggle, so
+        // `finder_transport` is purely the internal "REST explicitly configured" marker; clearing it
+        // before any credential write means that — because each setPreference is an independently
+        // committed write — a failure persisting the base URL or token (or another request interleaving)
+        // from here on leaves REST INACTIVE, for an already-active 'rest' install just as for a dormant
+        // legacy 'file' one. Without this leading deactivation an already-active install keeps the 'rest'
+        // marker throughout the update, so a base-URL write that committed before a failing token write
+        // would resolve the NEW URL against the STALE token.
+        $this->module->setPreference('finder_transport', '');
+
         $this->module->setPreference('finder_base_url', $baseUrl);
 
         if ($remove) {
@@ -250,14 +268,9 @@ class ObituaryControlPanelHandler implements RequestHandlerInterface
             $this->module->setPreference('finder_token', $tokenRaw);
         }
 
-        // The REST-only UI no longer offers a transport toggle, so `finder_transport` is now purely the
-        // internal "REST explicitly configured" consent marker. It is written LAST, after the base URL and
-        // the token, because each setPreference is an independently committed write: were the marker
-        // written first, a failure persisting the base URL or token (or another request interleaving)
-        // would leave REST ACTIVATED against the stale credentials the admin was replacing. Writing it
-        // last lifts the migration gate in self::finderConnection() only once every connection field has
-        // been committed — without this marker a legacy file-mode install with retained REST creds stays
-        // correctly dormant.
+        // REACTIVATE the consent marker LAST, only after every connection field has been committed. This
+        // lifts the migration gate in self::finderConnection() atomically — a legacy file-mode install
+        // with retained REST creds stays correctly dormant until a full save completes.
         $this->module->setPreference('finder_transport', 'rest');
 
         FlashMessages::addMessage(I18N::translate('Finder connection saved.'), 'success');
