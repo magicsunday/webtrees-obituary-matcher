@@ -22,15 +22,27 @@ use MagicSunday\ObituaryMatcher\Queue\ResponseValidationException;
 use MagicSunday\ObituaryMatcher\Queue\ResponseValidator;
 use MagicSunday\ObituaryMatcher\Support\ObituaryNameParser;
 use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\Attributes\UsesClass;
 use PHPUnit\Framework\TestCase;
 
+use function file_get_contents;
+use function json_decode;
+use function preg_quote;
+use function reset;
+
+use const JSON_THROW_ON_ERROR;
+
 /**
  * Tests the pure response validator: it narrows an already-decoded (file-free) response payload into
- * death-notice records keyed by person and rejects every malformed payload (bad URL scheme, foreign
- * job ownership, unknown schema version) with a dedicated validation exception — the same contract
- * {@see \MagicSunday\ObituaryMatcher\Queue\RestJobTransport} delegates to.
+ * death-notice records keyed by person and rejects every malformed payload with a dedicated validation
+ * exception — the same contract {@see \MagicSunday\ObituaryMatcher\Queue\RestJobTransport} delegates to.
+ * Beyond the inline happy/ownership/schema cases, the fixture-driven cases pin the untrusted-input
+ * boundary the REST transport still relies on: the accepted ISO-8601 fetchedAt variants, the numeric
+ * person-id ownership coercion, the empty-structured-name fallback and every rejected timestamp shape
+ * (relative modifiers, trailing garbage/newline and out-of-range date components that DateTimeImmutable
+ * would otherwise roll silently).
  *
  * @author  Rico Sonntag <mail@ricosonntag.de>
  * @license https://opensource.org/licenses/GPL-3.0 GNU General Public License v3.0
@@ -151,5 +163,155 @@ final class ResponseValidatorTest extends TestCase
         $payload  = $this->payloadWithNotice(['name' => '   ']);
         $byPerson = (new ResponseValidator())->validate($payload, 'job-1', ['I1']);
         self::assertSame([], $byPerson['I1']); // dropped, no throw
+    }
+
+    /**
+     * A notice whose structured `parsedName` is PRESENT but empty (empty surname, no given names) must
+     * not yield a useless empty PersonName: the validator falls back to parsing the non-empty raw display
+     * name, exactly as it would for an absent structured key.
+     *
+     * @return void
+     */
+    #[Test]
+    public function anEmptyStructuredNameFallsBackToTheParsedRawName(): void
+    {
+        $byPerson = (new ResponseValidator())->validate(
+            $this->decodeFixture('response-empty-parsedname.json'),
+            'job-1',
+            ['I1'],
+        );
+
+        $notice = $byPerson['I1'][0];
+        self::assertSame('Mustermann', $notice->parsedName->surname);
+        self::assertSame(['Erika'], $notice->parsedName->givenNames);
+    }
+
+    /**
+     * A purely-numeric JSON person key (which json_decode casts to an int) is coerced to string for the
+     * ownership check, so a requested numeric XREF is narrowed into a record rather than wrongly rejected.
+     *
+     * @return void
+     */
+    #[Test]
+    public function aNumericPersonKeyIsAcceptedForItsRequestedNumericXref(): void
+    {
+        $byPerson = (new ResponseValidator())->validate(
+            $this->decodeFixture('response-numeric-personid.json'),
+            'job-1',
+            ['123'],
+        );
+
+        self::assertCount(1, $byPerson, 'exactly the requested numeric person is present');
+
+        // PHP canonicalises the numeric-string map key to an int, so assert through the notice value
+        // rather than the array key type.
+        $notices = reset($byPerson);
+        self::assertCount(1, $notices);
+        self::assertSame('Erika Mustermann geb. Mueller', $notices[0]->name);
+    }
+
+    /**
+     * The ISO-8601 fetchedAt variants the validator must still accept after the relative-string forms are
+     * rejected: a "Z" zulu suffix, a fractional-second value and the three legal timezone-offset forms
+     * (colon "+02:00", compact "+0200", hour-only "+02"). All are real ISO-8601 timestamps.
+     *
+     * @return array<string, array{0: string}> The fixture per accepted variant.
+     */
+    public static function acceptingFetchedAtFixtures(): array
+    {
+        return [
+            'zulu suffix'       => ['response-fetchedat-zulu.json'],
+            'fractional second' => ['response-fetchedat-fractional.json'],
+            'colon offset'      => ['response-fetchedat-colon-offset.json'],
+            'compact offset'    => ['response-fetchedat-compact-offset.json'],
+            'hour-only offset'  => ['response-fetchedat-hour-offset.json'],
+        ];
+    }
+
+    /**
+     * A valid ISO-8601 fetchedAt variant is accepted and narrowed into a record, proving the anchored
+     * timestamp guard does not over-reject legal ISO-8601 forms (a rejected variant would throw).
+     *
+     * @param string $fixture The accepted-variant fixture.
+     *
+     * @return void
+     */
+    #[Test]
+    #[DataProvider('acceptingFetchedAtFixtures')]
+    public function anIsoFetchedAtVariantIsAccepted(string $fixture): void
+    {
+        $byPerson = (new ResponseValidator())->validate($this->decodeFixture($fixture), 'job-1', ['I1']);
+
+        self::assertCount(1, $byPerson['I1']);
+    }
+
+    /**
+     * The reject fixtures, each paired with a fragment of the message the INTENDED gate raises, so the
+     * assertion proves the right check fired: the URL scheme allow-list (a protocol-relative `//host/x`
+     * yields a null scheme), the numeric job-ownership boundary, and the required parseable timestamp —
+     * including relative modifiers, an ISO-8601 prefix with trailing garbage/modifier/newline that an
+     * unanchored check would let DateTimeImmutable silently apply, and an out-of-range component ("00"
+     * month/day) that DateTimeImmutable would otherwise roll backward instead of throwing.
+     *
+     * @return array<string, array{0: string, 1: string}> The fixture and expected message fragment.
+     */
+    public static function rejectingFixtures(): array
+    {
+        return [
+            'protocol-relative url' => ['response-protocol-relative-url.json', 'scheme is not allowed'],
+            'foreign numeric owner' => ['response-numeric-foreign.json', 'person not in the request'],
+            'unparseable date'      => ['response-bad-fetchedat.json', 'not a parseable timestamp'],
+            'relative now'          => ['response-fetchedat-now.json', 'not a parseable timestamp'],
+            'relative yesterday'    => ['response-fetchedat-yesterday.json', 'not a parseable timestamp'],
+            'relative offset'       => ['response-fetchedat-relative.json', 'not a parseable timestamp'],
+            'trailing modifier'     => ['response-fetchedat-trailing-modifier.json', 'not a parseable timestamp'],
+            'trailing word'         => ['response-fetchedat-trailing-word.json', 'not a parseable timestamp'],
+            'trailing garbage'      => ['response-fetchedat-trailing-garbage.json', 'not a parseable timestamp'],
+            'trailing newline'      => ['response-fetchedat-trailing-newline.json', 'not a parseable timestamp'],
+            'zero month and day'    => ['response-fetchedat-zeromonthday.json', 'out-of-range date component'],
+            'zero day'              => ['response-fetchedat-zeroday.json', 'out-of-range date component'],
+            'zero month'            => ['response-fetchedat-zeromonth.json', 'out-of-range date component'],
+        ];
+    }
+
+    /**
+     * Each malformed response is rejected with a {@see ResponseValidationException} whose message proves
+     * the intended hard-validation gate fired (not merely "some validation failed").
+     *
+     * @param string $fixture                 The malformed-response fixture.
+     * @param string $expectedMessageFragment A fragment of the message the intended gate raises.
+     *
+     * @return void
+     */
+    #[Test]
+    #[DataProvider('rejectingFixtures')]
+    public function aMalformedResponseIsRejectedWithItsGateMessage(string $fixture, string $expectedMessageFragment): void
+    {
+        $this->expectException(ResponseValidationException::class);
+        $this->expectExceptionMessageMatches('/' . preg_quote($expectedMessageFragment, '/') . '/');
+
+        (new ResponseValidator())->validate($this->decodeFixture($fixture), 'job-1', ['I1']);
+    }
+
+    /**
+     * Decodes a response fixture from `tests/fixtures` into the associative payload the validator narrows.
+     * The validator never touches the filesystem — the fixture is only the payload SOURCE, so the
+     * file-free contract holds — but the fixtures pin the exact untrusted shapes (ISO-8601 timestamp
+     * variants, out-of-range components, a numeric person key) a hand-inlined array would transcribe
+     * imprecisely.
+     *
+     * @param string $fixture The fixture file name under `tests/fixtures`.
+     *
+     * @return array<array-key, mixed> The decoded payload.
+     */
+    private function decodeFixture(string $fixture): array
+    {
+        $json = file_get_contents(__DIR__ . '/../fixtures/' . $fixture);
+        self::assertIsString($json, 'Fixture not readable: ' . $fixture);
+
+        $decoded = json_decode($json, true, 512, JSON_THROW_ON_ERROR);
+        self::assertIsArray($decoded);
+
+        return $decoded;
     }
 }
