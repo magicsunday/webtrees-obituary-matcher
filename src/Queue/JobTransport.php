@@ -88,10 +88,11 @@ interface JobTransport
     public function inFlightRequests(): iterable;
 
     /**
-     * The number of jobs left stranded mid-ingest by an earlier run (the drain summary's stale tally).
-     * The REST transport returns 0 — its pending jobs stay pollable in the ledger and are never
-     * "claimed" into an intermediate state, so there is no stuck-in-ingesting state to count; the count
-     * stays on the seam for a transport that DOES claim jobs and could strand one on a mid-ingest crash.
+     * The number of jobs left stranded mid-ingest by an earlier run (the drain summary's stale tally). A
+     * transport that CLAIMS a job before processing it (as the REST transport does — an atomic move into a
+     * claimed state) counts the claims a crashed run never finalised or released and are now older than its
+     * stale threshold; a healthy run releases or removes every claim, so the tally stays 0 in normal
+     * operation and is self-healing (a stale claim is swept back to pending on a later drain).
      *
      * @return int The stale job count.
      */

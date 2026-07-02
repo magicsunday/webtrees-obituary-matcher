@@ -145,98 +145,133 @@ final readonly class RestJobTransport implements JobTransport
     /**
      * {@inheritDoc}
      *
-     * Polls `GET {baseUrl}/jobs/{jobId}` for every pending ledger entry and maps the lifecycle:
-     * a connect/timeout fault or any non-200/404 status (a transient 5xx) leaves the entry untouched
-     * and yields nothing; a 404 yields a `finder_job_missing` {@see FailedJob}; a 200 is decoded and
-     * branched on the top-level `state` — `queued`/`running` skip, `failed` yields `finder_failed`,
-     * and `done` validates the body (a validation reject → `response_invalid`, otherwise a
-     * {@see CompletedJob}). A 200 whose body a torn mid-read leaves {@see BodyFault::Transient} is kept
-     * and retried; one that is {@see BodyFault::Permanent} (oversized, malformed or non-object — the #56
-     * contract reproduces it verbatim on every re-GET) is terminally failed as `response_invalid` rather
-     * than polled forever. A missing or non-string state is likewise a structurally non-conforming
-     * response and is terminally failed as `response_invalid`; an unknown but plausible state STRING is
-     * treated as not-yet-ready and skipped (forward compatibility).
+     * Iterates the ledger's {@see RestPendingLedger::claimable()} entries — each already atomically
+     * CLAIMED for this drain, so a concurrent drain never processes the same job — and polls
+     * `GET {baseUrl}/jobs/{jobId}` for each, mapping the lifecycle. Every path that does not yet finalise
+     * the job RELEASES the claim so the next drain re-polls it promptly (rather than waiting out the
+     * stale-reclaim timeout): a connect/timeout fault or any non-200/404 status (a transient 5xx) releases
+     * and yields nothing, a `queued`/`running`/unknown state releases (still in flight), and a
+     * {@see BodyFault::Transient} torn read releases. A 404 yields a `finder_job_missing` {@see FailedJob};
+     * a 200 is decoded and branched on the top-level `state` — `failed` yields `finder_failed`, and `done`
+     * validates the body (a validation reject → `response_invalid`, otherwise a {@see CompletedJob}). A
+     * {@see BodyFault::Permanent} body (oversized, malformed or non-object — the #56 contract reproduces it
+     * verbatim on every re-GET) and a missing/non-string state are terminally failed as `response_invalid`
+     * rather than polled forever. A YIELDED job's claim is held until the caller finalises it (the drain
+     * marks it ingested/failed — which removes the claimed entry — or releases it for a tree-scoped drain),
+     * so the claim on a `done` job spans the whole ingest and no concurrent drain can double-process it.
      *
      * @return iterable<CompletedJob|FailedJob> The per-job outcomes.
      */
     public function fetchCompleted(): iterable
     {
-        foreach ($this->ledger->entries() as $entry) {
+        foreach ($this->ledger->claimable() as $entry) {
             $jobId     = $entry['jobId'];
             $treeId    = $entry['treeId'];
             $personIds = $entry['requestedPersonIds'];
 
+            // Ownership of the claim transfers to the caller AT the yield (a yielded job is finalised by
+            // the drain — markIngested/markFailed remove the claim, or a tree-scoped drain releases it).
+            // Every other exit — a transient retry `continue`, an early `break`/return by the consumer, or
+            // an UNEXPECTED exception from the HTTP client, the body decode or the validator — leaves
+            // $handled false, so the finally hands the claim back to the pending pool and the next drain
+            // re-polls it promptly instead of it sitting claimed until the stale-reclaim timeout. Releasing
+            // an already-finalised job (the claim is gone) is a harmless no-op, so the flag only needs to
+            // guard the yield paths.
+            $handled = false;
+
             try {
-                $response = $this->http->sendRequest(
-                    $this->request('GET', $this->baseUrl . '/jobs/' . $jobId)
-                );
-            } catch (ClientExceptionInterface) {
-                // Transient transport fault: keep the ledger entry and retry on the next drain.
-                continue;
-            }
-
-            $status = $response->getStatusCode();
-
-            if ($status === self::STATUS_NOT_FOUND) {
-                yield new FailedJob($jobId, $treeId, $personIds, 'finder_job_missing');
-
-                continue;
-            }
-
-            if ($status !== self::STATUS_OK) {
-                // A 5xx or any other unexpected status is transient: leave the entry for the next drain.
-                continue;
-            }
-
-            $body = $this->decodeBody($response);
-
-            if ($body instanceof BodyFault) {
-                // A permanent fault is terminally failed (the stored response is unusable and the contract
-                // reproduces it verbatim on every re-GET); a transient torn read keeps the ledger entry
-                // for the next drain to retry. The match is exhaustive, so a future fault case is caught.
-                $reason = match ($body) {
-                    BodyFault::Permanent => 'response_invalid',
-                    BodyFault::Transient => null,
-                };
-
-                if ($reason !== null) {
-                    yield new FailedJob($jobId, $treeId, $personIds, $reason);
+                try {
+                    $response = $this->http->sendRequest(
+                        $this->request('GET', $this->baseUrl . '/jobs/' . $jobId)
+                    );
+                } catch (ClientExceptionInterface) {
+                    // Transient transport fault: fall through so the finally releases the claim.
+                    continue;
                 }
 
-                continue;
+                $status = $response->getStatusCode();
+
+                if ($status === self::STATUS_NOT_FOUND) {
+                    $handled = true;
+
+                    yield new FailedJob($jobId, $treeId, $personIds, 'finder_job_missing');
+
+                    continue;
+                }
+
+                if ($status !== self::STATUS_OK) {
+                    // A 5xx or any other unexpected status is transient: the finally releases the claim so
+                    // the next drain re-polls it promptly rather than waiting out the stale-reclaim timeout.
+                    continue;
+                }
+
+                $body = $this->decodeBody($response);
+
+                if ($body instanceof BodyFault) {
+                    // A permanent fault is terminally failed (the stored response is unusable and the
+                    // contract reproduces it verbatim on every re-GET); a transient torn read falls through
+                    // to the finally-release so the next drain re-polls it. The match is exhaustive, so a
+                    // future fault case is caught.
+                    $reason = match ($body) {
+                        BodyFault::Permanent => 'response_invalid',
+                        BodyFault::Transient => null,
+                    };
+
+                    if ($reason !== null) {
+                        $handled = true;
+
+                        yield new FailedJob($jobId, $treeId, $personIds, $reason);
+                    }
+
+                    continue;
+                }
+
+                $state = $body['state'] ?? null;
+
+                if (!is_string($state)) {
+                    // A missing or non-string `state` is a structurally non-conforming response the contract
+                    // reproduces verbatim on every re-GET; terminally fail it rather than poll it forever.
+                    // An unknown but plausible state STRING stays retryable below (forward compatibility).
+                    $handled = true;
+
+                    yield new FailedJob($jobId, $treeId, $personIds, 'response_invalid');
+
+                    continue;
+                }
+
+                if ($state === 'failed') {
+                    $handled = true;
+
+                    yield new FailedJob($jobId, $treeId, $personIds, 'finder_failed');
+
+                    continue;
+                }
+
+                if ($state !== 'done') {
+                    // queued/running or an unknown state: still in flight, fall through so the finally
+                    // releases the claim (it is only held while a drain is actively processing a job).
+                    continue;
+                }
+
+                try {
+                    $notices = $this->validator->validate($body, $jobId, $personIds);
+                } catch (ResponseValidationException) {
+                    $handled = true;
+
+                    yield new FailedJob($jobId, $treeId, $personIds, 'response_invalid');
+
+                    continue;
+                }
+
+                $handled = true;
+
+                yield new CompletedJob($jobId, $treeId, $personIds, $notices);
+            } finally {
+                if (!$handled) {
+                    // Not handed off to the caller: release the claim so the entry returns to pending.
+                    $this->ledger->release($jobId);
+                }
             }
-
-            $state = $body['state'] ?? null;
-
-            if (!is_string($state)) {
-                // A missing or non-string `state` is a structurally non-conforming response the contract
-                // reproduces verbatim on every re-GET; terminally fail it rather than poll it forever. An
-                // unknown but plausible state STRING stays retryable below (forward compatibility).
-                yield new FailedJob($jobId, $treeId, $personIds, 'response_invalid');
-
-                continue;
-            }
-
-            if ($state === 'failed') {
-                yield new FailedJob($jobId, $treeId, $personIds, 'finder_failed');
-
-                continue;
-            }
-
-            if ($state !== 'done') {
-                // queued/running or an unknown state: still in flight, retry on the next drain.
-                continue;
-            }
-
-            try {
-                $notices = $this->validator->validate($body, $jobId, $personIds);
-            } catch (ResponseValidationException) {
-                yield new FailedJob($jobId, $treeId, $personIds, 'response_invalid');
-
-                continue;
-            }
-
-            yield new CompletedJob($jobId, $treeId, $personIds, $notices);
         }
     }
 
@@ -264,11 +299,12 @@ final readonly class RestJobTransport implements JobTransport
     /**
      * {@inheritDoc}
      *
-     * Drops the job from the local poll set but PRESERVES it on the remote: a failed job is removed from
-     * the ledger (so it is not re-polled — unless the unlink itself fails on a read-only/permission-denied
-     * ledger filesystem, a bounded self-healing degradation tracked in issue #71) yet deliberately NOT
-     * deleted remotely. Preserving the remote job rather than discarding it means a transient local fault
-     * that surfaces as
+     * Drops the job from the local poll set (removing its claimed entry) but PRESERVES it on the remote: a
+     * failed job is removed from the ledger so it is not re-polled — unless the unlink itself fails on a
+     * read-only/permission-denied ledger filesystem, in which case the claimed entry survives and is swept
+     * back to pending by a later drain once it ages past the stale threshold (a bounded, self-healing
+     * degradation counted by {@see self::staleCount()}) — yet the job is deliberately NOT deleted remotely.
+     * Preserving the remote job rather than discarding it means a transient local fault that surfaces as
      * `ingest_failed` (a disk-full or permission error while persisting the matches) does not destroy the
      * only copy of the finder's result — the remote keeps the job for manual recovery. Only a SUCCESSFUL
      * ingest ({@see self::markIngested()}) deletes the remote job. The category and warnings have no REST
@@ -290,8 +326,10 @@ final readonly class RestJobTransport implements JobTransport
     /**
      * {@inheritDoc}
      *
-     * A no-op for the REST transport: a polled job is never "claimed", so there is nothing to hand back
-     * — the ledger entry stays and the next drain re-polls it.
+     * Hands a claimed job back to the pending pool through the ledger, so the next drain re-polls it. Used
+     * when a drain observes a claimed job is not yet ready (a tree-scoped drain stepping over a foreign
+     * job, a still-running remote job, or a transient transport fault). Idempotent: releasing an unknown
+     * or already-released job is a no-op.
      *
      * @param string $jobId The job identifier to release.
      *
@@ -299,7 +337,7 @@ final readonly class RestJobTransport implements JobTransport
      */
     public function release(string $jobId): void
     {
-        // Intentionally empty: REST jobs are not claimed, so the ledger entry already persists.
+        $this->ledger->release($jobId);
     }
 
     /**
@@ -320,14 +358,16 @@ final readonly class RestJobTransport implements JobTransport
     /**
      * {@inheritDoc}
      *
-     * Always 0: REST jobs are never claimed into an ingesting state, so none can be stranded mid-ingest
-     * — a pending job simply stays pollable in the ledger.
+     * The number of claims a crashed drain stranded mid-ingest — claimed ledger entries older than the
+     * ledger's stale threshold that no run finalised or released. A healthy drain releases or removes
+     * every claim it takes, so this stays 0 in normal operation and rises only after a crash; the count is
+     * self-healing, as the next drain sweeps a stale claim back to pending.
      *
-     * @return int The stale job count (always 0 for the REST transport).
+     * @return int The stale (crash-stranded) claim count.
      */
     public function staleCount(): int
     {
-        return 0;
+        return $this->ledger->staleCount();
     }
 
     /**
