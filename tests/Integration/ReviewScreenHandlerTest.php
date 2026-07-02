@@ -52,7 +52,13 @@ use MagicSunday\ObituaryMatcher\Ui\TreePersonView;
 use MagicSunday\ObituaryMatcher\Webtrees\MatchSeeder;
 use MagicSunday\ObituaryMatcher\Webtrees\ObituaryWriteBack;
 use MagicSunday\ObituaryMatcher\Webtrees\PortalSourceRepository;
+use MagicSunday\ObituaryMatcher\Webtrees\RevertConsistencyGate;
+use MagicSunday\ObituaryMatcher\Webtrees\RevertFlash;
+use MagicSunday\ObituaryMatcher\Webtrees\RevertOutcome;
+use MagicSunday\ObituaryMatcher\Webtrees\RevertReason;
+use MagicSunday\ObituaryMatcher\Webtrees\RevertService;
 use MagicSunday\ObituaryMatcher\Webtrees\ReviewScreenHandler;
+use MagicSunday\ObituaryMatcher\Webtrees\WriteBackReverter;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\Attributes\UsesClass;
@@ -95,6 +101,12 @@ use function view;
 #[UsesClass(ObituaryWriteBack::class)]
 #[UsesClass(PortalSourceRepository::class)]
 #[UsesClass(WriteBack::class)]
+#[UsesClass(RevertService::class)]
+#[UsesClass(RevertFlash::class)]
+#[UsesClass(RevertOutcome::class)]
+#[UsesClass(RevertReason::class)]
+#[UsesClass(RevertConsistencyGate::class)]
+#[UsesClass(WriteBackReverter::class)]
 final class ReviewScreenHandlerTest extends IntegrationTestCase
 {
     use RemovesFlatTempStoreTrait;
@@ -880,15 +892,16 @@ final class ReviewScreenHandlerTest extends IntegrationTestCase
     }
 
     /**
-     * POST confirm writes the sourced DEAT, marks the store confirmed and redirects to the individual
-     * with a success flash. I2 carries no death date and the seeded row carries an exact ISO date, so
-     * the gate passes; auto-accept is ON so the written DEAT commits and the re-fetched individual and
-     * the persisted store row both reflect the confirm (spec §2/§9).
+     * POST confirm writes the sourced DEAT, marks the store confirmed and redirects back to the review
+     * screen (#60 — so the freshly-confirmed row re-renders with the Revert/undo affordance) with a
+     * success flash. I2 carries no death date and the seeded row carries an exact ISO date, so the gate
+     * passes; auto-accept is ON so the written DEAT commits and the re-fetched individual and the
+     * persisted store row both reflect the confirm (spec §2/§9).
      *
      * @return void
      */
     #[Test]
-    public function postConfirmWritesMarksAndRedirectsToIndividual(): void
+    public function postConfirmWritesMarksAndRedirectsToReview(): void
     {
         Auth::user()->setPreference(UserInterface::PREF_AUTO_ACCEPT_EDITS, '1');
 
@@ -913,6 +926,177 @@ final class ReviewScreenHandlerTest extends IntegrationTestCase
         $facts = iterator_to_array($individual->facts(['DEAT'], false, null, true));
         self::assertCount(1, $facts);
         self::assertStringContainsString('2 DATE 4 SEP 2023', $facts[0]->gedcom());
+    }
+
+    /**
+     * A GET on a Confirmed row no longer 404s (#60): the review screen renders it with the `Confirmed`
+     * status label and a single Revert action — the undo affordance — instead of the reject/uncertain/
+     * confirm buttons a reviewable row shows.
+     *
+     * @return void
+     */
+    #[Test]
+    public function getAConfirmedRowRendersTheRevertAffordance(): void
+    {
+        Auth::user()->setPreference(UserInterface::PREF_AUTO_ACCEPT_EDITS, '1');
+
+        $key = $this->seedConfirmableMatch('I2', '2023-09-04');
+        $this->postConfirmAndAssertSuccessRedirect('I2', $key);
+
+        $body = (string) $this->handler()->handle(
+            $this->managerGetRequest(ReviewScreenHandler::ROUTE_NAME, ['xref' => 'I2', 'key' => $key])
+        )->getBody();
+
+        self::assertStringContainsString('<span class="om-status">Confirmed</span>', $body);
+        self::assertStringContainsString('name="action" value="revert"', $body);
+        self::assertStringNotContainsString('name="action" value="confirm"', $body);
+        self::assertStringNotContainsString('name="action" value="reject"', $body);
+    }
+
+    /**
+     * POST revert on a Confirmed row deletes the written DEAT, returns the store row to Pending and
+     * flashes the reverted-count success — the CLI/worklist revert surfaced as a review-screen action,
+     * with the tamper gate matching the CLI (here the un-edited fact resolves cleanly).
+     *
+     * @return void
+     */
+    #[Test]
+    public function postRevertReturnsAConfirmedRowToPending(): void
+    {
+        Auth::user()->setPreference(UserInterface::PREF_AUTO_ACCEPT_EDITS, '1');
+
+        $key = $this->seedConfirmableMatch('I2', '2023-09-04');
+        $this->postConfirmAndAssertSuccessRedirect('I2', $key);
+
+        $response = $this->handler()->handle(
+            $this->managerPostRequest(ReviewScreenHandler::ROUTE_NAME, ['xref' => 'I2', 'key' => $key], ['action' => 'revert'])
+        );
+
+        self::assertSame(302, $response->getStatusCode());
+        self::assertStringContainsString('obituary-review', $response->getHeaderLine('Location'));
+        self::assertSame(MatchStatus::Pending, $this->store()->findOne('I2', $key)?->status);
+
+        $messages = FlashMessages::getMessages();
+        self::assertCount(1, $messages);
+        self::assertSame('success', $messages[0]->status);
+
+        // The written DEAT was deleted from the tree by the revert.
+        $individual = $this->individual('I2', $this->tree);
+        self::assertInstanceOf(Individual::class, $individual);
+        self::assertCount(0, iterator_to_array($individual->facts(['DEAT'], false, null, true)));
+    }
+
+    /**
+     * POST revert on a non-Confirmed (here Pending) row is a benign no-op: the shared "not revertable"
+     * warning flash, no store change and no 500 (defence-in-depth for a hand-crafted POST, since the view
+     * offers Revert only on a Confirmed row).
+     *
+     * @return void
+     */
+    #[Test]
+    public function postRevertOnAPendingRowIsANoOpWarning(): void
+    {
+        $key = $this->seedPendingMatch('I1');
+
+        $response = $this->handler()->handle(
+            $this->managerPostRequest(ReviewScreenHandler::ROUTE_NAME, ['xref' => 'I1', 'key' => $key], ['action' => 'revert'])
+        );
+
+        self::assertSame(302, $response->getStatusCode());
+        self::assertSame(MatchStatus::Pending, $this->store()->findOne('I1', $key)?->status);
+
+        $messages = FlashMessages::getMessages();
+        self::assertCount(1, $messages);
+        self::assertSame('warning', $messages[0]->status);
+    }
+
+    /**
+     * POST revert refuses (force=false, the tamper gate) when the recorded DEAT no longer resolves — here
+     * because it was deleted out-of-band after the confirm — so the row STAYS Confirmed with a danger
+     * flash rather than blindly flipping to Pending. This mirrors the worklist's tamper-refuse test on the
+     * review-screen lane, pinning that the review revert cannot delete a since-edited fact.
+     *
+     * @return void
+     */
+    #[Test]
+    public function postRevertRefusesWhenTheRecordedFactNoLongerResolves(): void
+    {
+        Auth::user()->setPreference(UserInterface::PREF_AUTO_ACCEPT_EDITS, '1');
+
+        $key = $this->seedConfirmableMatch('I2', '2023-09-04');
+        $this->postConfirmAndAssertSuccessRedirect('I2', $key);
+
+        $confirmed = $this->store()->findOne('I2', $key);
+        self::assertInstanceOf(StoredMatch::class, $confirmed);
+        self::assertIsArray($confirmed->writeBack);
+
+        // Remove the written DEAT out-of-band so the captured factId no longer resolves: force=false makes
+        // this all-or-nothing revert refuse rather than delete anything.
+        $individual = $this->individual('I2', $this->tree);
+        self::assertInstanceOf(Individual::class, $individual);
+        $individual->deleteFact($confirmed->writeBack['deatFactId'], true);
+
+        $response = $this->handler()->handle(
+            $this->managerPostRequest(ReviewScreenHandler::ROUTE_NAME, ['xref' => 'I2', 'key' => $key], ['action' => 'revert'])
+        );
+
+        self::assertSame(302, $response->getStatusCode());
+        self::assertStringContainsString('obituary-review', $response->getHeaderLine('Location'));
+
+        // The row is NOT reverted — it stays Confirmed — and the reviewer sees a danger flash.
+        self::assertSame(MatchStatus::Confirmed, $this->store()->findOne('I2', $key)?->status);
+        $messages = FlashMessages::getMessages();
+        self::assertCount(1, $messages);
+        self::assertSame('danger', $messages[0]->status);
+    }
+
+    /**
+     * A stale/crafted action=confirm on a Confirmed row writes NOTHING and leaves the recorded write-back
+     * untouched — even after the row's written DEAT was manually deleted from the tree, which recreates the
+     * exact desync the status-action guard defends: with the DEAT gone the live death-date gate would pass,
+     * so ONLY the guard prevents a re-write. Without it, writeConfirm would create a new fact while
+     * markConfirmed's idempotent no-op kept the old write-back ids — orphaning a fact the revert metadata
+     * cannot remove. This is the discriminating regression test for the Confirmed-only revert allowlist.
+     *
+     * @return void
+     */
+    #[Test]
+    public function postConfirmOnAConfirmedRowIsANoOpEvenAfterItsDeatWasDeleted(): void
+    {
+        Auth::user()->setPreference(UserInterface::PREF_AUTO_ACCEPT_EDITS, '1');
+
+        $key = $this->seedConfirmableMatch('I2', '2023-09-04');
+        $this->postConfirmAndAssertSuccessRedirect('I2', $key);
+
+        $confirmed = $this->store()->findOne('I2', $key);
+        self::assertInstanceOf(StoredMatch::class, $confirmed);
+        self::assertIsArray($confirmed->writeBack);
+        $deatFactId = $confirmed->writeBack['deatFactId'];
+
+        $individual = $this->individual('I2', $this->tree);
+        self::assertInstanceOf(Individual::class, $individual);
+        $individual->deleteFact($deatFactId, true);
+
+        $response = $this->handler()->handle(
+            $this->managerPostRequest(ReviewScreenHandler::ROUTE_NAME, ['xref' => 'I2', 'key' => $key], ['action' => 'confirm'])
+        );
+
+        self::assertSame(302, $response->getStatusCode());
+
+        $messages = FlashMessages::getMessages();
+        self::assertCount(1, $messages);
+        self::assertSame('warning', $messages[0]->status);
+
+        // No fact was re-written (the deleted DEAT stays gone), and the row's write-back is untouched.
+        $after = $this->individual('I2', $this->tree);
+        self::assertInstanceOf(Individual::class, $after);
+        self::assertCount(0, iterator_to_array($after->facts(['DEAT'], false, null, true)));
+
+        $row = $this->store()->findOne('I2', $key);
+        self::assertInstanceOf(StoredMatch::class, $row);
+        self::assertSame(MatchStatus::Confirmed, $row->status);
+        self::assertIsArray($row->writeBack);
+        self::assertSame($deatFactId, $row->writeBack['deatFactId']);
     }
 
     /**
@@ -1142,9 +1326,10 @@ final class ReviewScreenHandlerTest extends IntegrationTestCase
         $response = $this->handler()->handle($request);
 
         self::assertSame(302, $response->getStatusCode());
-        // Confirm is terminal, so the reviewer lands on the individual page, not the review screen.
-        self::assertStringContainsString('individual', $response->getHeaderLine('Location'));
-        self::assertStringNotContainsString('obituary-review', $response->getHeaderLine('Location'));
+        // Confirm now returns to the review screen (#60): the row is Confirmed, so the screen re-renders
+        // with the Revert affordance — the "undo right after a confirm" success state.
+        self::assertStringContainsString('obituary-review', $response->getHeaderLine('Location'));
+        self::assertStringNotContainsString('individual', $response->getHeaderLine('Location'));
 
         $messages = FlashMessages::getMessages();
         self::assertCount(1, $messages);

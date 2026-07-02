@@ -44,6 +44,7 @@ use function is_string;
 use function preg_match;
 use function redirect;
 use function route;
+use function sprintf;
 use function strip_tags;
 use function trim;
 
@@ -163,6 +164,26 @@ class ReviewScreenHandler implements RequestHandlerInterface
         $action = Validator::parsedBody($request)->string('action', '');
         $store  = $this->storeForTree($tree);
 
+        // A Confirmed row admits ONLY the revert action. resolveRow now lets a Confirmed row through (so it
+        // can host the undo affordance), but reject/uncertain/confirm must never touch a finalised
+        // write-back: a stale or crafted action=confirm on a row whose written DEAT was since manually
+        // removed would pass the live death-date gate and write a NEW fact, while markConfirmed's
+        // idempotent no-op keeps the OLD write-back ids — orphaning a fact the recorded revert metadata
+        // cannot remove. Short-circuit every non-revert action on a Confirmed row to a warning before any
+        // write. The view only ever offers Revert here, so this guards a stale/crafted POST.
+        if (
+            $row->status->isConfirmed()
+            && ($action !== 'revert')
+        ) {
+            FlashMessages::addMessage(I18N::translate('This match was already finalised by someone else.'), 'warning');
+
+            return redirect(route(self::ROUTE_NAME, [
+                'tree' => $tree->name(),
+                'xref' => $xref,
+                'key'  => StoredMatchKey::fromUrl($row->obituaryUrl),
+            ]));
+        }
+
         $individualUrl = route(IndividualPage::class, [
             'tree' => $tree->name(),
             'xref' => $xref,
@@ -190,6 +211,9 @@ class ReviewScreenHandler implements RequestHandlerInterface
 
                 case 'confirm':
                     return $this->applyConfirm($tree, $xref, $individual, $row, $individualUrl, $reviewUrl);
+
+                case 'revert':
+                    return $this->applyRevert($individual, $row, $store, $reviewUrl);
 
                 default:
                     throw new HttpBadRequestException();
@@ -317,7 +341,56 @@ class ReviewScreenHandler implements RequestHandlerInterface
 
         FlashMessages::addMessage(I18N::translate('The match was confirmed and the death date was written.'), 'success');
 
-        return redirect($individualUrl);
+        // Redirect back to the review screen rather than the individual page: the row is now Confirmed,
+        // so the screen re-renders with the Revert affordance — the "undo right after a confirm" state.
+        return redirect($reviewUrl);
+    }
+
+    /**
+     * Reverts a confirmed write-back requested from the review screen, mirroring the CLI/worklist path in
+     * force=false mode (the `--force` override stays CLI-only): it deletes the written DEAT/BURI facts and
+     * returns the row Confirmed→Pending under the tamper gate (a fact edited since the write refuses the
+     * revert), then maps the {@see RevertOutcome} to a flash via the shared {@see RevertFlash}. A
+     * non-Confirmed row is a benign not-revertable warning. Any never-anticipated fault (a corrupt row, a
+     * producer defect) redirects with a generic danger flash rather than escaping as a 500 — S46: only the
+     * person xref and the exception CLASS are logged, never the raw message (which can embed the store
+     * path) nor the obituary URL. Either way the row lands back on the review screen (now Pending, so it is
+     * reviewable again).
+     *
+     * @param Individual  $individual The individual whose confirmed write-back is reverted.
+     * @param StoredMatch $row        The resolved row (must be Confirmed to revert).
+     * @param MatchStore  $store      The tree-scoped match store.
+     * @param string      $reviewUrl  The review-screen URL to redirect to.
+     *
+     * @return ResponseInterface The PRG redirect carrying the outcome flash.
+     */
+    private function applyRevert(
+        Individual $individual,
+        StoredMatch $row,
+        MatchStore $store,
+        string $reviewUrl,
+    ): ResponseInterface {
+        // Only a Confirmed row carries a write-back to revert; anything else is a benign no-op warning
+        // (a stale form re-post, a row finalised as Rejected). The view only offers Revert on a Confirmed
+        // row, so this guard is defence-in-depth against a hand-crafted POST.
+        if (!$row->status->isConfirmed()) {
+            RevertFlash::flashNotRevertable();
+
+            return redirect($reviewUrl);
+        }
+
+        try {
+            RevertFlash::flashOutcome((new RevertService())->revert($individual, $row, $store, false));
+        } catch (Throwable $throwable) {
+            Log::addErrorLog(sprintf(
+                'Obituary matcher: a review-screen revert request failed for person %s (%s).',
+                $row->personId,
+                $throwable::class,
+            ));
+            FlashMessages::addMessage(I18N::translate('The match could not be reverted.'), 'danger');
+        }
+
+        return redirect($reviewUrl);
     }
 
     /**
@@ -337,18 +410,22 @@ class ReviewScreenHandler implements RequestHandlerInterface
      * @param string $xref The candidate identifier.
      * @param string $key  The canonical row key.
      *
-     * @return StoredMatch The resolved non-terminal row.
+     * @return StoredMatch The resolved reviewable row (Pending, Uncertain or Confirmed).
      *
-     * @throws HttpNotFoundException When the row is absent, terminal, or belongs to another person.
+     * @throws HttpNotFoundException When the row is absent, Rejected, or belongs to another person.
      */
     private function resolveRow(Tree $tree, string $xref, string $key): StoredMatch
     {
         $row = $this->storeForTree($tree)->findOne($xref, $key);
 
+        // A Confirmed row IS admitted (unlike the other terminal state, Rejected): the review screen
+        // hosts the revert affordance for a confirmed write-back, so it must render the row and accept a
+        // POST revert. Only Rejected — a terminal, non-revertable decision — 404s here, alongside an
+        // absent row or a person-id mismatch.
         if (
             !($row instanceof StoredMatch)
             || ($row->personId !== $xref)
-            || $row->status->isTerminal()
+            || $row->status->isRejected()
         ) {
             throw new HttpNotFoundException();
         }

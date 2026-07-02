@@ -37,7 +37,7 @@ msgid_plural "%s open suggestions"
 msgstr[0] "%s offener Vorschlag"
 msgstr[1] "%s offene Vorschläge"
 
-#: resources/views/review.phtml:159
+#: resources/views/review.phtml:174
 msgid "A hard conflict prevents confirming. Review it manually."
 msgstr "Ein harter Konflikt verhindert die Bestätigung. Bitte manuell prüfen."
 
@@ -53,7 +53,7 @@ msgstr "Zugriffstoken"
 msgid "Advertised schema versions"
 msgstr "Angebotene Schema-Versionen"
 
-#: resources/views/review.phtml:49
+#: resources/views/review.phtml:50
 msgid "Age"
 msgstr "Alter"
 
@@ -61,19 +61,19 @@ msgstr "Alter"
 msgid "All"
 msgstr "Alle"
 
-#: resources/views/review.phtml:69 resources/views/tab.phtml:43
+#: resources/views/review.phtml:70 resources/views/tab.phtml:43
 msgid "Ambiguous"
 msgstr "Mehrdeutig"
 
-#: resources/views/review.phtml:32
+#: resources/views/review.phtml:33
 msgid "Birth"
 msgstr "Geburt"
 
-#: resources/views/review.phtml:47
+#: resources/views/review.phtml:48
 msgid "Birth date"
 msgstr "Geburtsdatum"
 
-#: resources/views/review.phtml:76 resources/views/review.phtml:123
+#: resources/views/review.phtml:77 resources/views/review.phtml:124
 msgid "Born"
 msgstr "Geboren"
 
@@ -85,22 +85,23 @@ msgstr "Kandidaten pro Durchlauf"
 msgid "Configure the finder connection first."
 msgstr "Bitte zuerst die Finder-Verbindung einrichten."
 
-#: resources/views/review.phtml:154 resources/views/review.phtml:164
+#: resources/views/review.phtml:169 resources/views/review.phtml:179
 msgid "Confirm as source"
 msgstr "Als Quelle bestätigen"
 
-#: src/Webtrees/ObituaryWorklistHandler.php:243
+#: src/Webtrees/RevertFlash.php:51
 #, php-format
 msgid "Confirmation reverted; %s fact removed."
 msgid_plural "Confirmation reverted; %s facts removed."
 msgstr[0] "Bestätigung zurückgenommen; %s Eintrag entfernt."
 msgstr[1] "Bestätigung zurückgenommen; %s Einträge entfernt."
 
-#: resources/views/worklist.phtml:32 resources/views/worklist.phtml:39
+#: resources/views/review.phtml:28 resources/views/worklist.phtml:32
+#: resources/views/worklist.phtml:39
 msgid "Confirmed"
 msgstr "Bestätigt"
 
-#: resources/views/review.phtml:107
+#: resources/views/review.phtml:108
 msgid "Conflicts"
 msgstr "Konflikte"
 
@@ -116,7 +117,7 @@ msgstr "Land"
 msgid "Date of death"
 msgstr "Sterbedatum"
 
-#: resources/views/review.phtml:48
+#: resources/views/review.phtml:49
 msgid "Death date"
 msgstr "Sterbedatum"
 
@@ -127,11 +128,11 @@ msgstr "Sterbedatum"
 msgid "Death notices"
 msgstr "Traueranzeigen"
 
-#: resources/views/review.phtml:77
+#: resources/views/review.phtml:78
 msgid "Died"
 msgstr "Gestorben"
 
-#: resources/views/review.phtml:85
+#: resources/views/review.phtml:86
 msgid "Extracted death date"
 msgstr "Ermitteltes Sterbedatum"
 
@@ -161,7 +162,7 @@ msgstr "Finder-Version"
 msgid "HTTP status: %s"
 msgstr "HTTP-Status: %s"
 
-#: resources/views/review.phtml:56 resources/views/review.phtml:68
+#: resources/views/review.phtml:57 resources/views/review.phtml:69
 #: resources/views/tab.phtml:42
 msgid "Hard conflict"
 msgstr "Harter Konflikt"
@@ -186,11 +187,11 @@ msgstr ""
 msgid "Minimum age"
 msgstr "Mindestalter"
 
-#: resources/views/control-panel.phtml:105 resources/views/review.phtml:31
+#: resources/views/control-panel.phtml:105 resources/views/review.phtml:32
 msgid "Name"
 msgstr "Name"
 
-#: resources/views/review.phtml:121
+#: resources/views/review.phtml:122
 msgid "Next best candidate"
 msgstr "Nächstbester Kandidat"
 
@@ -200,7 +201,7 @@ msgstr ""
 "Keine Kandidaten entsprachen den aktuellen Einstellungen; es wurde nichts "
 "eingereiht."
 
-#: resources/views/review.phtml:161
+#: resources/views/review.phtml:176
 msgid "No exact (day-level) death date was extracted."
 msgstr "Es wurde kein tagesgenaues Sterbedatum ermittelt."
 
@@ -229,7 +230,7 @@ msgstr "Kein Token hinterlegt."
 msgid "No trees are available."
 msgstr "Es sind keine Stammbäume verfügbar."
 
-#: resources/views/review.phtml:58
+#: resources/views/review.phtml:59
 msgid "Note"
 msgstr "Notiz"
 
@@ -237,7 +238,7 @@ msgstr "Notiz"
 msgid "Notice fields"
 msgstr "Felder der Traueranzeige"
 
-#: resources/views/review.phtml:81
+#: resources/views/review.phtml:82
 msgid "Obituary"
 msgstr "Traueranzeige"
 
@@ -245,7 +246,7 @@ msgstr "Traueranzeige"
 msgid "Obituary Matcher"
 msgstr "Traueranzeigen-Abgleich"
 
-#: src/Webtrees/ObituaryWorklistHandler.php:310
+#: src/Webtrees/ObituaryWorklistHandler.php:270
 msgid "Obituary worklist"
 msgstr "Traueranzeigen-Arbeitsliste"
 
@@ -271,11 +272,11 @@ msgstr "Seitennavigation"
 msgid "Pending"
 msgstr "Ausstehend"
 
-#: resources/views/review.phtml:33 resources/views/review.phtml:40
+#: resources/views/review.phtml:34 resources/views/review.phtml:41
 msgid "Place"
 msgstr "Ort"
 
-#: resources/views/review.phtml:34
+#: resources/views/review.phtml:35
 msgid "Plausibility"
 msgstr "Plausibilität"
 
@@ -301,7 +302,7 @@ msgstr "REST-Basis-URL"
 msgid "Regions"
 msgstr "Regionen"
 
-#: resources/views/review.phtml:139
+#: resources/views/review.phtml:154
 msgid "Reject"
 msgstr "Ablehnen"
 
@@ -313,16 +314,16 @@ msgstr "Abgelehnt"
 msgid "Remove token"
 msgstr "Token entfernen"
 
-#: resources/views/worklist.phtml:118
+#: resources/views/review.phtml:148 resources/views/worklist.phtml:118
 msgid "Revert"
 msgstr "Zurücknehmen"
 
-#: resources/views/worklist.phtml:118
+#: resources/views/review.phtml:148 resources/views/worklist.phtml:118
 #, php-format
 msgid "Revert match for %s"
 msgstr "Treffer für %s zurücknehmen"
 
-#: src/Webtrees/ObituaryWorklistHandler.php:251
+#: src/Webtrees/RevertFlash.php:59
 msgid ""
 "Revert refused: a written fact was edited or removed. Use the command-line "
 "revert tool with --force to override."
@@ -336,7 +337,7 @@ msgstr ""
 msgid "Review"
 msgstr "Prüfen"
 
-#: resources/views/review.phtml:62 src/Webtrees/ReviewScreenHandler.php:406
+#: resources/views/review.phtml:63 src/Webtrees/ReviewScreenHandler.php:483
 msgid "Review match"
 msgstr "Treffer prüfen"
 
@@ -373,7 +374,7 @@ msgstr "Die Einstellungen konnten nicht gespeichert werden."
 msgid "Settings saved."
 msgstr "Einstellungen gespeichert."
 
-#: resources/views/review.phtml:57
+#: resources/views/review.phtml:58
 msgid "Soft conflict"
 msgstr "Weicher Konflikt"
 
@@ -402,18 +403,18 @@ msgstr "Unterstützte Funktionen"
 msgid "Test connection"
 msgstr "Verbindung testen"
 
-#: src/Webtrees/ReviewScreenHandler.php:307
+#: src/Webtrees/ReviewScreenHandler.php:331
 msgid "The death fact was written but could not be recorded; please review it."
 msgstr ""
 "Der Sterbeeintrag wurde geschrieben, konnte aber nicht vermerkt werden; "
 "bitte prüfen."
 
-#: src/Webtrees/ReviewScreenHandler.php:288
+#: src/Webtrees/ReviewScreenHandler.php:312
 msgid "The death notice could not be written; please try again."
 msgstr ""
 "Die Traueranzeige konnte nicht geschrieben werden; bitte erneut versuchen."
 
-#: src/Webtrees/ObituaryWorklistHandler.php:256
+#: src/Webtrees/RevertFlash.php:64
 msgid ""
 "The facts were reverted but the match status could not be updated; please re-"
 "run the command-line revert with --force."
@@ -438,46 +439,47 @@ msgstr "Der Finder ist erreichbar."
 msgid "The finder storage location is unavailable."
 msgstr "Der Speicherort des Finders ist nicht verfügbar."
 
-#: src/Webtrees/ObituaryWorklistHandler.php:207
-#: src/Webtrees/ObituaryWorklistHandler.php:260
+#: src/Webtrees/ObituaryWorklistHandler.php:207 src/Webtrees/RevertFlash.php:68
+#: src/Webtrees/ReviewScreenHandler.php:390
 msgid "The match could not be reverted."
 msgstr "Der Treffer konnte nicht zurückgenommen werden."
 
-#: src/Webtrees/ReviewScreenHandler.php:318
+#: src/Webtrees/ReviewScreenHandler.php:342
 msgid "The match was confirmed and the death date was written."
 msgstr "Der Treffer wurde bestätigt und das Sterbedatum geschrieben."
 
-#: src/Webtrees/ReviewScreenHandler.php:187
+#: src/Webtrees/ReviewScreenHandler.php:208
 msgid "The match was marked uncertain."
 msgstr "Der Treffer wurde als unsicher markiert."
 
-#: src/Webtrees/ReviewScreenHandler.php:181
+#: src/Webtrees/ReviewScreenHandler.php:202
 msgid "The match was rejected."
 msgstr "Der Treffer wurde abgelehnt."
 
-#: src/Webtrees/ReviewScreenHandler.php:280
+#: src/Webtrees/ReviewScreenHandler.php:304
 msgid "The obituary did not carry writable data."
 msgstr "Die Traueranzeige enthielt keine übernehmbaren Daten."
 
-#: resources/views/review.phtml:160
+#: resources/views/review.phtml:175
 msgid "This individual already has a death date."
 msgstr "Diese Person hat bereits ein Sterbedatum."
 
-#: src/Webtrees/ReviewScreenHandler.php:272
+#: src/Webtrees/ReviewScreenHandler.php:296
 msgid "This individual already has a death date; nothing was written."
 msgstr "Diese Person hat bereits ein Sterbedatum; es wurde nichts geschrieben."
 
-#: src/Webtrees/ReviewScreenHandler.php:261
+#: src/Webtrees/ReviewScreenHandler.php:285
 msgid "This match can no longer be confirmed."
 msgstr "Dieser Treffer kann nicht mehr bestätigt werden."
 
-#: src/Webtrees/ObituaryWorklistHandler.php:223
+#: src/Webtrees/RevertFlash.php:84
 msgid "This match cannot be reverted."
 msgstr "Dieser Treffer kann nicht zurückgenommen werden."
 
-#: src/Webtrees/ReviewScreenHandler.php:200
-#: src/Webtrees/ReviewScreenHandler.php:300
-#: src/Webtrees/ReviewScreenHandler.php:313
+#: src/Webtrees/ReviewScreenHandler.php:178
+#: src/Webtrees/ReviewScreenHandler.php:224
+#: src/Webtrees/ReviewScreenHandler.php:324
+#: src/Webtrees/ReviewScreenHandler.php:337
 msgid "This match was already finalised by someone else."
 msgstr "Dieser Treffer wurde bereits von jemand anderem abgeschlossen."
 
@@ -486,11 +488,11 @@ msgstr "Dieser Treffer wurde bereits von jemand anderem abgeschlossen."
 msgid "Total: %d"
 msgstr "Gesamt: %d"
 
-#: resources/views/review.phtml:74
+#: resources/views/review.phtml:75
 msgid "Tree person"
 msgstr "Person im Stammbaum"
 
-#: resources/views/review.phtml:27 resources/views/review.phtml:146
+#: resources/views/review.phtml:27 resources/views/review.phtml:161
 #: resources/views/tab.phtml:31 resources/views/worklist.phtml:31
 #: resources/views/worklist.phtml:41
 msgid "Uncertain"
@@ -501,7 +503,7 @@ msgstr "Unsicher"
 msgid "Unknown tree."
 msgstr "Unbekannter Stammbaum."
 
-#: resources/views/review.phtml:133
+#: resources/views/review.phtml:134
 msgid "View source"
 msgstr "Quelle anzeigen"
 
@@ -510,7 +512,7 @@ msgstr "Quelle anzeigen"
 msgid "Weak match"
 msgstr "Schwacher Treffer"
 
-#: resources/views/review.phtml:97
+#: resources/views/review.phtml:98
 msgid "Why this score"
 msgstr "Warum diese Bewertung"
 

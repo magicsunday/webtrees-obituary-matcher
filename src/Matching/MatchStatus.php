@@ -52,4 +52,27 @@ enum MatchStatus: string
         return ($this === self::Confirmed)
             || ($this === self::Rejected);
     }
+
+    /**
+     * Returns whether this status is Confirmed — the sole revertable state (a confirmed write-back can
+     * be undone). Lets a consumer branch on the confirmed case without importing the enum for a `case`
+     * reference.
+     *
+     * @return bool True for Confirmed.
+     */
+    public function isConfirmed(): bool
+    {
+        return $this === self::Confirmed;
+    }
+
+    /**
+     * Returns whether this status is Rejected — a terminal, non-revertable decision. Lets a consumer
+     * branch on the rejected case without importing the enum for a `case` reference.
+     *
+     * @return bool True for Rejected.
+     */
+    public function isRejected(): bool
+    {
+        return $this === self::Rejected;
+    }
 }
