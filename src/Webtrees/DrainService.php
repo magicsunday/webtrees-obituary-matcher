@@ -18,6 +18,7 @@ use MagicSunday\ObituaryMatcher\Matching\IngestService;
 use MagicSunday\ObituaryMatcher\Matching\MatchStore;
 use MagicSunday\ObituaryMatcher\Queue\CompletedJob;
 use MagicSunday\ObituaryMatcher\Queue\FailedJob;
+use MagicSunday\ObituaryMatcher\Queue\FailureCategory;
 use MagicSunday\ObituaryMatcher\Queue\JobTransport;
 use Throwable;
 
@@ -136,7 +137,7 @@ class DrainService
         try {
             $tree = $this->treeService->find($job->treeId);
         } catch (DomainException) {
-            $this->parkFailed($job->jobId, 'tree_unknown');
+            $this->parkFailed($job->jobId, FailureCategory::TreeUnknown);
 
             return DrainOutcome::failed();
         }
@@ -175,7 +176,7 @@ class DrainService
 
             return DrainOutcome::ingested($result->matchesStored);
         } catch (Throwable) {
-            $this->parkFailed($job->jobId, 'ingest_failed');
+            $this->parkFailed($job->jobId, FailureCategory::IngestFailed);
 
             return DrainOutcome::failed();
         }
@@ -192,12 +193,12 @@ class DrainService
      * non-corrupting, self-healing degradation tracked in issue #71. This mirrors why the markIngested
      * finalisation sits inside the ingest guard rather than crashing the drain.
      *
-     * @param string $jobId          The job to park.
-     * @param string $reasonCategory The snake_case category classifying the failure.
+     * @param string          $jobId          The job to park.
+     * @param FailureCategory $reasonCategory The category classifying the failure.
      *
      * @return void
      */
-    private function parkFailed(string $jobId, string $reasonCategory): void
+    private function parkFailed(string $jobId, FailureCategory $reasonCategory): void
     {
         try {
             $this->transport->markFailed($jobId, $reasonCategory);

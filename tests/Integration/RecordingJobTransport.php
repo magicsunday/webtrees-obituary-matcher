@@ -13,6 +13,7 @@ namespace MagicSunday\ObituaryMatcher\Test\Integration;
 
 use MagicSunday\ObituaryMatcher\Queue\CompletedJob;
 use MagicSunday\ObituaryMatcher\Queue\FailedJob;
+use MagicSunday\ObituaryMatcher\Queue\FailureCategory;
 use MagicSunday\ObituaryMatcher\Queue\JobTransport;
 use MagicSunday\ObituaryMatcher\Support\FinderRequest;
 
@@ -43,7 +44,7 @@ final class RecordingJobTransport implements JobTransport
     public array $ingested = [];
 
     /**
-     * @var list<array{jobId: string, reasonCategory: string, warnings: list<string>}> The failure finalisations.
+     * @var list<array{jobId: string, reasonCategory: FailureCategory, warnings: list<string>}> The failure finalisations.
      */
     public array $failed = [];
 
@@ -93,7 +94,7 @@ final class RecordingJobTransport implements JobTransport
     /**
      * {@inheritDoc}
      */
-    public function markFailed(string $jobId, string $reasonCategory, array $warnings = []): void
+    public function markFailed(string $jobId, FailureCategory $reasonCategory, array $warnings = []): void
     {
         $this->failed[] = ['jobId' => $jobId, 'reasonCategory' => $reasonCategory, 'warnings' => $warnings];
     }
@@ -158,9 +159,9 @@ final class RecordingJobTransport implements JobTransport
      *
      * @param string $jobId The job identifier to check.
      *
-     * @return string|null The recorded failure category, or null.
+     * @return FailureCategory|null The recorded failure category, or null.
      */
-    public function failureReason(string $jobId): ?string
+    public function failureReason(string $jobId): ?FailureCategory
     {
         foreach ($this->failed as $entry) {
             if ($entry['jobId'] === $jobId) {

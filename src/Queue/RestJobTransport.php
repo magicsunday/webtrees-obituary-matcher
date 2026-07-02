@@ -194,7 +194,7 @@ final readonly class RestJobTransport implements JobTransport
                 if ($status === self::STATUS_NOT_FOUND) {
                     $handled = true;
 
-                    yield new FailedJob($jobId, $treeId, $personIds, 'finder_job_missing');
+                    yield new FailedJob($jobId, $treeId, $personIds, FailureCategory::FinderJobMissing);
 
                     continue;
                 }
@@ -213,11 +213,11 @@ final readonly class RestJobTransport implements JobTransport
                     // to the finally-release so the next drain re-polls it. The match is exhaustive, so a
                     // future fault case is caught.
                     $reason = match ($body) {
-                        BodyFault::Permanent => 'response_invalid',
+                        BodyFault::Permanent => FailureCategory::ResponseInvalid,
                         BodyFault::Transient => null,
                     };
 
-                    if ($reason !== null) {
+                    if ($reason instanceof FailureCategory) {
                         $handled = true;
 
                         yield new FailedJob($jobId, $treeId, $personIds, $reason);
@@ -234,7 +234,7 @@ final readonly class RestJobTransport implements JobTransport
                     // An unknown but plausible state STRING stays retryable below (forward compatibility).
                     $handled = true;
 
-                    yield new FailedJob($jobId, $treeId, $personIds, 'response_invalid');
+                    yield new FailedJob($jobId, $treeId, $personIds, FailureCategory::ResponseInvalid);
 
                     continue;
                 }
@@ -242,7 +242,7 @@ final readonly class RestJobTransport implements JobTransport
                 if ($state === 'failed') {
                     $handled = true;
 
-                    yield new FailedJob($jobId, $treeId, $personIds, 'finder_failed');
+                    yield new FailedJob($jobId, $treeId, $personIds, FailureCategory::FinderFailed);
 
                     continue;
                 }
@@ -258,7 +258,7 @@ final readonly class RestJobTransport implements JobTransport
                 } catch (ResponseValidationException) {
                     $handled = true;
 
-                    yield new FailedJob($jobId, $treeId, $personIds, 'response_invalid');
+                    yield new FailedJob($jobId, $treeId, $personIds, FailureCategory::ResponseInvalid);
 
                     continue;
                 }
@@ -310,13 +310,13 @@ final readonly class RestJobTransport implements JobTransport
      * ingest ({@see self::markIngested()}) deletes the remote job. The category and warnings have no REST
      * equivalent and are unused.
      *
-     * @param string       $jobId          The job identifier to fail.
-     * @param string       $reasonCategory The snake_case category classifying the failure (unused here).
-     * @param list<string> $warnings       The non-fatal warnings (unused by the REST transport).
+     * @param string          $jobId          The job identifier to fail.
+     * @param FailureCategory $reasonCategory The category classifying the failure (unused here).
+     * @param list<string>    $warnings       The non-fatal warnings (unused by the REST transport).
      *
      * @return void
      */
-    public function markFailed(string $jobId, string $reasonCategory, array $warnings = []): void
+    public function markFailed(string $jobId, FailureCategory $reasonCategory, array $warnings = []): void
     {
         // Remove from the ledger only — never DELETE. The remote retains the failed job so its result
         // stays recoverable; only a successful ingest deletes the remote job.

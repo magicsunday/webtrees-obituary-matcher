@@ -58,15 +58,15 @@ interface JobTransport
     public function markIngested(string $jobId, array $counts, array $warnings = []): void;
 
     /**
-     * Finalises a job as failed, recording the snake_case reason category and any warnings.
+     * Finalises a job as failed, recording the reason category and any warnings.
      *
-     * @param string       $jobId          The job identifier to fail.
-     * @param string       $reasonCategory The snake_case category classifying the failure.
-     * @param list<string> $warnings       The non-fatal warnings to record (empty when there are none).
+     * @param string          $jobId          The job identifier to fail.
+     * @param FailureCategory $reasonCategory The category classifying the failure.
+     * @param list<string>    $warnings       The non-fatal warnings to record (empty when there are none).
      *
      * @return void
      */
-    public function markFailed(string $jobId, string $reasonCategory, array $warnings = []): void;
+    public function markFailed(string $jobId, FailureCategory $reasonCategory, array $warnings = []): void;
 
     /**
      * Releases a claimed job back to the completed pool so a later drain re-processes it (a mid-ingest
