@@ -1,0 +1,511 @@
+# SOME DESCRIPTIVE TITLE.
+# Copyright (C) YEAR Rico Sonntag
+# This file is distributed under the same license as the webtrees-obituary-matcher package.
+# FIRST AUTHOR <EMAIL@ADDRESS>, YEAR.
+#
+#, fuzzy
+msgid ""
+msgstr ""
+"Project-Id-Version: webtrees-obituary-matcher\n"
+"Report-Msgid-Bugs-To: https://github.com/magicsunday/webtrees-obituary-"
+"matcher/issues\n"
+"POT-Creation-Date: 1970-01-01 00:00+0000\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language-Team: LANGUAGE <LL@li.org>\n"
+"Language: \n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=INTEGER; plural=EXPRESSION;\n"
+
+#: resources/views/worklist.phtml:56
+#, php-format
+msgid "%1$s open · %2$s confirmed · %3$s rejected · %4$s uncertain"
+msgstr ""
+
+#: resources/views/control-panel.phtml:162
+#, php-format
+msgid "%s finder job is awaiting results."
+msgid_plural "%s finder jobs are awaiting results."
+msgstr[0] ""
+msgstr[1] ""
+
+#: resources/views/tab.phtml:35
+#, php-format
+msgid "%s open suggestion"
+msgid_plural "%s open suggestions"
+msgstr[0] ""
+msgstr[1] ""
+
+#: resources/views/review.phtml:159
+msgid "A hard conflict prevents confirming. Review it manually."
+msgstr ""
+
+#: resources/views/control-panel.phtml:61
+msgid "A token is set."
+msgstr ""
+
+#: resources/views/control-panel.phtml:59
+msgid "Access token"
+msgstr ""
+
+#: resources/views/control-panel.phtml:95
+msgid "Advertised schema versions"
+msgstr ""
+
+#: resources/views/review.phtml:49
+msgid "Age"
+msgstr ""
+
+#: resources/views/worklist.phtml:37
+msgid "All"
+msgstr ""
+
+#: resources/views/review.phtml:69 resources/views/tab.phtml:43
+msgid "Ambiguous"
+msgstr ""
+
+#: resources/views/review.phtml:32
+msgid "Birth"
+msgstr ""
+
+#: resources/views/review.phtml:47
+msgid "Birth date"
+msgstr ""
+
+#: resources/views/review.phtml:76 resources/views/review.phtml:123
+msgid "Born"
+msgstr ""
+
+#: resources/views/control-panel.phtml:42
+msgid "Candidates per run"
+msgstr ""
+
+#: src/Webtrees/ObituaryControlPanelHandler.php:450
+msgid "Configure the finder connection first."
+msgstr ""
+
+#: resources/views/review.phtml:154 resources/views/review.phtml:164
+msgid "Confirm as source"
+msgstr ""
+
+#: src/Webtrees/ObituaryWorklistHandler.php:243
+#, php-format
+msgid "Confirmation reverted; %s fact removed."
+msgid_plural "Confirmation reverted; %s facts removed."
+msgstr[0] ""
+msgstr[1] ""
+
+#: resources/views/worklist.phtml:32 resources/views/worklist.phtml:39
+msgid "Confirmed"
+msgstr ""
+
+#: resources/views/review.phtml:107
+msgid "Conflicts"
+msgstr ""
+
+#: resources/views/control-panel.phtml:76
+msgid "Connection test result"
+msgstr ""
+
+#: resources/views/control-panel.phtml:106
+msgid "Country"
+msgstr ""
+
+#: resources/views/worklist.phtml:82
+msgid "Date of death"
+msgstr ""
+
+#: resources/views/review.phtml:48
+msgid "Death date"
+msgstr ""
+
+#: resources/views/control-panel.phtml:33 resources/views/worklist.phtml:45
+#: src/Webtrees/ObituaryControlPanelHandler.php:541
+#: src/Webtrees/ObituaryMatcherModule.php:231
+#: src/Webtrees/ObituaryMatcherModule.php:247
+msgid "Death notices"
+msgstr ""
+
+#: resources/views/review.phtml:77
+msgid "Died"
+msgstr ""
+
+#: resources/views/review.phtml:85
+msgid "Extracted death date"
+msgstr ""
+
+#: resources/views/control-panel.phtml:87
+msgid "Finder ID"
+msgstr ""
+
+#: resources/views/control-panel.phtml:48
+#: resources/views/control-panel.phtml:54
+msgid "Finder connection"
+msgstr ""
+
+#: src/Webtrees/ObituaryControlPanelHandler.php:249
+msgid "Finder connection could not be saved."
+msgstr ""
+
+#: src/Webtrees/ObituaryControlPanelHandler.php:277
+msgid "Finder connection saved."
+msgstr ""
+
+#: resources/views/control-panel.phtml:90
+msgid "Finder version"
+msgstr ""
+
+#: resources/views/control-panel.phtml:82
+#, php-format
+msgid "HTTP status: %s"
+msgstr ""
+
+#: resources/views/review.phtml:56 resources/views/review.phtml:68
+#: resources/views/tab.phtml:42
+msgid "Hard conflict"
+msgstr ""
+
+#: resources/views/worklist.phtml:79
+msgid "Individual"
+msgstr ""
+
+#: resources/views/worklist.phtml:80
+msgid "Match"
+msgstr ""
+
+#: src/Webtrees/ObituaryMatcherModule.php:84
+msgid ""
+"Match individuals against public death notices to suggest missing death "
+"dates."
+msgstr ""
+
+#: resources/views/control-panel.phtml:39
+msgid "Minimum age"
+msgstr ""
+
+#: resources/views/control-panel.phtml:105 resources/views/review.phtml:31
+msgid "Name"
+msgstr ""
+
+#: resources/views/review.phtml:121
+msgid "Next best candidate"
+msgstr ""
+
+#: src/Webtrees/ObituaryControlPanelHandler.php:491
+msgid "No candidates matched the current settings; nothing was queued."
+msgstr ""
+
+#: resources/views/review.phtml:161
+msgid "No exact (day-level) death date was extracted."
+msgstr ""
+
+#: resources/views/control-panel.phtml:158
+msgid "No finder jobs are currently open."
+msgstr ""
+
+#: resources/views/review.phtml:22 resources/views/tab.phtml:18
+#: resources/views/worklist.phtml:18
+msgid "No match"
+msgstr ""
+
+#: resources/views/worklist.phtml:74
+msgid "No matches for this filter."
+msgstr ""
+
+#: resources/views/worklist.phtml:52
+msgid "No obituary matches in this tree yet."
+msgstr ""
+
+#: resources/views/control-panel.phtml:61
+msgid "No token set."
+msgstr ""
+
+#: resources/views/control-panel.phtml:142
+msgid "No trees are available."
+msgstr ""
+
+#: resources/views/review.phtml:58
+msgid "Note"
+msgstr ""
+
+#: resources/views/control-panel.phtml:125
+msgid "Notice fields"
+msgstr ""
+
+#: resources/views/review.phtml:81
+msgid "Obituary"
+msgstr ""
+
+#: src/Webtrees/ObituaryMatcherModule.php:73
+msgid "Obituary Matcher"
+msgstr ""
+
+#: src/Webtrees/ObituaryWorklistHandler.php:310
+msgid "Obituary worklist"
+msgstr ""
+
+#: resources/views/worklist.phtml:38
+msgid "Open"
+msgstr ""
+
+#: resources/views/control-panel.phtml:155
+msgid "Open finder jobs"
+msgstr ""
+
+#: resources/views/worklist.phtml:139
+#, php-format
+msgid "Page %1$s of %2$s"
+msgstr ""
+
+#: resources/views/worklist.phtml:128
+msgid "Pagination"
+msgstr ""
+
+#: resources/views/review.phtml:26 resources/views/tab.phtml:30
+#: resources/views/worklist.phtml:30
+msgid "Pending"
+msgstr ""
+
+#: resources/views/review.phtml:33 resources/views/review.phtml:40
+msgid "Place"
+msgstr ""
+
+#: resources/views/review.phtml:34
+msgid "Plausibility"
+msgstr ""
+
+#: resources/views/control-panel.phtml:104
+msgid "Portal"
+msgstr ""
+
+#: resources/views/review.phtml:20 resources/views/tab.phtml:16
+#: resources/views/worklist.phtml:16
+msgid "Possible match"
+msgstr ""
+
+#: resources/views/review.phtml:19 resources/views/tab.phtml:15
+#: resources/views/worklist.phtml:15
+msgid "Probable match"
+msgstr ""
+
+#: resources/views/control-panel.phtml:56
+msgid "REST base URL"
+msgstr ""
+
+#: resources/views/control-panel.phtml:107
+msgid "Regions"
+msgstr ""
+
+#: resources/views/review.phtml:139
+msgid "Reject"
+msgstr ""
+
+#: resources/views/worklist.phtml:33 resources/views/worklist.phtml:40
+msgid "Rejected"
+msgstr ""
+
+#: resources/views/control-panel.phtml:65
+msgid "Remove token"
+msgstr ""
+
+#: resources/views/worklist.phtml:118
+msgid "Revert"
+msgstr ""
+
+#: resources/views/worklist.phtml:118
+#, php-format
+msgid "Revert match for %s"
+msgstr ""
+
+#: src/Webtrees/ObituaryWorklistHandler.php:251
+msgid ""
+"Revert refused: a written fact was edited or removed. Use the command-line "
+"revert tool with --force to override."
+msgstr ""
+
+#: resources/views/tab.phtml:48 resources/views/worklist.phtml:85
+#: resources/views/worklist.phtml:110
+msgid "Review"
+msgstr ""
+
+#: resources/views/review.phtml:62 src/Webtrees/ReviewScreenHandler.php:406
+msgid "Review match"
+msgstr ""
+
+#: resources/views/control-panel.phtml:45
+msgid "Save"
+msgstr ""
+
+#: resources/views/control-panel.phtml:69
+msgid "Save finder connection"
+msgstr ""
+
+#: resources/views/worklist.phtml:81
+msgid "Score"
+msgstr ""
+
+#: resources/views/control-panel.phtml:139
+msgid "Search for death notices"
+msgstr ""
+
+#: src/Webtrees/ObituaryControlPanelHandler.php:482
+msgid "Search job could not be queued."
+msgstr ""
+
+#: src/Webtrees/ObituaryControlPanelHandler.php:488
+#, php-format
+msgid "Search job queued (%s)."
+msgstr ""
+
+#: src/Webtrees/ObituaryControlPanelHandler.php:211
+msgid "Settings could not be saved."
+msgstr ""
+
+#: src/Webtrees/ObituaryControlPanelHandler.php:209
+msgid "Settings saved."
+msgstr ""
+
+#: resources/views/review.phtml:57
+msgid "Soft conflict"
+msgstr ""
+
+#: resources/views/worklist.phtml:83
+msgid "Source"
+msgstr ""
+
+#: resources/views/control-panel.phtml:150
+msgid "Start search"
+msgstr ""
+
+#: resources/views/worklist.phtml:84
+msgid "Status"
+msgstr ""
+
+#: resources/views/review.phtml:18 resources/views/tab.phtml:14
+#: resources/views/worklist.phtml:14
+msgid "Strong match"
+msgstr ""
+
+#: resources/views/control-panel.phtml:135
+msgid "Supported features"
+msgstr ""
+
+#: resources/views/control-panel.phtml:68
+msgid "Test connection"
+msgstr ""
+
+#: src/Webtrees/ReviewScreenHandler.php:307
+msgid "The death fact was written but could not be recorded; please review it."
+msgstr ""
+
+#: src/Webtrees/ReviewScreenHandler.php:288
+msgid "The death notice could not be written; please try again."
+msgstr ""
+
+#: src/Webtrees/ObituaryWorklistHandler.php:256
+msgid ""
+"The facts were reverted but the match status could not be updated; please re-"
+"run the command-line revert with --force."
+msgstr ""
+
+#: resources/views/control-panel.phtml:29
+msgid "The finder connection is invalid."
+msgstr ""
+
+#: resources/views/control-panel.phtml:28
+msgid "The finder could not be reached."
+msgstr ""
+
+#: resources/views/control-panel.phtml:27
+msgid "The finder is reachable."
+msgstr ""
+
+#: src/Webtrees/ObituaryControlPanelHandler.php:458
+msgid "The finder storage location is unavailable."
+msgstr ""
+
+#: src/Webtrees/ObituaryWorklistHandler.php:207
+#: src/Webtrees/ObituaryWorklistHandler.php:260
+msgid "The match could not be reverted."
+msgstr ""
+
+#: src/Webtrees/ReviewScreenHandler.php:318
+msgid "The match was confirmed and the death date was written."
+msgstr ""
+
+#: src/Webtrees/ReviewScreenHandler.php:187
+msgid "The match was marked uncertain."
+msgstr ""
+
+#: src/Webtrees/ReviewScreenHandler.php:181
+msgid "The match was rejected."
+msgstr ""
+
+#: src/Webtrees/ReviewScreenHandler.php:280
+msgid "The obituary did not carry writable data."
+msgstr ""
+
+#: resources/views/review.phtml:160
+msgid "This individual already has a death date."
+msgstr ""
+
+#: src/Webtrees/ReviewScreenHandler.php:272
+msgid "This individual already has a death date; nothing was written."
+msgstr ""
+
+#: src/Webtrees/ReviewScreenHandler.php:261
+msgid "This match can no longer be confirmed."
+msgstr ""
+
+#: src/Webtrees/ObituaryWorklistHandler.php:223
+msgid "This match cannot be reverted."
+msgstr ""
+
+#: src/Webtrees/ReviewScreenHandler.php:200
+#: src/Webtrees/ReviewScreenHandler.php:300
+#: src/Webtrees/ReviewScreenHandler.php:313
+msgid "This match was already finalised by someone else."
+msgstr ""
+
+#: resources/views/worklist.phtml:48
+#, php-format
+msgid "Total: %d"
+msgstr ""
+
+#: resources/views/review.phtml:74
+msgid "Tree person"
+msgstr ""
+
+#: resources/views/review.phtml:27 resources/views/review.phtml:146
+#: resources/views/tab.phtml:31 resources/views/worklist.phtml:31
+#: resources/views/worklist.phtml:41
+msgid "Uncertain"
+msgstr ""
+
+#: src/Webtrees/ObituaryControlPanelHandler.php:442
+#: src/Webtrees/ObituaryControlPanelHandler.php:475
+msgid "Unknown tree."
+msgstr ""
+
+#: resources/views/review.phtml:133
+msgid "View source"
+msgstr ""
+
+#: resources/views/review.phtml:21 resources/views/tab.phtml:17
+#: resources/views/worklist.phtml:17
+msgid "Weak match"
+msgstr ""
+
+#: resources/views/review.phtml:97
+msgid "Why this score"
+msgstr ""
+
+#: resources/views/worklist.phtml:144 resources/views/worklist.phtml:146
+msgid "next"
+msgstr ""
+
+#: resources/views/worklist.phtml:133 resources/views/worklist.phtml:135
+msgid "previous"
+msgstr ""

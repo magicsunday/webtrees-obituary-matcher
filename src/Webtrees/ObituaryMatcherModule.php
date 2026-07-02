@@ -12,6 +12,7 @@ declare(strict_types=1);
 namespace MagicSunday\ObituaryMatcher\Webtrees;
 
 use Fig\Http\Message\RequestMethodInterface;
+use Fisharebest\Localization\Translation;
 use Fisharebest\Webtrees\Auth;
 use Fisharebest\Webtrees\I18N;
 use Fisharebest\Webtrees\Individual;
@@ -28,9 +29,12 @@ use Fisharebest\Webtrees\Module\ModuleTabTrait;
 use Fisharebest\Webtrees\Registry;
 use Fisharebest\Webtrees\Tree;
 use Fisharebest\Webtrees\View;
+use InvalidArgumentException;
 use MagicSunday\ObituaryMatcher\Ui\SuggestionTabPresenter;
 use Override;
 
+use function file_exists;
+use function preg_match;
 use function realpath;
 use function route;
 use function view;
@@ -100,6 +104,52 @@ class ObituaryMatcherModule extends AbstractModule implements ModuleConfigInterf
     public function customModuleVersion(): string
     {
         return '0.1.0-dev';
+    }
+
+    /**
+     * Additional/updated translations for the given locale, loaded from the module's compiled gettext
+     * catalogue at `resources/lang/<language>/messages.mo`. Mirrors the house pattern in
+     * `magicsunday/webtrees-module-base`: webtrees calls this for the active session language, so the
+     * per-locale `.mo` (built from the committed `.po` by `make lang`) overrides the English call-site
+     * literals. A locale without a catalogue file yields an empty array, so the module falls back to the
+     * English keys rather than failing.
+     *
+     * @param string $language The webtrees language tag of the active session (e.g. `de`, `en-US`).
+     *
+     * @return array<string, string> The msgid → msgstr map for the locale, or an empty array when absent.
+     */
+    #[Override]
+    public function customTranslations(string $language): array
+    {
+        // The language tag is a webtrees-supplied locale identifier, but validate it defensively before
+        // it becomes a path segment: a real locale tag is a non-empty run of ASCII letters, digits and
+        // hyphens (`de`, `en-US`, `zh-Hans`, `es-419`). An anchored whitelist rejects anything else —
+        // notably a `/`, `..` traversal sequence, an empty tag or a trailing newline — to an empty
+        // override map rather than letting it reach the filesystem. The `D` modifier pins `$` to the
+        // absolute end of the string, so a `de\n…` tag cannot slip past the `$` pre-newline match.
+        if (preg_match('/^[A-Za-z0-9-]+$/D', $language) !== 1) {
+            return [];
+        }
+
+        $catalogue = $this->resourcesFolder() . 'lang/' . $language . '/messages.mo';
+
+        if (!file_exists($catalogue)) {
+            return [];
+        }
+
+        // The catalogue is a committed, CI-freshness-verified artifact, so a parse failure is not
+        // expected — but a runtime-corrupted or truncated .mo (a partial deploy, a filesystem fault)
+        // must degrade gracefully to the English keys rather than 500 the whole page. Only the parser's
+        // documented "Invalid .MO file" {@see InvalidArgumentException} is caught, so a genuine
+        // programming/dependency Error still surfaces instead of being masked as an English fallback.
+        try {
+            /** @var array<string, string> $translations */
+            $translations = (new Translation($catalogue))->asArray();
+        } catch (InvalidArgumentException) {
+            return [];
+        }
+
+        return $translations;
     }
 
     /**
