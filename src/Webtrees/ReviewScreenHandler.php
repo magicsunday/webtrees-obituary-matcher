@@ -106,7 +106,7 @@ class ReviewScreenHandler implements RequestHandlerInterface
         $key  = Validator::attributes($request)->string('key');
 
         // The row key is a SHA-256 hex digest; reject any other shape cheaply and clearly.
-        if (preg_match('/^[a-f0-9]{64}$/', $key) !== 1) {
+        if (preg_match('/^[a-f0-9]{64}$/D', $key) !== 1) {
             throw new HttpNotFoundException();
         }
 

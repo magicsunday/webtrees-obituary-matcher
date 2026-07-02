@@ -465,6 +465,28 @@ final class ReviewScreenHandlerTest extends IntegrationTestCase
     }
 
     /**
+     * A `{key}` of 64 valid hex digits followed by a trailing newline is a clean 404, NOT an uncaught
+     * InvalidArgumentException → HTTP 500 (#70). Without the `D` (PCRE_DOLLAR_ENDONLY) modifier the
+     * handler's `$` matches BEFORE the trailing `\n`, so the key would slip past the guard and reach
+     * FileMatchStore::pathForRowKey(), whose end-anchored `/D` guard then throws an exception the handler
+     * does not model. The `D`-anchored guard rejects it here as the intended 404.
+     *
+     * @return void
+     */
+    #[Test]
+    public function getATrailingNewlineKeyIsAClean404NotA500(): void
+    {
+        $request = $this->managerGetRequest(
+            ReviewScreenHandler::ROUTE_NAME,
+            ['xref' => 'I1', 'key' => str_repeat('a', 64) . "\n"]
+        );
+
+        $this->expectException(HttpNotFoundException::class);
+
+        $this->handler()->handle($request);
+    }
+
+    /**
      * A non-manager (here a guest) is denied even with a seeded pending row, exercising the real
      * {@see Auth::isManager()} gate rather than the admin happy path.
      *
