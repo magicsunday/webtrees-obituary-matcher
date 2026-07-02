@@ -130,10 +130,88 @@ build incompatible software.
 ### URL normalisation (the dedup key — must match byte-for-byte on both sides)
 
 `notices[]` are deduplicated by normalised URL **inside** the finder, and the
-matcher in turn dedups **across** finders — both MUST use the SAME algorithm:
-lowercase scheme + host, strip the default port, drop the fragment, remove
-tracking params (`utm_*`, `fbclid`, `gclid`), sort the remaining query params,
-keep the path verbatim. Anything else double-counts or wrongly collapses notices.
+matcher in turn dedups **across** finders — both MUST reduce a URL to the SAME
+key. The algorithm below is fully deterministic: two clean-room implementations
+following it produce byte-identical keys.
+
+**Precondition.** The algorithm is defined for a **valid absolute `http`/`https`
+URL** — exactly what a `notices[].source` is (the schema pins `format: uri`, an
+`http(s)` scheme, a host, and no userinfo). Split it into its RFC 3986 §3
+components — scheme, authority (`host[:port]`), path, query, fragment — by
+structure, **not** with a language-specific parser (PHP's `parse_url`, Python's
+`urlsplit`, etc. disagree on malformed input, so naming one would not be
+reproducible). A conforming finder never emits a relative, userinfo-bearing or
+otherwise non-absolute URL; the matcher keeps an internal no-throw fallback for
+such a string (it returns the trimmed, lower-cased input, never a malformed
+`://…`) but that path is implementation-internal and **not** part of this
+interoperability contract. Apply the steps **in order**:
+
+1. **Drop** the fragment (`#…`). (Userinfo is already excluded by the schema.)
+2. **Scheme** → ASCII lower-case. **Host** → ASCII lower-case. A finder MUST emit
+   the host as lower-case ASCII — an IDN as its punycode **A-label**
+   (`xn--…`) — so host normalisation is ASCII case-folding **only**: there is
+   **no** punycode↔Unicode transcoding, and **no** IPv6-literal, trailing-dot, or
+   host percent-decoding canonicalisation (`ä.example` and `xn--4ca.example` are
+   therefore distinct keys — emit one form consistently). *(The matcher additionally
+   applies a Unicode-aware lower-case defensively, so a stray upper-case non-ASCII
+   host still folds; a conforming ASCII host makes that a no-op.)*
+3. **Port**: strip it when it equals the scheme default (`http`→80, `https`→443);
+   otherwise keep `:port`.
+4. **Path**: an empty path becomes `/` (so `https://h` and `https://h/` share one
+   key; a non-root trailing slash like `/a/` stays distinct from `/a`). The path is
+   otherwise kept verbatim — **no** dot-segment collapsing — then
+   percent-normalised (step 6).
+5. **Query** (if any): split on `&` (only `&`; `;` is **not** a separator) and
+   **drop** every empty field (a `&&` run, or a leading/trailing `&`).
+   Percent-normalise each remaining field (step 6) **first**, then take its **name**
+   as the bytes before the first literal `=` (any further `=` and everything after
+   it is the value; an encoded `=` — `%3D` — is not a separator). Drop the field
+   when the ASCII-lower-cased name starts with `utm_` **or** is exactly `fbclid`,
+   `gclid` or `mc_eid` (only this test folds case; a retained field keeps its
+   normalised bytes, and a bare `a` stays distinct from `a=`). **Sort** the retained
+   fields by **unsigned-byte lexicographic order** (a bytewise `memcmp` — **not**
+   numeric, locale, natural, Unicode-collation or case-folded; two identical fields
+   compare equal so their order is immaterial). Join with `&`.
+6. **Percent-encoding** (RFC 3986 §6.2.2, applied to the path and to each retained
+   query field) in **one left-to-right pass over the original bytes** (generated
+   output is never rescanned, so a decoded byte can never form a new escape). An
+   escape is `%` followed by **exactly two ASCII hex digits**; a malformed `%`,
+   `%1` or `%GG` is left byte-for-byte unchanged. Upper-case the two hex digits of
+   every escape, and **decode** `%XX` when `XX` is an *unreserved* character
+   (`A`–`Z` `a`–`z` `0`–`9` `-` `.` `_` `~`). Every other escape stays encoded — an
+   encoded reserved byte is distinct from its literal (`%2F` ≠ `/`, `%20` stays
+   `%20`, `%25` stays `%25`). A literal `+` is a distinct query byte and is **not**
+   folded to a space (a finder that means a space MUST emit `%20`). Decoding an
+   unreserved escape MAY materialise a `.`/`..` path segment (`%2E%2E` → `..`); it
+   is kept verbatim, as step 4 does no dot-segment removal.
+7. **Rebuild** `scheme://host[:port]path[?query]`.
+
+The algorithm is **idempotent** — normalising an already-normalised key is a no-op
+— and **versioned by this document**: the key is a hash input on both sides, so any
+change to these rules is a breaking contract change, not a silent one.
+
+These vectors pin the key byte-for-byte (a clean-room implementation MUST reproduce
+them exactly; the matcher's own `UrlNormalizer` is tested against this same table):
+
+| Input | Normalised key |
+| --- | --- |
+| `https://Example.test/a?utm_source=x&id=7#frag` | `https://example.test/a?id=7` |
+| `https://example.test/a?fbclid=z` | `https://example.test/a` |
+| `HTTP://Example.test:80/x` | `http://example.test/x` |
+| `https://example.test:443/a` | `https://example.test/a` |
+| `https://example.test` | `https://example.test/` |
+| `https://example.test/a?b=2&a=10&a=1` | `https://example.test/a?a=1&a=10&b=2` |
+| `https://example.test/a?x=%2fy` | `https://example.test/a?x=%2Fy` |
+| `https://example.test/%41%62` | `https://example.test/Ab` |
+| `https://example.test/a?x=%20y` | `https://example.test/a?x=%20y` |
+| `https://example.test/a?x=a+b` | `https://example.test/a?x=a+b` |
+| `https://example.test/a?promo.code=1` | `https://example.test/a?promo.code=1` |
+| `https://example.test/a?%75tm_source=x&id=1` | `https://example.test/a?id=1` |
+| `https://example.test/a/%2E%2E/b` | `https://example.test/a/../b` |
+| `https://example.test/a?a&2&10&A` | `https://example.test/a?10&2&A&a` |
+| `https://example.test/a?b&&a=&a&` | `https://example.test/a?a&a=&b` |
+| `https://example.test/a?x=%GG%1%` | `https://example.test/a?x=%GG%1%` |
+| `https://example.test/a?a%3db=c` | `https://example.test/a?a%3Db=c` |
 
 ### Producer obligations (Finder MUST) — the finder dev reads the schemas, so they are listed here too
 
