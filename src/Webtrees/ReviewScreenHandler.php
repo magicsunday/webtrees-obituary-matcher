@@ -25,6 +25,7 @@ use Fisharebest\Webtrees\Log;
 use Fisharebest\Webtrees\Registry;
 use Fisharebest\Webtrees\Tree;
 use Fisharebest\Webtrees\Validator;
+use MagicSunday\ObituaryMatcher\Domain\Disposition;
 use MagicSunday\ObituaryMatcher\Matching\MatchStore;
 use MagicSunday\ObituaryMatcher\Matching\StoredMatch;
 use MagicSunday\ObituaryMatcher\Matching\StoredMatchKey;
@@ -39,6 +40,7 @@ use Psr\Http\Message\ServerRequestInterface;
 use Psr\Http\Server\RequestHandlerInterface;
 use Throwable;
 
+use function in_array;
 use function is_array;
 use function is_string;
 use function preg_match;
@@ -281,6 +283,24 @@ class ReviewScreenHandler implements RequestHandlerInterface
         $funeralIso = is_string($funeralRaw) ? trim($funeralRaw) : null;
         $funeralIso = ($funeralIso === '') ? null : $funeralIso;
 
+        // The disposition flag comes from the SAME untrusted payload. The validator drops any notice with
+        // an unrecognised disposition before it is ever stored, so a persisted value is normally absent
+        // (burial) or exactly `cremation`. A present-but-unrecognised value is only reachable via a
+        // hand-edited or older-schema store row; rather than GUESS an event type (silently defaulting a
+        // corrupted value to burial could write the wrong disposition), fail closed — the same fail-closed
+        // stance the malformed-date/precondition arms below take.
+        $dispositionRaw = $facts['disposition'] ?? null;
+
+        if (!in_array($dispositionRaw, [null, Disposition::Burial->value, Disposition::Cremation->value], true)) {
+            FlashMessages::addMessage(I18N::translate('This match can no longer be confirmed.'), 'warning');
+
+            return redirect($reviewUrl);
+        }
+
+        // A cremation writes a sourced CREM instead of a BURI; absence (or the explicit `burial` value)
+        // writes a BURI.
+        $cremation = $dispositionRaw === Disposition::Cremation->value;
+
         if (!ConfirmGate::evaluate($hardConflict, $individual->getDeathDate()->isOK(), $iso)->canConfirm) {
             FlashMessages::addMessage(I18N::translate('This match can no longer be confirmed.'), 'warning');
 
@@ -291,7 +311,7 @@ class ReviewScreenHandler implements RequestHandlerInterface
         // the tree and the store both stay in their pre-confirm state.
         try {
             // $iso is guaranteed an exact ISO date by the gate above, so it is a string here.
-            $writeBack = $this->obituaryWriteBack()->writeConfirm($individual, (string) $iso, $cemetery, $funeralIso, $row->obituaryUrl);
+            $writeBack = $this->obituaryWriteBack()->writeConfirm($individual, (string) $iso, $cemetery, $funeralIso, $row->obituaryUrl, $cremation);
         } catch (DeathDateAlreadyPresentException) {
             FlashMessages::addMessage(I18N::translate('This individual already has a death date; nothing was written.'), 'warning');
 

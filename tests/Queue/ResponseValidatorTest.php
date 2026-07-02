@@ -13,6 +13,7 @@ namespace MagicSunday\ObituaryMatcher\Test\Queue;
 
 use MagicSunday\ObituaryMatcher\Domain\DateRange;
 use MagicSunday\ObituaryMatcher\Domain\DeathNoticeRecord;
+use MagicSunday\ObituaryMatcher\Domain\Disposition;
 use MagicSunday\ObituaryMatcher\Domain\NoticeRelative;
 use MagicSunday\ObituaryMatcher\Domain\NoticeType;
 use MagicSunday\ObituaryMatcher\Domain\PersonName;
@@ -51,6 +52,7 @@ use const JSON_THROW_ON_ERROR;
 #[CoversClass(ResponseValidator::class)]
 #[CoversClass(ResponseValidationException::class)]
 #[UsesClass(DeathNoticeRecord::class)]
+#[UsesClass(Disposition::class)]
 #[UsesClass(NoticeType::class)]
 #[UsesClass(NoticeRelative::class)]
 #[UsesClass(PersonName::class)]
@@ -208,6 +210,83 @@ final class ResponseValidatorTest extends TestCase
         $notices = reset($byPerson);
         self::assertCount(1, $notices);
         self::assertSame('Erika Mustermann geb. Mueller', $notices[0]->name);
+    }
+
+    /**
+     * A notice carrying `disposition: "cremation"` decodes to Disposition::Cremation, which the confirm
+     * write-back later reads to emit a CREM (#62).
+     *
+     * @return void
+     */
+    #[Test]
+    public function decodesTheCremationDisposition(): void
+    {
+        $byPerson = (new ResponseValidator())->validate(
+            $this->payloadWithNotice(['disposition' => 'cremation']),
+            'job-1',
+            ['I1'],
+        );
+
+        $notices = reset($byPerson);
+        self::assertNotFalse($notices);
+        self::assertSame(Disposition::Cremation, $notices[0]->disposition);
+    }
+
+    /**
+     * A notice with NO disposition defaults to Disposition::Burial (absence means burial), so the confirm
+     * writes a BURI — the disposition is never required.
+     *
+     * @return void
+     */
+    #[Test]
+    public function defaultsToBurialWhenTheNoticeHasNoDisposition(): void
+    {
+        $byPerson = (new ResponseValidator())->validate($this->validPayload(), 'job-1', ['I1']);
+
+        $notices = reset($byPerson);
+        self::assertNotFalse($notices);
+        self::assertSame(Disposition::Burial, $notices[0]->disposition);
+    }
+
+    /**
+     * A PRESENT-but-unknown disposition string does NOT silently coerce to burial (which would write a
+     * wrong BURI for an intended cremation) — the malformed notice is dropped, so the result carries no
+     * record for it. Absence still means burial (above); this is the invariant "cremation must never
+     * silently fall back to burial".
+     *
+     * @return void
+     */
+    #[Test]
+    public function dropsANoticeWithAnUnknownDispositionRatherThanDefaultingToBurial(): void
+    {
+        $byPerson = (new ResponseValidator())->validate(
+            $this->payloadWithNotice(['disposition' => 'crematoin']),
+            'job-1',
+            ['I1'],
+        );
+
+        $notices = reset($byPerson);
+        self::assertNotFalse($notices);
+        self::assertSame([], $notices, 'a notice with an unknown disposition must be dropped');
+    }
+
+    /**
+     * A present-but-non-string disposition is likewise a malformed notice and is dropped.
+     *
+     * @return void
+     */
+    #[Test]
+    public function dropsANoticeWithANonStringDisposition(): void
+    {
+        $byPerson = (new ResponseValidator())->validate(
+            $this->payloadWithNotice(['disposition' => 42]),
+            'job-1',
+            ['I1'],
+        );
+
+        $notices = reset($byPerson);
+        self::assertNotFalse($notices);
+        self::assertSame([], $notices, 'a notice with a non-string disposition must be dropped');
     }
 
     /**

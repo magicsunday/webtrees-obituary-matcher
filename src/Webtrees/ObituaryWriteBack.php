@@ -32,7 +32,9 @@ use function trim;
 
 /**
  * Writes the obituary's facts into a tree person via {@see writeConfirm()} — a sourced GEDCOM DEAT
- * fact, and (from Task 2) a sourced BURI when a cemetery is present. It is the only framework-facing
+ * fact, plus a disposition event: a sourced BURI when a cemetery is present, or (for a cremation notice)
+ * a sourced CREM for any cremation, with the place recorded only when known. It is the only
+ * framework-facing
  * write unit — it finds-or-creates a per-portal SOUR (one per canonical host, identified by a REFN
  * marker, pending-aware so a not-yet-accepted source is not duplicated), writes the facts with an
  * inline citation, and returns the {@see WriteBack} IDs. It is deliberately store-agnostic: the
@@ -72,20 +74,24 @@ class ObituaryWriteBack
     }
 
     /**
-     * Writes the obituary's facts (a sourced DEAT, and a sourced BURI when a cemetery is present)
-     * into the individual and returns the write-back IDs. GEDCOM-only — the caller marks the store
-     * confirmed after a successful return. All preconditions run before any record is created.
+     * Writes the obituary's facts (a sourced DEAT, plus a disposition event — a sourced BURI when a
+     * cemetery is present, or a sourced CREM for a cremation regardless of place) into the individual and
+     * returns the write-back IDs. GEDCOM-only — the caller marks the store confirmed after a successful
+     * return. All preconditions run before any record is created.
      *
      * @param Individual  $individual  The tree person to write to.
      * @param string      $isoDeath    The exact ISO death date from the obituary.
      * @param string|null $cemetery    The extracted cemetery name, or null when none was found.
      * @param string|null $funeralIso  The exact ISO funeral date, or null when none/non-exact.
      * @param string      $obituaryUrl The source notice URL (the citation PAGE).
+     * @param bool        $cremation   Whether the notice is a cremation — writes a sourced CREM instead of
+     *                                 a BURI (the two are mutually exclusive per notice). Defaults to false
+     *                                 (burial).
      *
      * @return WriteBack The IDs of the written records.
      *
      * @throws WriteBackPreconditionException   When the URL/host/cemetery is not a clean value.
-     * @throws MalformedDeathDateException      When the death (or a cemetery's funeral) date is not exact.
+     * @throws MalformedDeathDateException      When the death (or the written event's funeral) date is not exact.
      * @throws DeathDateAlreadyPresentException When the person gained a death date before the write.
      */
     public function writeConfirm(
@@ -94,6 +100,7 @@ class ObituaryWriteBack
         ?string $cemetery,
         ?string $funeralIso,
         string $obituaryUrl,
+        bool $cremation = false,
     ): WriteBack {
         // Precondition: a clean, single-line http(s) URL (no GEDCOM-line injection via 3 PAGE).
         if (
@@ -135,14 +142,17 @@ class ObituaryWriteBack
         $cleanFuneralIso = $funeralIso !== null ? trim($funeralIso) : null;
         $cleanFuneralIso = ($cleanFuneralIso === '') ? null : $cleanFuneralIso;
 
-        // The funeral date is only relevant to the optional BURI: validate it ONLY when a cemetery is
-        // present, so a no-cemetery confirm with a malformed funeral date keeps the exact 2d-3a DEAT
-        // behaviour (no BURI, no abort). Throws MalformedDeathDateException when present + malformed.
+        // The funeral date is relevant to the disposition event that will actually be written: a BURI is
+        // written only WITH a cemetery, whereas a CREM is written for any cremation (place-optional, since
+        // a cremation is a fact even when the crematorium is not stated). So validate the funeral date
+        // whenever the event is due — a cremation, or a burial that has a cemetery — and otherwise keep the
+        // exact no-event DEAT behaviour (a no-cemetery burial with a malformed funeral date does not
+        // abort). Throws MalformedDeathDateException when present + malformed.
         $funeralGedcom = null;
 
         if (
-            ($cleanCemetery !== null)
-            && ($cleanFuneralIso !== null)
+            ($cleanFuneralIso !== null)
+            && ($cremation || ($cleanCemetery !== null))
         ) {
             $funeralGedcom = GedcomDateConverter::toGedcom($cleanFuneralIso);
         }
@@ -187,34 +197,49 @@ class ObituaryWriteBack
             $confirmDate
         );
 
-        $buriGedcomFact = $this->buildBurialGedcom($individual, $cleanCemetery, $funeralGedcom, $sourceXref, $escapedUrl, $confirmDate);
+        // A notice is either a burial OR a cremation, so the single cemetery/funeral routes to exactly one
+        // event tag; the builder is otherwise identical (guarded on that same tag so a duplicate is never
+        // written).
+        // A burial is recorded only when a cemetery is known (a burial's information IS its place); a
+        // cremation is recorded whenever the notice says so, since the cremation itself is the fact and a
+        // crematorium place is often not stated. So BURI requires a place, CREM does not.
+        $eventTag        = $cremation ? 'CREM' : 'BURI';
+        $eventGedcomFact = $this->buildDispositionEvent($eventTag, !$cremation, $individual, $cleanCemetery, $funeralGedcom, $sourceXref, $escapedUrl, $confirmDate);
 
-        // ONE write commits the DEAT and the (optional) BURI atomically. webtrees parses each fact id as
-        // md5 of the stored fact gedcom (GedcomRecord::parseFacts), and stores the fact gedcom verbatim,
+        // ONE write commits the DEAT and the (optional) BURI/CREM atomically. webtrees parses each fact id
+        // as md5 of the stored fact gedcom (GedcomRecord::parseFacts), and stores the fact gedcom verbatim,
         // so md5($deatGedcomFact) === the stored DEAT fact's id() (pinned by the verification test) — the
         // Revert resolves the facts by these computed ids.
         $newGedcom = $individual->gedcom() . "\n" . $deatGedcomFact;
 
-        if ($buriGedcomFact !== null) {
-            $newGedcom .= "\n" . $buriGedcomFact;
+        if ($eventGedcomFact !== null) {
+            $newGedcom .= "\n" . $eventGedcomFact;
         }
 
         $individual->updateRecord($newGedcom, true);
+
+        $eventFactId = $eventGedcomFact !== null ? md5($eventGedcomFact) : null;
 
         return new WriteBack(
             md5($deatGedcomFact),
             $sourceXref,
             $sourceCreated,
-            $buriGedcomFact !== null ? md5($buriGedcomFact) : null
+            $cremation ? null : $eventFactId,
+            $cremation ? $eventFactId : null,
         );
     }
 
     /**
-     * Builds the sourced BURI fact gedcom when a cemetery is present and the individual has no existing
-     * burial, or returns null when no BURI must be written (no cemetery, or an existing BURI we never
-     * shadow with a duplicate). The DATE line precedes the PLAC line, and the free-text cemetery is the
-     * caller's already-trimmed value; the obituary URL is the caller's already-`@@`-escaped value.
+     * Builds the sourced disposition-event fact gedcom (a `BURI` or a `CREM`, per $tag) when a cemetery is
+     * present and the individual has no existing event of that tag, or returns null when none must be
+     * written (no cemetery, or an existing event we never shadow with a duplicate). The DATE line precedes
+     * the PLAC line, and the free-text cemetery is the caller's already-trimmed value; the obituary URL is
+     * the caller's already-`@@`-escaped value. BURI and CREM share this shape — GEDCOM models both as a
+     * dated, placed, source-citable death event.
      *
+     * @param string      $tag           The event tag to write — `BURI` or `CREM`.
+     * @param bool        $requiresPlace Whether the event is written ONLY when a cemetery is present (BURI)
+     *                                   or unconditionally for the disposition (CREM, place-optional).
      * @param Individual  $individual    The tree person.
      * @param string|null $cemetery      The validated, non-empty cemetery name, or null.
      * @param string|null $funeralGedcom The GEDCOM funeral date, or null.
@@ -222,33 +247,36 @@ class ObituaryWriteBack
      * @param string      $escapedUrl    The `@@`-escaped citation PAGE URL.
      * @param string      $confirmDate   The GEDCOM citation recording date (read once per confirm).
      *
-     * @return string|null The BURI fact gedcom, or null when none must be written.
+     * @return string|null The disposition-event fact gedcom, or null when none must be written.
      */
-    private function buildBurialGedcom(Individual $individual, ?string $cemetery, ?string $funeralGedcom, string $sourceXref, string $escapedUrl, string $confirmDate): ?string
+    private function buildDispositionEvent(string $tag, bool $requiresPlace, Individual $individual, ?string $cemetery, ?string $funeralGedcom, string $sourceXref, string $escapedUrl, string $confirmDate): ?string
     {
-        // Never create a second BURI: an existing burial may carry place/date/notes a duplicate would
-        // shadow. Merging into it is a later hardening slice. (count() matches the existing deatCount()
-        // helper — facts() returns a Countable collection.)
+        // Skip when the event needs a place it does not have (BURI without a cemetery), and never create a
+        // second event of this tag: an existing burial/cremation may carry place/date/notes a duplicate
+        // would shadow. Merging into it is a later hardening slice. (count() matches the existing
+        // deatCount() helper — facts() returns a Countable collection.)
         if (
-            ($cemetery === null)
-            || (count($individual->facts(['BURI'], false, null, true)) > 0)
+            ($requiresPlace && ($cemetery === null))
+            || (count($individual->facts([$tag], false, null, true)) > 0)
         ) {
             return null;
         }
 
-        $buriGedcom = '1 BURI';
+        $eventGedcom = '1 ' . $tag;
 
         if ($funeralGedcom !== null) {
-            $buriGedcom .= "\n2 DATE " . $funeralGedcom;
+            $eventGedcom .= "\n2 DATE " . $funeralGedcom;
         }
 
-        // A literal `@` in the free-text cemetery must be escaped to `@@` (it otherwise starts an XREF
+        // The PLAC is emitted only when a cemetery/place is known (a place-optional CREM may have none). A
+        // literal `@` in the free-text cemetery must be escaped to `@@` (it otherwise starts an XREF
         // pointer); webtrees stores the fact verbatim.
-        $escapedCemetery = str_replace('@', '@@', $cemetery);
+        if ($cemetery !== null) {
+            $eventGedcom .= "\n2 PLAC " . str_replace('@', '@@', $cemetery);
+        }
 
-        return $buriGedcom . sprintf(
-            "\n2 PLAC %s\n2 SOUR @%s@\n3 PAGE %s\n3 DATA\n4 DATE %s",
-            $escapedCemetery,
+        return $eventGedcom . sprintf(
+            "\n2 SOUR @%s@\n3 PAGE %s\n3 DATA\n4 DATE %s",
             $sourceXref,
             $escapedUrl,
             $confirmDate

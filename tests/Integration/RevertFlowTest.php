@@ -186,17 +186,52 @@ final class RevertFlowTest extends IntegrationTestCase
     #[Test]
     public function happyPathDeletesBothFactsAndReturnsTheRowToPending(): void
     {
-        $tree      = $this->tree();
-        $writeBack = (new ObituaryWriteBack())->writeConfirm($this->person('I1', $tree), '2023-09-04', 'Waldfriedhof', '2023-09-10', self::URL);
+        $writeBack = $this->confirmDispositionAndRevertCleanly(false, 'BURI');
+
         self::assertNotNull($writeBack->buriFactId);
+        self::assertNull($writeBack->cremFactId);
+    }
+
+    /**
+     * Revert covers a cremation too: a confirmed DEAT+CREM reverts cleanly — both the death and the
+     * cremation fact are deleted from the tree AND the store row is returned to Pending. This exercises
+     * the cremFactId target in the reverter and the +1 targetCount in the service (#62).
+     *
+     * @return void
+     */
+    #[Test]
+    public function happyPathAlsoRevertsAConfirmedCremation(): void
+    {
+        $writeBack = $this->confirmDispositionAndRevertCleanly(true, 'CREM');
+
+        self::assertNull($writeBack->buriFactId);
+        self::assertNotNull($writeBack->cremFactId);
+    }
+
+    /**
+     * Confirms a DEAT plus a disposition event (BURI or CREM, per $cremation), reverts it, and asserts the
+     * clean outcome shared by both dispositions — both facts deleted from the tree and the store row
+     * returned to Pending. Returns the write-back so the caller can assert the disposition-specific fact id.
+     *
+     * @param bool   $cremation Whether to confirm a cremation (CREM) rather than a burial (BURI).
+     * @param string $eventTag  The disposition event tag written — `BURI` or `CREM`.
+     *
+     * @return WriteBack The write-back the confirm produced.
+     */
+    private function confirmDispositionAndRevertCleanly(bool $cremation, string $eventTag): WriteBack
+    {
+        $tree      = $this->tree();
+        $writeBack = (new ObituaryWriteBack())->writeConfirm($this->person('I1', $tree), '2023-09-04', 'Waldfriedhof', '2023-09-10', self::URL, $cremation);
         $this->seedConfirmed($writeBack);
 
         $reverted = $this->runFlow($this->person('I1', $tree), false);
 
         self::assertTrue($reverted);
         self::assertCount(0, iterator_to_array($this->person('I1', $tree)->facts(['DEAT'], false, null, true)));
-        self::assertCount(0, iterator_to_array($this->person('I1', $tree)->facts(['BURI'], false, null, true)));
+        self::assertCount(0, iterator_to_array($this->person('I1', $tree)->facts([$eventTag], false, null, true)));
         self::assertSame(MatchStatus::Pending, $this->rowStatus());
+
+        return $writeBack;
     }
 
     /**

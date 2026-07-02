@@ -41,6 +41,8 @@ final readonly class DeathNoticeRecord
      * @param string               $url         Source URL.
      * @param string               $source      Source/portal identifier.
      * @param DateTimeImmutable    $fetchedAt   Moment the notice was fetched.
+     * @param Disposition          $disposition Burial vs cremation, selecting the confirm write-back event
+     *                                          (BURI vs CREM); defaults to Burial when the notice is silent.
      */
     public function __construct(
         public NoticeType $noticeType,
@@ -56,6 +58,7 @@ final readonly class DeathNoticeRecord
         public string $url,
         public string $source,
         public DateTimeImmutable $fetchedAt,
+        public Disposition $disposition = Disposition::Burial,
     ) {
     }
 }

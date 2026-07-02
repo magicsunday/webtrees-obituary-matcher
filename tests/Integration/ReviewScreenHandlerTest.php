@@ -1164,6 +1164,86 @@ final class ReviewScreenHandlerTest extends IntegrationTestCase
     }
 
     /**
+     * A confirm of a CREMATION notice writes a sourced CREM (not a BURI) and persists its id under
+     * `cremFactId` (with `buriFactId` null), so a later Revert can undo it. The disposition flows from the
+     * persisted extractedFacts (#62).
+     *
+     * @return void
+     */
+    #[Test]
+    public function aConfirmOfACremationNoticeWritesACremAndPersistsTheCremFactId(): void
+    {
+        Auth::user()->setPreference(UserInterface::PREF_AUTO_ACCEPT_EDITS, '1');
+
+        $key = $this->seedConfirmableMatchWithCemetery('I2', '2023-09-04', 'Krematorium', '2023-09-10', 'cremation');
+
+        $this->postConfirmAndAssertSuccessRedirect('I2', $key);
+
+        $individual = $this->individual('I2', $this->tree);
+        self::assertInstanceOf(Individual::class, $individual);
+
+        // A sourced CREM landed; no BURI was written.
+        self::assertCount(0, iterator_to_array($individual->facts(['BURI'], false, null, true)));
+        $crem = iterator_to_array($individual->facts(['CREM'], false, null, true));
+        self::assertCount(1, $crem);
+        self::assertStringContainsString('2 PLAC Krematorium', $crem[0]->gedcom());
+        self::assertStringContainsString('2 DATE 10 SEP 2023', $crem[0]->gedcom());
+
+        // Persistence: the write-back records the CREM fact id under cremFactId, with buriFactId null.
+        $row = $this->store()->findOne('I2', $key);
+        self::assertInstanceOf(StoredMatch::class, $row);
+        self::assertSame(MatchStatus::Confirmed, $row->status);
+        self::assertIsArray($row->writeBack);
+        self::assertNull($row->writeBack['buriFactId']);
+        self::assertIsString($row->writeBack['cremFactId']);
+        self::assertNotSame('', $row->writeBack['cremFactId']);
+        self::assertStringContainsString('2 SOUR @' . $row->writeBack['sourceXref'] . '@', $crem[0]->gedcom());
+    }
+
+    /**
+     * The internal `disposition` write-back routing flag must NOT leak onto the review screen as a raw,
+     * untranslated fact row: a pending cremation row renders no `disposition` fact (#62 — it is dropped
+     * from the iterated facts alongside deathDate).
+     *
+     * @return void
+     */
+    #[Test]
+    public function theReviewScreenDoesNotRenderTheInternalDispositionFlag(): void
+    {
+        $key = $this->seedConfirmableMatchWithCemetery('I2', '2023-09-04', 'Krematorium', '2023-09-10', 'cremation');
+
+        $body = (string) $this->handler()->handle(
+            $this->managerGetRequest(ReviewScreenHandler::ROUTE_NAME, ['xref' => 'I2', 'key' => $key])
+        )->getBody();
+
+        self::assertStringNotContainsString('disposition', $body);
+    }
+
+    /**
+     * A confirm of a row whose PERSISTED disposition is present but unrecognised (only reachable via a
+     * hand-edited / older-schema store row — the validator drops such notices on ingest) fails closed:
+     * nothing is written and the row stays Pending, rather than guessing an event type and risking the
+     * wrong disposition (#62 invariant: a cremation must never silently become a burial).
+     *
+     * @return void
+     */
+    #[Test]
+    public function aConfirmWithAnUnrecognisedPersistedDispositionFailsClosed(): void
+    {
+        Auth::user()->setPreference(UserInterface::PREF_AUTO_ACCEPT_EDITS, '1');
+
+        $key = $this->seedConfirmableMatchWithCemetery('I2', '2023-09-04', 'Waldfriedhof', '2023-09-10', 'crematoin');
+
+        // Refused before any write: a 302 back to the review screen, one warning, and the row stays Pending.
+        $this->assertConfirmRefusedNoTransition('I2', $key);
+
+        // getDeathDate covers DEAT/BURI/CREM, so a false isOK() proves no death event of any kind landed.
+        $individual = $this->individual('I2', $this->tree);
+        self::assertInstanceOf(Individual::class, $individual);
+        self::assertFalse($individual->getDeathDate()->isOK());
+    }
+
+    /**
      * POST confirm on a row the gate refuses (the tree person already has a death date) writes nothing
      * and does not transition: the server-side ConfirmGate re-check fails (I1 carries a DEAT), so the
      * handler flashes a warning, redirects back to review and leaves the row pending. The disabled
@@ -1548,6 +1628,7 @@ final class ReviewScreenHandlerTest extends IntegrationTestCase
         string $deathDate,
         string $cemetery,
         string $funeralIso,
+        ?string $disposition = null,
     ): string {
         $obituaryUrl               = 'https://trauer.example/' . $xref;
         $payload                   = ClassifiedMatch::emptyArray($xref, $obituaryUrl);
@@ -1556,6 +1637,12 @@ final class ReviewScreenHandlerTest extends IntegrationTestCase
             'cemetery'    => $cemetery,
             'funeralDate' => $funeralIso,
         ];
+
+        // A cremation notice stamps disposition=cremation so the confirm writes a CREM instead of a BURI
+        // (#62); a burial notice omits the key (absence means burial).
+        if ($disposition !== null) {
+            $payload['extractedFacts']['disposition'] = $disposition;
+        }
 
         $this->store()->upsertPending(new StoredMatch($xref, $obituaryUrl, MatchStatus::Pending, $payload));
 
@@ -1736,6 +1823,7 @@ final class ReviewScreenHandlerTest extends IntegrationTestCase
                 ?string $cemetery,
                 ?string $funeralIso,
                 string $obituaryUrl,
+                bool $cremation = false,
             ): WriteBack {
                 throw $this->failure;
             }
