@@ -25,6 +25,7 @@ $bandLabels = [
 $statusLabels = [
     'pending'   => I18N::translate('Pending'),
     'uncertain' => I18N::translate('Uncertain'),
+    'confirmed' => I18N::translate('Confirmed'),
 ];
 
 $signalLabels = [
@@ -133,6 +134,20 @@ $severityLabels = [
             <a href="<?= e($vm->sourceUrl) ?>" target="_blank" rel="noopener noreferrer"><?= e(I18N::translate('View source')) ?></a>
         <?php endif ?>
 
+        <?php if ($vm->statusKey === 'confirmed') : ?>
+            <?php
+            // A confirmed write-back offers exactly one action here: undo. The form posts the same review
+            // route the row was resolved from (which carries the xref + row key), so no person/url hidden
+            // fields are needed — the handler re-resolves the row and reverts under the tamper gate. No
+            // JS confirm; the aria-label names the person for assistive tech.
+            ?>
+            <form method="post" action="<?= e($actionUrl) ?>">
+                <?= csrf_field() ?>
+                <input type="hidden" name="action" value="revert">
+                <button type="submit" class="btn btn-outline-danger btn-sm"
+                        aria-label="<?= e(I18N::translate('Revert match for %s', $vm->person->name)) ?>"><?= e(I18N::translate('Revert')) ?></button>
+            </form>
+        <?php else : ?>
         <form method="post" action="<?= e($actionUrl) ?>">
             <?= csrf_field() ?>
             <input type="hidden" name="action" value="reject">
@@ -165,6 +180,7 @@ $severityLabels = [
             <?php if ($vm->confirmDisabledReason !== null) : ?>
                 <span class="om-confirm-reason"><?= e($confirmReasons[$vm->confirmDisabledReason] ?? $vm->confirmDisabledReason) ?></span>
             <?php endif ?>
+        <?php endif ?>
         <?php endif ?>
     </div>
 </div>

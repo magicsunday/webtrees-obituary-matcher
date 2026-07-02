@@ -197,7 +197,7 @@ class ObituaryWorklistHandler implements RequestHandlerInterface
                 return $this->warnNotRevertable($worklistUrl);
             }
 
-            $this->flashOutcome((new RevertService())->revert($individual, $row, $store, false));
+            RevertFlash::flashOutcome((new RevertService())->revert($individual, $row, $store, false));
         } catch (Throwable $throwable) {
             // Always-PRG-no-500: a corrupt row (findOne is fail-loud) or any never-anticipated producer
             // fault still redirects with a generic danger flash rather than escaping as a 500. The fault
@@ -220,49 +220,9 @@ class ObituaryWorklistHandler implements RequestHandlerInterface
      */
     private function warnNotRevertable(string $worklistUrl): ResponseInterface
     {
-        FlashMessages::addMessage(I18N::translate('This match cannot be reverted.'), 'warning');
+        RevertFlash::flashNotRevertable();
 
         return redirect($worklistUrl);
-    }
-
-    /**
-     * Maps a {@see RevertOutcome} to its flash message and bootstrap status. `Partial` is unreachable from
-     * the force=false UI path (kept defensive); `InvalidWriteBack` IS reachable (a non-null but malformed
-     * write-back), so the merged danger arm needs the corrupt-write-back handler test. Exhaustive over the
-     * enum so no outcome falls through.
-     *
-     * @param RevertOutcome $outcome The revert outcome to present.
-     *
-     * @return void
-     */
-    private function flashOutcome(RevertOutcome $outcome): void
-    {
-        [$message, $status] = match ($outcome->reason) {
-            RevertReason::Reverted => [
-                I18N::plural(
-                    'Confirmation reverted; %s fact removed.',
-                    'Confirmation reverted; %s facts removed.',
-                    $outcome->deletedCount,
-                    I18N::number($outcome->deletedCount),
-                ),
-                'success',
-            ],
-            RevertReason::RefusedEdited => [
-                I18N::translate('Revert refused: a written fact was edited or removed. Use the command-line revert tool with --force to override.'),
-                'danger',
-            ],
-            RevertReason::StoreTransitionFailed => [
-                // The recovery genuinely needs --force (else a plain UI/CLI re-run stays RefusedEdited forever).
-                I18N::translate('The facts were reverted but the match status could not be updated; please re-run the command-line revert with --force.'),
-                'danger',
-            ],
-            RevertReason::Partial, RevertReason::InvalidWriteBack => [
-                I18N::translate('The match could not be reverted.'),
-                'danger',
-            ],
-        };
-
-        FlashMessages::addMessage($message, $status);
     }
 
     /**
