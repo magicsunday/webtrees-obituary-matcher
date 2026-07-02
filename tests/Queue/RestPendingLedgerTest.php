@@ -24,8 +24,11 @@ use RuntimeException;
 
 use function array_fill;
 use function file_put_contents;
+use function is_file;
 use function iterator_to_array;
 use function mkdir;
+use function time;
+use function touch;
 
 /**
  * Tests the slim local ledger of in-flight REST jobs: record/list/remove round-trips, idempotent
@@ -65,6 +68,193 @@ final class RestPendingLedgerTest extends TempDirTestCase
 
         self::assertSame([], iterator_to_array($ledger->entries()));
         self::assertSame([], $ledger->jobIds());
+    }
+
+    /**
+     * A claim is single-winner: two ledgers over the SAME root racing to claim one recorded entry — the
+     * concurrent-drain scenario — see exactly one win and one loss, because the underlying rename is atomic
+     * (the loser observes the source already gone).
+     *
+     * @return void
+     */
+    #[Test]
+    public function claimIsSingleWinner(): void
+    {
+        $root = $this->tmp . '/rest-pending';
+        $a    = new RestPendingLedger($root);
+        $b    = new RestPendingLedger($root);
+        $a->record('job-1', 7, ['I1'], '2024-05-21T08:29:55Z');
+
+        $wonByA = $a->claim('job-1');
+        $wonByB = $b->claim('job-1');
+
+        // Exactly one drain wins the claim; the other loses (the pending source is already gone).
+        self::assertTrue($wonByA);
+        self::assertFalse($wonByB);
+        self::assertTrue(is_file($root . '/claimed/job-1.json'));
+        self::assertFalse(is_file($root . '/job-1.json'));
+    }
+
+    /**
+     * A claimed-but-unfinalised entry is still in flight: it has left the pending root for the claimed
+     * subdirectory, yet entries()/jobIds()/openJobCount() still report it (the union), so the enqueue
+     * producer keeps deduping against it.
+     *
+     * @return void
+     */
+    #[Test]
+    public function aClaimedEntryStaysInFlightAcrossTheUnionScans(): void
+    {
+        $root   = $this->tmp . '/rest-pending';
+        $ledger = new RestPendingLedger($root);
+        $ledger->record('job-1', 7, ['I1', 'I2'], '2024-05-21T08:29:55Z');
+
+        self::assertTrue($ledger->claim('job-1'));
+
+        $entries = iterator_to_array($ledger->entries());
+
+        self::assertCount(1, $entries);
+        self::assertSame('job-1', $entries[0]['jobId']);
+        self::assertSame(['I1', 'I2'], $entries[0]['requestedPersonIds']);
+        self::assertSame(['job-1'], $ledger->jobIds());
+        self::assertSame(1, $ledger->openJobCount());
+    }
+
+    /**
+     * claimable() claims each pending entry and yields it; a second immediate pass yields nothing because
+     * every entry is now claimed and fresh (not stale). This is the at-most-once core: two overlapping
+     * drains never both receive the same job.
+     *
+     * @return void
+     */
+    #[Test]
+    public function claimableClaimsEachEntryOnceAndASecondPassYieldsNothing(): void
+    {
+        $root   = $this->tmp . '/rest-pending';
+        $ledger = new RestPendingLedger($root);
+        $ledger->record('job-a', 1, ['X1'], '2026-06-30T10:00:00Z');
+        $ledger->record('job-b', 1, ['X2'], '2026-06-30T10:01:00Z');
+
+        $first  = iterator_to_array($ledger->claimable(), false);
+        $second = iterator_to_array($ledger->claimable(), false);
+
+        self::assertCount(2, $first);
+        self::assertSame([], $second);
+        // Both entries are still in flight (claimed), just no longer claimable a second time.
+        self::assertSame(2, $ledger->openJobCount());
+    }
+
+    /**
+     * A malformed (poison) pending file is skipped by claimable() WITHOUT being claimed — it never
+     * narrows, so it is neither yielded nor moved into the claimed subdirectory, while a valid sibling is
+     * claimed and yielded. This pins the claim loop's poison-skip branch (the lazy read/narrow that runs
+     * BEFORE the claim), matching the poison-tolerance the entries() scan already guarantees.
+     *
+     * @return void
+     */
+    #[Test]
+    public function claimableSkipsAPoisonEntryWithoutClaimingIt(): void
+    {
+        $root   = $this->tmp . '/rest-pending';
+        $ledger = new RestPendingLedger($root);
+        $ledger->record('good-job', 3, ['I9'], '2024-01-01T00:00:00Z');
+
+        // A path-safe basename but a non-JSON body: it must be skipped without ever being claimed.
+        file_put_contents($root . '/bad.json', '{not json');
+
+        $claimed = iterator_to_array($ledger->claimable(), false);
+
+        self::assertCount(1, $claimed);
+        self::assertSame('good-job', $claimed[0]['jobId']);
+
+        // The poison file stays pending (never claimed); the valid entry was moved into claimed/.
+        self::assertTrue(is_file($root . '/bad.json'));
+        self::assertFalse(is_file($root . '/claimed/bad.json'));
+        self::assertTrue(is_file($root . '/claimed/good-job.json'));
+    }
+
+    /**
+     * release() hands a claimed entry back to the pending pool, so a later claimable() pass re-claims and
+     * re-yields it — the "a claimed-but-unprocessed entry is pollable again" acceptance case.
+     *
+     * @return void
+     */
+    #[Test]
+    public function releaseReturnsAClaimedEntryToPending(): void
+    {
+        $root   = $this->tmp . '/rest-pending';
+        $ledger = new RestPendingLedger($root);
+        $ledger->record('job-1', 7, ['I1'], '2024-05-21T08:29:55Z');
+
+        self::assertTrue($ledger->claim('job-1'));
+        self::assertSame([], iterator_to_array($ledger->claimable(), false)); // claimed, not re-claimable
+
+        $ledger->release('job-1');
+
+        self::assertTrue(is_file($root . '/job-1.json'));
+        self::assertFalse(is_file($root . '/claimed/job-1.json'));
+
+        $reclaimed = iterator_to_array($ledger->claimable(), false);
+
+        self::assertCount(1, $reclaimed);
+        self::assertSame('job-1', $reclaimed[0]['jobId']);
+    }
+
+    /**
+     * remove() clears a claimed entry from BOTH locations, so a finalised (drained) job disappears from
+     * every scan.
+     *
+     * @return void
+     */
+    #[Test]
+    public function removeClearsAClaimedEntry(): void
+    {
+        $root   = $this->tmp . '/rest-pending';
+        $ledger = new RestPendingLedger($root);
+        $ledger->record('job-1', 7, ['I1'], '2024-05-21T08:29:55Z');
+
+        self::assertTrue($ledger->claim('job-1'));
+
+        $ledger->remove('job-1');
+
+        self::assertFalse(is_file($root . '/claimed/job-1.json'));
+        self::assertSame([], iterator_to_array($ledger->entries()));
+        self::assertSame([], $ledger->jobIds());
+        self::assertSame(0, $ledger->openJobCount());
+    }
+
+    /**
+     * A claim stranded by a crashed drain (its claimed file aged past the stale threshold) is counted by
+     * staleCount() and reclaimed by the next claimable() pass — the entry is swept back to pending and
+     * re-yielded, so a crash never strands the job forever. A FRESH claim is neither counted nor reclaimed.
+     *
+     * @return void
+     */
+    #[Test]
+    public function aStaleClaimIsCountedAndReclaimedWhileAFreshClaimIsNot(): void
+    {
+        $root   = $this->tmp . '/rest-pending';
+        $ledger = new RestPendingLedger($root);
+        $ledger->record('fresh', 1, ['X1'], '2026-06-30T10:00:00Z');
+        $ledger->record('stale', 1, ['X2'], '2026-06-30T10:01:00Z');
+
+        self::assertTrue($ledger->claim('fresh'));
+        self::assertTrue($ledger->claim('stale'));
+
+        // Backdate the stale claim's stamp two hours into the past (past the one-hour stale threshold).
+        touch($root . '/claimed/stale.json', time() - 7_200);
+
+        self::assertSame(1, $ledger->staleCount());
+
+        // claimable() sweeps the stale claim back to pending and re-yields it; the fresh claim is left
+        // claimed (not re-yielded).
+        $reclaimed = iterator_to_array($ledger->claimable(), false);
+
+        self::assertCount(1, $reclaimed);
+        self::assertSame('stale', $reclaimed[0]['jobId']);
+
+        // After the sweep the stale claim has been re-claimed with a fresh stamp, so nothing is stale now.
+        self::assertSame(0, $ledger->staleCount());
     }
 
     /**

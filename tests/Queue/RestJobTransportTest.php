@@ -48,17 +48,21 @@ use Psr\Http\Message\ResponseInterface;
 use RuntimeException;
 
 use function array_fill;
+use function is_file;
 use function iterator_to_array;
 use function json_encode;
 use function sort;
 use function str_contains;
+use function time;
+use function touch;
 
 use const JSON_THROW_ON_ERROR;
 
 /**
  * Tests the REST job transport against a scriptable PSR-18 client double: the queued->running->done
  * poll lifecycle, the 404/5xx/connect-error branches, the malformed-done -> response_invalid mapping,
- * the bearer-header-without-token-leak contract, the release no-op, idempotent finalisation even when
+ * the bearer-header-without-token-leak contract, the atomic-claim concurrency guarantee (a claimed done
+ * job is not re-yielded to a second drain; a stale claim is counted), idempotent finalisation even when
  * the remote DELETE fails, and the Variant-B parity that the shared validator ignores a top-level
  * `state` field.
  *
@@ -121,6 +125,92 @@ final class RestJobTransportTest extends TempDirTestCase
         self::assertSame('job-1', $done[0]->jobId);
         self::assertSame(7, $done[0]->treeId);
         self::assertArrayHasKey('I1', $done[0]->notices);
+    }
+
+    /**
+     * A done job a first drain claims and yields is NOT yielded again to a concurrent second drain: the
+     * claim is held once ownership is handed to the caller (the drain would finalise it), so a second
+     * fetchCompleted over the same ledger sees the job still claimed and fresh and yields nothing — and
+     * makes no second HTTP poll. This is the at-most-once guarantee at the transport seam.
+     *
+     * @return void
+     */
+    #[Test]
+    public function aClaimedDoneJobIsNotYieldedAgainToAConcurrentDrain(): void
+    {
+        $ledger = new RestPendingLedger($this->tmp . '/rp');
+        $ledger->record('job-1', 7, ['I1'], '2024-05-21T08:29:55Z');
+
+        // Exactly ONE scripted response: the second drain must not poll the remote at all.
+        $http      = $this->http([fn (): ResponseInterface => self::json(200, $this->doneBody('job-1', 'I1'))]);
+        $transport = $this->newRest($http, $ledger);
+
+        $first = iterator_to_array($transport->fetchCompleted());
+
+        self::assertCount(1, $first);
+        self::assertInstanceOf(CompletedJob::class, $first[0]);
+
+        // The job is still claimed (the caller has not finalised it yet); a concurrent drain gets nothing.
+        $second = iterator_to_array($transport->fetchCompleted());
+
+        self::assertSame([], $second);
+    }
+
+    /**
+     * staleCount() reports the claims a crashed drain stranded: a claimed entry aged past the ledger's
+     * stale threshold is counted, so the drain summary surfaces stuck work.
+     *
+     * @return void
+     */
+    #[Test]
+    public function staleCountReflectsACrashStrandedClaim(): void
+    {
+        $ledger = new RestPendingLedger($this->tmp . '/rp');
+        $ledger->record('job-1', 7, ['I1'], '2024-05-21T08:29:55Z');
+
+        self::assertTrue($ledger->claim('job-1'));
+        // Backdate the claim two hours into the past (past the one-hour stale threshold).
+        touch($this->tmp . '/rp/claimed/job-1.json', time() - 7_200);
+
+        // No HTTP is issued by staleCount, so the scripted client is empty.
+        self::assertSame(1, $this->newRest($this->http([]), $ledger)->staleCount());
+    }
+
+    /**
+     * A transient poll (a 5xx here) RELEASES the claim through the fetchCompleted finally, so the entry
+     * returns to the pending pool and the NEXT drain re-polls and completes it — rather than the claim
+     * being stranded in claimed/ until the stale-reclaim timeout. This discriminates the finally-release
+     * wiring: were the release removed, the first drain would leave the job fresh-claimed and the second
+     * drain's claimable() would skip it, so the re-poll below would yield nothing.
+     *
+     * @return void
+     */
+    #[Test]
+    public function aTransientPollReleasesTheClaimSoTheNextDrainRepollsAndCompletes(): void
+    {
+        $ledger = new RestPendingLedger($this->tmp . '/rp');
+        $ledger->record('job-1', 7, ['I1'], '2024-05-21T08:29:55Z');
+
+        // First poll a transient 5xx, then (on the re-poll) the done body.
+        $http = $this->http([
+            static fn (): ResponseInterface => self::json(500, ['error' => 'busy']),
+            fn (): ResponseInterface => self::json(200, $this->doneBody('job-1', 'I1')),
+        ]);
+        $transport = $this->newRest($http, $ledger);
+
+        // First drain: the 5xx yields nothing and the finally hands the claim back to pending.
+        $firstDrain = iterator_to_array($transport->fetchCompleted());
+
+        self::assertCount(0, $firstDrain);
+        self::assertTrue(is_file($this->tmp . '/rp/job-1.json'));           // back in pending
+        self::assertFalse(is_file($this->tmp . '/rp/claimed/job-1.json'));  // not stranded claimed
+
+        // Second drain re-polls the released entry and now completes it.
+        $second = iterator_to_array($transport->fetchCompleted());
+
+        self::assertCount(1, $second);
+        self::assertInstanceOf(CompletedJob::class, $second[0]);
+        self::assertSame('job-1', $second[0]->jobId);
     }
 
     /**
