@@ -35,11 +35,15 @@ use function is_string;
 final readonly class ReviewViewModel
 {
     /**
-     * The normal positive-signal keys rendered in the "why this score" breakdown, in display order.
+     * The positive-signal keys rendered in the "why this score" breakdown, in display order: the four base
+     * signals first, then the enriched signals (relatives / age / cemetery) so the reviewer sees the
+     * family, age and burial-place matches the enriched profile scored (#61). Each key is projected only
+     * when the payload actually carries it, so the base profile (which emits no enriched signal) renders
+     * unchanged.
      *
      * @var list<string>
      */
-    private const array NORMAL_SIGNALS = ['name', 'birth', 'place', 'plausibility'];
+    private const array DISPLAYED_SIGNALS = ['name', 'birth', 'place', 'plausibility', 'relatives', 'age', 'cemetery'];
 
     /**
      * Constructor.
@@ -169,12 +173,13 @@ final readonly class ReviewViewModel
     }
 
     /**
-     * Projects the allow-listed normal signals, ignoring unknown keys and the conflicts entry, and
-     * narrowing every field so a typewrong payload cannot leak through.
+     * Projects the allow-listed displayed signals (the base signals plus the enriched relatives / age /
+     * cemetery), ignoring unknown keys and the conflicts entry, and narrowing every field so a typewrong
+     * payload cannot leak through.
      *
      * @param mixed $signals The raw signals map, if any.
      *
-     * @return list<array{key: string, score: int, max: int, reasons: list<string>}> The normal signals.
+     * @return list<array{key: string, score: int, max: int, reasons: list<string>}> The displayed signals.
      */
     private static function projectSignals(mixed $signals): array
     {
@@ -184,7 +189,7 @@ final readonly class ReviewViewModel
 
         $projected = [];
 
-        foreach (self::NORMAL_SIGNALS as $key) {
+        foreach (self::DISPLAYED_SIGNALS as $key) {
             $signal = $signals[$key] ?? null;
 
             if (!is_array($signal)) {

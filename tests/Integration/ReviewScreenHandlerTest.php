@@ -345,6 +345,30 @@ final class ReviewScreenHandlerTest extends IntegrationTestCase
     }
 
     /**
+     * GET renders the enriched relatives / age / cemetery signals in the "why this score" breakdown, each
+     * behind its translated label with its score/max and reasons (#61) — the enriched profile's family,
+     * age and burial-place matches are now visible to the reviewer, not silently dropped.
+     *
+     * @return void
+     */
+    #[Test]
+    public function getRendersTheEnrichedSignals(): void
+    {
+        $key     = $this->seedPendingMatchWithEnrichedSignals('I1');
+        $request = $this->managerGetRequest(ReviewScreenHandler::ROUTE_NAME, ['xref' => 'I1', 'key' => $key]);
+
+        $body = (string) $this->handler()->handle($request)->getBody();
+
+        self::assertStringContainsString('<span class="om-signal-label">Relatives</span>', $body);
+        self::assertStringContainsString('<span class="om-signal-label">Age</span>', $body);
+        self::assertStringContainsString('<span class="om-signal-label">Cemetery</span>', $body);
+        self::assertStringContainsString('20 / 35', $body);
+        self::assertStringContainsString('relative matches spouse', $body);
+        self::assertStringContainsString('age matches the implied birth window', $body);
+        self::assertStringContainsString('cemetery names a known place', $body);
+    }
+
+    /**
      * The tab link's row key resolves the same row via findOne (VM ↔ store normalisation parity).
      * The row is seeded with a raw, un-normalised URL (mixed case + tracking query) so the assertion
      * only holds when the tab's {@see SuggestionViewModel::$rowKey} and the store apply the exact same
@@ -2001,6 +2025,30 @@ final class ReviewScreenHandlerTest extends IntegrationTestCase
                     'severity'      => $severity,
                 ],
             ],
+        ];
+
+        $this->store()->upsertPending(new StoredMatch($xref, $obituaryUrl, MatchStatus::Pending, $payload));
+
+        return StoredMatchKey::fromUrl($obituaryUrl);
+    }
+
+    /**
+     * Seeds a pending row whose payload carries the enriched relatives / age / cemetery signals (the shape
+     * the enriched ingest profile produces), so the render can assert the review screen surfaces them
+     * (#61).
+     *
+     * @param string $xref The person xref.
+     *
+     * @return string The seeded row's key.
+     */
+    private function seedPendingMatchWithEnrichedSignals(string $xref): string
+    {
+        $obituaryUrl        = 'https://trauer.example/' . $xref;
+        $payload            = ClassifiedMatch::emptyArray($xref, $obituaryUrl);
+        $payload['signals'] = [
+            'relatives' => ['score' => 20, 'max' => 35, 'reasons' => ['relative matches spouse']],
+            'age'       => ['score' => 15, 'max' => 20, 'reasons' => ['age matches the implied birth window']],
+            'cemetery'  => ['score' => 10, 'max' => 10, 'reasons' => ['cemetery names a known place']],
         ];
 
         $this->store()->upsertPending(new StoredMatch($xref, $obituaryUrl, MatchStatus::Pending, $payload));
