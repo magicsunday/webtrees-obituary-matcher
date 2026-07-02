@@ -31,7 +31,7 @@ msgid_plural "%s finder jobs are awaiting results."
 msgstr[0] ""
 msgstr[1] ""
 
-#: resources/views/tab.phtml:35
+#: resources/views/tab.phtml:37
 #, php-format
 msgid "%s open suggestion"
 msgid_plural "%s open suggestions"
@@ -62,7 +62,7 @@ msgstr ""
 msgid "All"
 msgstr ""
 
-#: resources/views/review.phtml:74 resources/views/tab.phtml:43
+#: resources/views/review.phtml:74 resources/views/tab.phtml:45
 msgid "Ambiguous"
 msgstr ""
 
@@ -86,6 +86,7 @@ msgstr ""
 msgid "Cemetery"
 msgstr ""
 
+#: src/Webtrees/EnqueuePersonHandler.php:110
 #: src/Webtrees/ObituaryControlPanelHandler.php:450
 msgid "Configure the finder connection first."
 msgstr ""
@@ -128,8 +129,8 @@ msgstr ""
 
 #: resources/views/control-panel.phtml:33 resources/views/worklist.phtml:45
 #: src/Webtrees/ObituaryControlPanelHandler.php:541
-#: src/Webtrees/ObituaryMatcherModule.php:231
-#: src/Webtrees/ObituaryMatcherModule.php:247
+#: src/Webtrees/ObituaryMatcherModule.php:235
+#: src/Webtrees/ObituaryMatcherModule.php:251
 msgid "Death notices"
 msgstr ""
 
@@ -168,7 +169,7 @@ msgid "HTTP status: %s"
 msgstr ""
 
 #: resources/views/review.phtml:61 resources/views/review.phtml:73
-#: resources/views/tab.phtml:42
+#: resources/views/tab.phtml:44
 msgid "Hard conflict"
 msgstr ""
 
@@ -210,7 +211,7 @@ msgstr ""
 msgid "No finder jobs are currently open."
 msgstr ""
 
-#: resources/views/review.phtml:22 resources/views/tab.phtml:18
+#: resources/views/review.phtml:22 resources/views/tab.phtml:20
 #: resources/views/worklist.phtml:18
 msgid "No match"
 msgstr ""
@@ -268,7 +269,7 @@ msgstr ""
 msgid "Pagination"
 msgstr ""
 
-#: resources/views/review.phtml:26 resources/views/tab.phtml:30
+#: resources/views/review.phtml:26 resources/views/tab.phtml:32
 #: resources/views/worklist.phtml:30
 msgid "Pending"
 msgstr ""
@@ -285,12 +286,12 @@ msgstr ""
 msgid "Portal"
 msgstr ""
 
-#: resources/views/review.phtml:20 resources/views/tab.phtml:16
+#: resources/views/review.phtml:20 resources/views/tab.phtml:18
 #: resources/views/worklist.phtml:16
 msgid "Possible match"
 msgstr ""
 
-#: resources/views/review.phtml:19 resources/views/tab.phtml:15
+#: resources/views/review.phtml:19 resources/views/tab.phtml:17
 #: resources/views/worklist.phtml:15
 msgid "Probable match"
 msgstr ""
@@ -334,7 +335,7 @@ msgid ""
 "revert tool with --force to override."
 msgstr ""
 
-#: resources/views/tab.phtml:48 resources/views/worklist.phtml:85
+#: resources/views/tab.phtml:50 resources/views/worklist.phtml:85
 #: resources/views/worklist.phtml:110
 msgid "Review"
 msgstr ""
@@ -355,14 +356,16 @@ msgstr ""
 msgid "Score"
 msgstr ""
 
-#: resources/views/control-panel.phtml:139
+#: resources/views/control-panel.phtml:139 resources/views/tab.phtml:58
 msgid "Search for death notices"
 msgstr ""
 
+#: src/Webtrees/EnqueuePersonHandler.php:137
 #: src/Webtrees/ObituaryControlPanelHandler.php:482
 msgid "Search job could not be queued."
 msgstr ""
 
+#: src/Webtrees/EnqueuePersonHandler.php:143
 #: src/Webtrees/ObituaryControlPanelHandler.php:488
 #, php-format
 msgid "Search job queued (%s)."
@@ -392,7 +395,7 @@ msgstr ""
 msgid "Status"
 msgstr ""
 
-#: resources/views/review.phtml:18 resources/views/tab.phtml:14
+#: resources/views/review.phtml:18 resources/views/tab.phtml:16
 #: resources/views/worklist.phtml:14
 msgid "Strong match"
 msgstr ""
@@ -403,6 +406,12 @@ msgstr ""
 
 #: resources/views/control-panel.phtml:68
 msgid "Test connection"
+msgstr ""
+
+#: src/Webtrees/EnqueuePersonHandler.php:146
+msgid ""
+"That person could not be queued: unknown, unsearchable, or already awaiting "
+"results."
 msgstr ""
 
 #: src/Webtrees/ReviewScreenHandler.php:351
@@ -431,6 +440,7 @@ msgstr ""
 msgid "The finder is reachable."
 msgstr ""
 
+#: src/Webtrees/EnqueuePersonHandler.php:118
 #: src/Webtrees/ObituaryControlPanelHandler.php:458
 msgid "The finder storage location is unavailable."
 msgstr ""
@@ -490,7 +500,7 @@ msgid "Tree person"
 msgstr ""
 
 #: resources/views/review.phtml:27 resources/views/review.phtml:165
-#: resources/views/tab.phtml:31 resources/views/worklist.phtml:31
+#: resources/views/tab.phtml:33 resources/views/worklist.phtml:31
 #: resources/views/worklist.phtml:41
 msgid "Uncertain"
 msgstr ""
@@ -504,7 +514,7 @@ msgstr ""
 msgid "View source"
 msgstr ""
 
-#: resources/views/review.phtml:21 resources/views/tab.phtml:17
+#: resources/views/review.phtml:21 resources/views/tab.phtml:19
 #: resources/views/worklist.phtml:17
 msgid "Weak match"
 msgstr ""

@@ -14,6 +14,7 @@ namespace MagicSunday\ObituaryMatcher\Webtrees;
 use DateTimeImmutable;
 use Fisharebest\Webtrees\Services\TreeService;
 use Fisharebest\Webtrees\Tree;
+use MagicSunday\ObituaryMatcher\Domain\PersonCandidate;
 use MagicSunday\ObituaryMatcher\Matching\MatchStore;
 use MagicSunday\ObituaryMatcher\Queue\JobTransport;
 use MagicSunday\ObituaryMatcher\Support\FinderRequestFactory;
@@ -22,6 +23,7 @@ use MagicSunday\ObituaryMatcher\Support\UrlHostNormalizer;
 
 use function array_keys;
 use function count;
+use function reset;
 use function sort;
 
 use const SORT_STRING;
@@ -130,6 +132,62 @@ class EnqueueService
             return new EnqueueSummary(null, 0, $skipped, 0);
         }
 
+        return $this->submitJob($tree, $eligible, $locale, $skipped);
+    }
+
+    /**
+     * Enqueues a single, manager-chosen person into the search — a finder job for exactly that individual,
+     * reusing the same producer path as the auto-selecting {@see self::enqueue()}. Returns a null-jobId
+     * summary when the xref is unknown, invisible to the principal or a nameless placeholder (nothing to
+     * search), or a skipped=1 summary when the person already has a job in flight for this tree (no
+     * duplicate is enqueued).
+     *
+     * @param int    $treeId The numeric tree id (throws DomainException if unknown).
+     * @param string $xref   The chosen individual's xref.
+     * @param string $locale The IETF BCP 47 locale tag stamped onto the request.
+     *
+     * @return EnqueueSummary The run tally.
+     */
+    public function enqueueOne(int $treeId, string $xref, string $locale): EnqueueSummary
+    {
+        $tree       = $this->treeService->find($treeId);
+        $candidates = $this->repository->findByXrefs($tree, [$xref]);
+        $candidate  = $candidates === [] ? null : reset($candidates);
+
+        // Unknown xref, a person the principal may not see (findByXrefs applies the privacy gate), or a
+        // name that collapsed to webtrees placeholders (`@P.N.`/`@N.N.`) — nothing searchable to enqueue.
+        if (
+            !($candidate instanceof PersonCandidate)
+            || !$candidate->name->hasSearchableName()
+        ) {
+            return new EnqueueSummary(null, 0, 0, 0);
+        }
+
+        // Do not double-enqueue a person who already has a job in flight for this tree.
+        $inFlight = $this->collectInFlightPersonIds($treeId);
+
+        if (isset($inFlight[$candidate->id])) {
+            return new EnqueueSummary(null, 0, 1, 0);
+        }
+
+        return $this->submitJob($tree, [$candidate], $locale, 0);
+    }
+
+    /**
+     * Builds and submits one finder job for the given eligible candidates (computing each candidate's
+     * excludedHosts hint, minting the jobId + createdAt from ONE clock read so they can never straddle a
+     * one-second boundary), then returns the run tally. Shared by the auto-selecting {@see self::enqueue()}
+     * and the single-person {@see self::enqueueOne()}.
+     *
+     * @param Tree                  $tree     The tree the job belongs to.
+     * @param list<PersonCandidate> $eligible The candidates to enqueue (already name-filtered and deduped).
+     * @param string                $locale   The IETF BCP 47 locale tag stamped onto the request.
+     * @param int                   $skipped  The in-flight candidates skipped, carried onto the summary.
+     *
+     * @return EnqueueSummary The run tally.
+     */
+    private function submitJob(Tree $tree, array $eligible, string $locale, int $skipped): EnqueueSummary
+    {
         $store                   = $this->storeForTree($tree);
         $excludedHostsByPersonId = [];
         $excludedHostTotal       = 0;
@@ -143,8 +201,6 @@ class EnqueueService
             }
         }
 
-        // Read the clock ONCE and stamp both the jobId and the createdAt from the same instant, so the
-        // two can never straddle a one-second boundary across two separate now() reads.
         $now     = $this->now();
         $jobId   = JobId::mint($now);
         $request = $this->requestFactory->build(
@@ -152,7 +208,7 @@ class EnqueueService
             $now,
             $locale,
             $eligible,
-            $treeId,
+            $tree->id(),
             $excludedHostsByPersonId,
         );
 
