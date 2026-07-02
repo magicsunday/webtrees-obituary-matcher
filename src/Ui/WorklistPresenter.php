@@ -14,6 +14,7 @@ namespace MagicSunday\ObituaryMatcher\Ui;
 use MagicSunday\ObituaryMatcher\Domain\Band;
 use MagicSunday\ObituaryMatcher\Matching\MatchStatus;
 use MagicSunday\ObituaryMatcher\Matching\StoredMatch;
+use MagicSunday\ObituaryMatcher\Matching\StoredMatchKey;
 
 use function array_slice;
 use function ceil;
@@ -46,22 +47,30 @@ final readonly class WorklistPresenter
      *
      * @param list<array{match: StoredMatch, personName: string, personId: string, personUrl: string, reviewUrl: string|null}> $entries      The surviving rows (stale-person rows already skipped).
      * @param string                                                                                                           $statusFilter The requested status filter.
+     * @param string                                                                                                           $flagFilter   The requested quality-flag filter (all/conflict/ambiguous).
+     * @param string                                                                                                           $sort         The requested sort key (score/name/death).
      * @param int                                                                                                              $page         The 1-based requested page.
      *
      * @return WorklistView The filtered, sorted, paginated view.
      */
-    public function build(array $entries, string $statusFilter, int $page): WorklistView
+    public function build(array $entries, string $statusFilter, string $flagFilter, string $sort, int $page): WorklistView
     {
         $counts = $this->counts($entries);
 
         $filter   = $this->normaliseFilter($statusFilter);
-        $filtered = $this->filter($entries, $filter);
+        $flag     = $this->normaliseFlag($flagFilter);
+        $order    = $this->normaliseSort($sort);
+        $filtered = $this->filterByFlag($this->filter($entries, $filter), $flag);
 
-        usort($filtered, static function (array $a, array $b): int {
-            $byScore = self::scoreOf($b['match']) <=> self::scoreOf($a['match']);
+        usort($filtered, static function (array $a, array $b) use ($order): int {
+            $primary = match ($order) {
+                'name'  => strcmp($a['personName'], $b['personName']),
+                'death' => self::compareDeath($a['match'], $b['match']),
+                default => self::scoreOf($b['match']) <=> self::scoreOf($a['match']),
+            };
 
-            if ($byScore !== 0) {
-                return $byScore;
+            if ($primary !== 0) {
+                return $primary;
             }
 
             // Byte-order tie-break (not numeric `<=>`): webtrees permits bare-numeric XREFs, and the
@@ -82,7 +91,96 @@ final readonly class WorklistPresenter
             $rows[] = $this->toRow($entry);
         }
 
-        return new WorklistView($rows, $counts, $filter, $clampedPage, $totalPages, $totalFiltered);
+        return new WorklistView($rows, $counts, $filter, $flag, $order, $clampedPage, $totalPages, $totalFiltered);
+    }
+
+    /**
+     * Maps the requested quality-flag filter to its allow-listed key, defaulting to "all".
+     *
+     * @param string $flagFilter The raw requested flag filter.
+     *
+     * @return string The allow-listed flag key (all/conflict/ambiguous).
+     */
+    private function normaliseFlag(string $flagFilter): string
+    {
+        return match ($flagFilter) {
+            'conflict', 'ambiguous' => $flagFilter,
+            default                 => 'all',
+        };
+    }
+
+    /**
+     * Maps the requested sort to its allow-listed key, defaulting to "score".
+     *
+     * @param string $sort The raw requested sort.
+     *
+     * @return string The allow-listed sort key (score/name/death).
+     */
+    private function normaliseSort(string $sort): string
+    {
+        return match ($sort) {
+            'name', 'death' => $sort,
+            default         => 'score',
+        };
+    }
+
+    /**
+     * Restricts the entries to those carrying the requested quality flag: "conflict" keeps only rows with
+     * a hard conflict, "ambiguous" only ambiguous rows, and "all" passes them through. Both flags read
+     * defensively through {@see PayloadReader} (the on-disk payload is untrusted JSON), so a missing or
+     * non-bool value is treated as absent.
+     *
+     * @param list<array{match: StoredMatch, personName: string, personId: string, personUrl: string, reviewUrl: string|null}> $entries The status-filtered rows.
+     * @param string                                                                                                           $flag    The normalised flag key.
+     *
+     * @return list<array{match: StoredMatch, personName: string, personId: string, personUrl: string, reviewUrl: string|null}> The flag-filtered rows.
+     */
+    private function filterByFlag(array $entries, string $flag): array
+    {
+        if ($flag === 'all') {
+            return $entries;
+        }
+
+        $payloadKey = $flag === 'conflict' ? 'hardConflict' : 'ambiguous';
+
+        $filtered = [];
+
+        foreach ($entries as $entry) {
+            if (PayloadReader::read($entry['match']->match, $payloadKey) === true) {
+                $filtered[] = $entry;
+            }
+        }
+
+        return $filtered;
+    }
+
+    /**
+     * Compares two matches by their extracted ISO death date ascending, with a row that has no extracted
+     * death date sorting last. ISO `YYYY-MM-DD` strings compare chronologically under byte order.
+     *
+     * @param StoredMatch $a The first match.
+     * @param StoredMatch $b The second match.
+     *
+     * @return int The comparison result.
+     */
+    private static function compareDeath(StoredMatch $a, StoredMatch $b): int
+    {
+        $deathA = PayloadReader::nestedString($a->match, 'extractedFacts', 'deathDate');
+        $deathB = PayloadReader::nestedString($b->match, 'extractedFacts', 'deathDate');
+
+        if ($deathA === $deathB) {
+            return 0;
+        }
+
+        if ($deathA === null) {
+            return 1;
+        }
+
+        if ($deathB === null) {
+            return -1;
+        }
+
+        return strcmp($deathA, $deathB);
     }
 
     /**
@@ -198,6 +296,12 @@ final readonly class WorklistPresenter
             Band::None->value(),
         );
 
+        // A non-terminal (Pending/Uncertain) row is bulk-rejectable; carry its selection token. A terminal
+        // row gets null so the template renders no checkbox.
+        $bulkRejectToken = $match->status->isTerminal()
+            ? null
+            : $entry['personId'] . ':' . StoredMatchKey::fromUrl($match->obituaryUrl);
+
         return new WorklistRowView(
             $entry['personName'],
             $entry['personId'],
@@ -210,6 +314,7 @@ final readonly class WorklistPresenter
             $match->status->value,
             $entry['reviewUrl'],
             $match->status === MatchStatus::Confirmed ? $match->obituaryUrl : null,
+            $bulkRejectToken,
         );
     }
 }

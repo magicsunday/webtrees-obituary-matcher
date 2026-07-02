@@ -18,7 +18,7 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=2; plural=(n != 1);\n"
 
-#: resources/views/worklist.phtml:82
+#: resources/views/worklist.phtml:104
 #, php-format
 msgid "%1$s open · %2$s confirmed · %3$s rejected · %4$s uncertain"
 msgstr "%1$s offen · %2$s bestätigt · %3$s abgelehnt · %4$s unsicher"
@@ -30,6 +30,13 @@ msgid_plural "%s finder jobs are awaiting results."
 msgstr[0] "%s Finder-Auftrag wartet auf Ergebnisse."
 msgstr[1] "%s Finder-Aufträge warten auf Ergebnisse."
 
+#: src/Webtrees/ObituaryWorklistHandler.php:364
+#, php-format
+msgid "%s match rejected."
+msgid_plural "%s matches rejected."
+msgstr[0] "%s Treffer abgelehnt."
+msgstr[1] "%s Treffer abgelehnt."
+
 #: resources/views/tab.phtml:37
 #, php-format
 msgid "%s open suggestion"
@@ -37,7 +44,7 @@ msgid_plural "%s open suggestions"
 msgstr[0] "%s offener Vorschlag"
 msgstr[1] "%s offene Vorschläge"
 
-#: resources/views/worklist.phtml:69
+#: resources/views/worklist.phtml:91
 #, php-format
 msgid "%s person would be searched"
 msgid_plural "%s people would be searched"
@@ -64,11 +71,12 @@ msgstr "Angebotene Schema-Versionen"
 msgid "Age"
 msgstr "Alter"
 
-#: resources/views/worklist.phtml:40
+#: resources/views/worklist.phtml:40 resources/views/worklist.phtml:48
 msgid "All"
 msgstr "Alle"
 
 #: resources/views/review.phtml:74 resources/views/tab.phtml:45
+#: resources/views/worklist.phtml:50
 msgid "Ambiguous"
 msgstr "Mehrdeutig"
 
@@ -113,7 +121,7 @@ msgstr[1] "Bestätigung zurückgenommen; %s Einträge entfernt."
 msgid "Confirmed"
 msgstr "Bestätigt"
 
-#: resources/views/review.phtml:112
+#: resources/views/review.phtml:112 resources/views/worklist.phtml:49
 msgid "Conflicts"
 msgstr "Konflikte"
 
@@ -125,7 +133,7 @@ msgstr "Ergebnis des Verbindungstests"
 msgid "Country"
 msgstr "Land"
 
-#: resources/views/worklist.phtml:108
+#: resources/views/worklist.phtml:56 resources/views/worklist.phtml:159
 msgid "Date of death"
 msgstr "Sterbedatum"
 
@@ -133,7 +141,7 @@ msgstr "Sterbedatum"
 msgid "Death date"
 msgstr "Sterbedatum"
 
-#: resources/views/control-panel.phtml:33 resources/views/worklist.phtml:48
+#: resources/views/control-panel.phtml:33 resources/views/worklist.phtml:70
 #: src/Webtrees/ObituaryControlPanelHandler.php:541
 #: src/Webtrees/ObituaryMatcherModule.php:235
 #: src/Webtrees/ObituaryMatcherModule.php:251
@@ -179,15 +187,15 @@ msgstr "HTTP-Status: %s"
 msgid "Hard conflict"
 msgstr "Harter Konflikt"
 
-#: resources/views/worklist.phtml:64
+#: resources/views/worklist.phtml:86
 msgid "Include people without a known birth date"
 msgstr "Personen ohne bekanntes Geburtsdatum einschließen"
 
-#: resources/views/worklist.phtml:105
+#: resources/views/worklist.phtml:156
 msgid "Individual"
 msgstr "Person"
 
-#: resources/views/worklist.phtml:106
+#: resources/views/worklist.phtml:157
 msgid "Match"
 msgstr "Treffer"
 
@@ -199,15 +207,16 @@ msgstr ""
 "Gleicht Personen mit öffentlichen Traueranzeigen ab, um fehlende Sterbedaten "
 "vorzuschlagen."
 
-#: resources/views/worklist.phtml:59
+#: resources/views/worklist.phtml:81
 msgid "Maximum age"
 msgstr "Höchstalter"
 
-#: resources/views/control-panel.phtml:39 resources/views/worklist.phtml:55
+#: resources/views/control-panel.phtml:39 resources/views/worklist.phtml:77
 msgid "Minimum age"
 msgstr "Mindestalter"
 
 #: resources/views/control-panel.phtml:105 resources/views/review.phtml:32
+#: resources/views/worklist.phtml:55
 msgid "Name"
 msgstr "Name"
 
@@ -234,11 +243,11 @@ msgstr "Derzeit sind keine Finder-Aufträge offen."
 msgid "No match"
 msgstr "Kein Treffer"
 
-#: resources/views/worklist.phtml:100
+#: resources/views/worklist.phtml:139
 msgid "No matches for this filter."
 msgstr "Keine Treffer für diesen Filter."
 
-#: resources/views/worklist.phtml:78
+#: resources/views/worklist.phtml:100
 msgid "No obituary matches in this tree yet."
 msgstr "Noch keine Traueranzeigen-Treffer in diesem Stammbaum."
 
@@ -266,7 +275,7 @@ msgstr "Traueranzeige"
 msgid "Obituary Matcher"
 msgstr "Traueranzeigen-Abgleich"
 
-#: src/Webtrees/ObituaryWorklistHandler.php:344
+#: src/Webtrees/ObituaryWorklistHandler.php:428
 msgid "Obituary worklist"
 msgstr "Traueranzeigen-Arbeitsliste"
 
@@ -278,12 +287,12 @@ msgstr "Offen"
 msgid "Open finder jobs"
 msgstr "Offene Finder-Aufträge"
 
-#: resources/views/worklist.phtml:165
+#: resources/views/worklist.phtml:222
 #, php-format
 msgid "Page %1$s of %2$s"
 msgstr "Seite %1$s von %2$s"
 
-#: resources/views/worklist.phtml:154
+#: resources/views/worklist.phtml:211
 msgid "Pagination"
 msgstr "Seitennavigation"
 
@@ -309,11 +318,11 @@ msgstr "Portal"
 msgid "Possible match"
 msgstr "Möglicher Treffer"
 
-#: resources/views/worklist.phtml:66
+#: resources/views/worklist.phtml:88
 msgid "Preview count"
 msgstr "Vorschau berechnen"
 
-#: resources/views/worklist.phtml:51
+#: resources/views/worklist.phtml:73
 msgid "Preview who would be searched"
 msgstr "Vorschau: Wer würde durchsucht?"
 
@@ -334,6 +343,10 @@ msgstr "Regionen"
 msgid "Reject"
 msgstr "Ablehnen"
 
+#: resources/views/worklist.phtml:149
+msgid "Reject selected"
+msgstr "Ausgewählte ablehnen"
+
 #: resources/views/worklist.phtml:36 resources/views/worklist.phtml:43
 msgid "Rejected"
 msgstr "Abgelehnt"
@@ -346,11 +359,11 @@ msgstr "Angehörige"
 msgid "Remove token"
 msgstr "Token entfernen"
 
-#: resources/views/review.phtml:152 resources/views/worklist.phtml:144
+#: resources/views/review.phtml:152 resources/views/worklist.phtml:201
 msgid "Revert"
 msgstr "Zurücknehmen"
 
-#: resources/views/review.phtml:152 resources/views/worklist.phtml:144
+#: resources/views/review.phtml:152 resources/views/worklist.phtml:201
 #, php-format
 msgid "Revert match for %s"
 msgstr "Treffer für %s zurücknehmen"
@@ -364,8 +377,8 @@ msgstr ""
 "entfernt. Zum Übergehen das Kommandozeilen-Werkzeug zum Zurücknehmen mit --"
 "force verwenden."
 
-#: resources/views/tab.phtml:50 resources/views/worklist.phtml:111
-#: resources/views/worklist.phtml:136
+#: resources/views/tab.phtml:50 resources/views/worklist.phtml:162
+#: resources/views/worklist.phtml:193
 msgid "Review"
 msgstr "Prüfen"
 
@@ -381,7 +394,7 @@ msgstr "Speichern"
 msgid "Save finder connection"
 msgstr "Finder-Verbindung speichern"
 
-#: resources/views/worklist.phtml:107
+#: resources/views/worklist.phtml:54 resources/views/worklist.phtml:158
 msgid "Score"
 msgstr "Bewertung"
 
@@ -400,6 +413,15 @@ msgstr "Der Suchauftrag konnte nicht eingereiht werden."
 msgid "Search job queued (%s)."
 msgstr "Suchauftrag eingereiht (%s)."
 
+#: resources/views/worklist.phtml:155
+msgid "Select"
+msgstr "Auswählen"
+
+#: resources/views/worklist.phtml:171
+#, php-format
+msgid "Select %s for bulk reject"
+msgstr "%s zum Sammel-Ablehnen auswählen"
+
 #: src/Webtrees/ObituaryControlPanelHandler.php:211
 msgid "Settings could not be saved."
 msgstr "Die Einstellungen konnten nicht gespeichert werden."
@@ -412,7 +434,11 @@ msgstr "Einstellungen gespeichert."
 msgid "Soft conflict"
 msgstr "Weicher Konflikt"
 
-#: resources/views/worklist.phtml:109
+#: resources/views/worklist.phtml:131
+msgid "Sort by"
+msgstr "Sortieren nach"
+
+#: resources/views/worklist.phtml:160
 msgid "Source"
 msgstr "Quelle"
 
@@ -420,7 +446,7 @@ msgstr "Quelle"
 msgid "Start search"
 msgstr "Suche starten"
 
-#: resources/views/worklist.phtml:110
+#: resources/views/worklist.phtml:161
 msgid "Status"
 msgstr "Status"
 
@@ -482,7 +508,7 @@ msgstr "Der Finder ist erreichbar."
 msgid "The finder storage location is unavailable."
 msgstr "Der Speicherort des Finders ist nicht verfügbar."
 
-#: src/Webtrees/ObituaryWorklistHandler.php:281 src/Webtrees/RevertFlash.php:68
+#: src/Webtrees/ObituaryWorklistHandler.php:295 src/Webtrees/RevertFlash.php:68
 #: src/Webtrees/ReviewScreenHandler.php:410
 msgid "The match could not be reverted."
 msgstr "Der Treffer konnte nicht zurückgenommen werden."
@@ -527,7 +553,7 @@ msgstr "Dieser Treffer kann nicht zurückgenommen werden."
 msgid "This match was already finalised by someone else."
 msgstr "Dieser Treffer wurde bereits von jemand anderem abgeschlossen."
 
-#: resources/views/worklist.phtml:74
+#: resources/views/worklist.phtml:96
 #, php-format
 msgid "Total: %d"
 msgstr "Gesamt: %d"
@@ -560,10 +586,10 @@ msgstr "Schwacher Treffer"
 msgid "Why this score"
 msgstr "Warum diese Bewertung"
 
-#: resources/views/worklist.phtml:170 resources/views/worklist.phtml:172
+#: resources/views/worklist.phtml:227 resources/views/worklist.phtml:229
 msgid "next"
 msgstr "weiter"
 
-#: resources/views/worklist.phtml:159 resources/views/worklist.phtml:161
+#: resources/views/worklist.phtml:216 resources/views/worklist.phtml:218
 msgid "previous"
 msgstr "zurück"
