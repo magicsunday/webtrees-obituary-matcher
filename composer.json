@@ -95,6 +95,9 @@
         "ci:test:php:integration": [
             "phpunit --configuration phpunit.xml --testsuite integration --display-all-issues"
         ],
+        "ci:test:php:interop": [
+            "phpunit --configuration phpunit.xml --testsuite interop --display-all-issues"
+        ],
         "ci:test:cpd": [
             "npx jscpd@5.0.11 src tests --config .jscpd.json --skip-comments --no-tips"
         ],

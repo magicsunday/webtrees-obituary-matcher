@@ -167,6 +167,25 @@ Every change is test-driven: write the failing test first, then the minimal fix.
 `SignalScore` against curated fixtures, and scenarios that straddle a band boundary or the ambiguity gap act as the
 discriminators that make a regression fail.
 
+### Optional REST finder interoperability smoke
+
+`composer ci:test` does **not** include the REST finder interoperability smoke, and neither does the required CI: a
+live finder harness would couple this public repository to private finder details. That check lives in its own
+`interop` PHPUnit suite (`tests/Interop`) and drives a **real** finder over HTTP, asserting that the finder's response
+narrows and validates congruently through the same transport + `ResponseValidator` a production drain uses — the
+cross-service successor of the retired cross-language file-drop contract test.
+
+It **skips** unless a reachable finder is provided, so it never runs or fails by accident:
+
+```bash
+export OBITUARY_FINDER_SMOKE_BASE_URL="https://finder.example"   # required — absent → the test skips
+export OBITUARY_FINDER_SMOKE_TOKEN="…"                            # optional bearer token
+composer ci:test:php:interop
+```
+
+For the matcher's own CI the scripted PSR-18 stub plus the schema / `ResponseValidator` gates remain the contract
+coverage; this smoke adds the one thing those cannot — proof that a real finder's wire format validates end to end.
+
 
 ## Phase roadmap
 * **Phase 1 — scoring engine (current).** The pure-PHP engine in this repository: the typed Domain vocabulary, the
