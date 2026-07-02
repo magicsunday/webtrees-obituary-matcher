@@ -209,6 +209,71 @@ final class CandidateRepositoryTest extends IntegrationTestCase
     }
 
     /**
+     * An optional maxAge upper bound (#63) drops the implausibly old: at reference year 2026 with
+     * maxAge 100, I9 (christened 1900 → age 126) is excluded, while I1 (born 1930 → 96) and I6
+     * (born 1929 → 97) stay in the window. Without the bound I9 is a candidate, so this is discriminating.
+     *
+     * @return void
+     */
+    #[Test]
+    public function maxAgeExcludesTheImplausiblyOld(): void
+    {
+        $tree = $this->repositoryTree();
+
+        Auth::logout();
+
+        $candidates = $this->allCandidates(
+            $tree,
+            new CandidateCriteria(minAge: 90, referenceYear: self::REFERENCE_YEAR, maxAge: 100),
+        );
+
+        self::assertSame(['I1', 'I6'], $this->xrefs($candidates));
+    }
+
+    /**
+     * countCandidates reports the eligible population honouring the SAME privacy gate as the selection:
+     * an admin sees the private I7 (4 candidates: I1, I6, I7, I9), a logged-out visitor cannot (3), so the
+     * count can never over-report a privacy-hidden individual.
+     *
+     * @return void
+     */
+    #[Test]
+    public function countCandidatesHonoursThePrivacyGate(): void
+    {
+        $tree       = $this->repositoryTree();
+        $repository = new CandidateRepository();
+        $criteria   = new CandidateCriteria(minAge: 90, referenceYear: self::REFERENCE_YEAR);
+
+        // The setUp principal is an admin, who sees the private I7. A generous cap leaves the exact count.
+        self::assertSame(4, $repository->countCandidates($tree, $criteria, 1000));
+
+        // A visitor cannot see I7, so the count drops to the three publicly visible candidates.
+        Auth::logout();
+        self::assertSame(3, $repository->countCandidates($tree, $criteria, 1000));
+    }
+
+    /**
+     * countCandidates stops at the defensive cap: with a limit of 1 it returns 1 even though the tree has
+     * four eligible candidates for the admin, proving the walk never drains the whole population (#63,
+     * Gemini hardening).
+     *
+     * @return void
+     */
+    #[Test]
+    public function countCandidatesStopsAtTheCap(): void
+    {
+        $tree       = $this->repositoryTree();
+        $criteria   = new CandidateCriteria(minAge: 90, referenceYear: self::REFERENCE_YEAR);
+        $repository = new CandidateRepository();
+
+        self::assertSame(1, $repository->countCandidates($tree, $criteria, 1));
+
+        // A non-positive cap counts nothing, rather than the first-iteration off-by-one that would
+        // otherwise return 1.
+        self::assertSame(0, $repository->countCandidates($tree, $criteria, 0));
+    }
+
+    /**
      * findByXrefs rebuilds exactly the requested xref set keyed by id and omits an xref with no individual.
      */
     #[Test]
