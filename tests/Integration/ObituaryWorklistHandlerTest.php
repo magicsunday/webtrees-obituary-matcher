@@ -35,6 +35,7 @@ use MagicSunday\ObituaryMatcher\Matching\MatchStatus;
 use MagicSunday\ObituaryMatcher\Matching\MatchStore;
 use MagicSunday\ObituaryMatcher\Matching\StoredMatch;
 use MagicSunday\ObituaryMatcher\Matching\StoredMatchKey;
+use MagicSunday\ObituaryMatcher\Matching\TerminalMatchTransitionException;
 use MagicSunday\ObituaryMatcher\Matching\WriteBack;
 use MagicSunday\ObituaryMatcher\Test\Support\RemovesFlatTempStoreTrait;
 use MagicSunday\ObituaryMatcher\Ui\BandKey;
@@ -516,6 +517,156 @@ final class ObituaryWorklistHandlerTest extends IntegrationTestCase
     }
 
     /**
+     * Bulk-reject rejects every selected OPEN row in one action (#65): a Pending and an Uncertain row
+     * both become Rejected, with a single success flash.
+     *
+     * @return void
+     */
+    #[Test]
+    public function bulkRejectRejectsSelectedOpenRows(): void
+    {
+        MatchSeeder::seed($this->store(), 'I1', MatchStatus::Pending, 'strong', '2023-09-04');
+        MatchSeeder::seed($this->store(), 'I2', MatchStatus::Uncertain, 'weak', '2023-09-04');
+
+        $response = $this->handler()->handle($this->revertRequest(Auth::user(), [
+            'action'   => 'bulk-reject',
+            'selected' => [$this->bulkToken('I1'), $this->bulkToken('I2')],
+        ]));
+
+        self::assertSame(302, $response->getStatusCode());
+        self::assertSame(MatchStatus::Rejected, $this->reloadRow('I1')->status);
+        self::assertSame(MatchStatus::Rejected, $this->reloadRow('I2')->status);
+
+        $messages = FlashMessages::getMessages();
+        self::assertCount(1, $messages);
+        self::assertSame('success', $messages[0]->status);
+    }
+
+    /**
+     * Bulk-reject skips a Confirmed row: it is terminal and carries a write-back a reject must not
+     * silently strand (undoing it is the separate Revert action), so it stays Confirmed and nothing is
+     * rejected (a warning flash).
+     *
+     * @return void
+     */
+    #[Test]
+    public function bulkRejectSkipsAConfirmedRow(): void
+    {
+        $match = MatchSeeder::seed($this->store(), 'I1', MatchStatus::Pending, 'strong', '2023-09-04');
+        $this->store()->markConfirmed('I1', $match->obituaryUrl, new WriteBack($this->deatFactIdOfI1(), '@S1@', true));
+
+        $response = $this->handler()->handle($this->revertRequest(Auth::user(), [
+            'action'   => 'bulk-reject',
+            'selected' => [$this->bulkToken('I1')],
+        ]));
+
+        self::assertSame(302, $response->getStatusCode());
+        self::assertSame(MatchStatus::Confirmed, $this->reloadRow('I1')->status);
+        self::assertSame('warning', FlashMessages::getMessages()[0]->status);
+    }
+
+    /**
+     * A malformed selection token (no colon, or a key that resolves no row) is skipped without aborting
+     * the batch: nothing is rejected and the open row is untouched.
+     *
+     * @return void
+     */
+    #[Test]
+    public function bulkRejectSkipsAnInvalidToken(): void
+    {
+        MatchSeeder::seed($this->store(), 'I1', MatchStatus::Pending, 'strong', '2023-09-04');
+
+        $response = $this->handler()->handle($this->revertRequest(Auth::user(), [
+            'action'   => 'bulk-reject',
+            'selected' => ['garbage-no-colon', 'I1:deadbeefnotarealrowkey'],
+        ]));
+
+        self::assertSame(302, $response->getStatusCode());
+        self::assertSame(MatchStatus::Pending, $this->reloadRow('I1')->status);
+        self::assertSame('warning', FlashMessages::getMessages()[0]->status);
+    }
+
+    /**
+     * A non-string selection element (a crafted nested `selected[0][]=x` body) is handled safely — never
+     * a 500 — regardless of the webtrees version: a stricter `Validator::array` rejects the nested element
+     * upstream with a 400 `HttpBadRequestException`, while a laxer one passes it through, where parsing
+     * inside the per-row try/catch absorbs the `explode()` TypeError (302 + warning). Either way the open
+     * row is untouched and no TypeError escapes as a 500.
+     *
+     * @return void
+     */
+    #[Test]
+    public function bulkRejectSkipsANonStringToken(): void
+    {
+        MatchSeeder::seed($this->store(), 'I1', MatchStatus::Pending, 'strong', '2023-09-04');
+
+        try {
+            $response = $this->handler()->handle($this->revertRequest(Auth::user(), [
+                'action'   => 'bulk-reject',
+                'selected' => [['nested']],
+            ]));
+
+            // Laxer Validator: the handler absorbed the non-string token and redirected with a warning.
+            self::assertSame(302, $response->getStatusCode());
+            self::assertSame('warning', FlashMessages::getMessages()[0]->status);
+        } catch (HttpBadRequestException $exception) {
+            // Stricter Validator: the nested element is rejected upstream as a 400 — also safe (not a 500).
+            self::assertStringContainsStringIgnoringCase('selected', $exception->getMessage());
+        }
+
+        // The invariant that matters across both paths: the open row is never rejected, and no uncaught
+        // TypeError (a 500) escaped — a 500 would surface as a TypeError, not the caught HttpBadRequest.
+        self::assertSame(MatchStatus::Pending, $this->reloadRow('I1')->status);
+    }
+
+    /**
+     * A row that races to a terminal state between the read and the write is absorbed: markRejected is
+     * status-guarded and throws, and bulk-reject must skip that row + PRG-redirect rather than escape as a
+     * 500. Driven by a store whose markRejected always throws, standing in for the concurrent transition.
+     *
+     * @return void
+     */
+    #[Test]
+    public function bulkRejectSurvivesAConcurrentTerminalTransition(): void
+    {
+        MatchSeeder::seed($this->store(), 'I1', MatchStatus::Pending, 'strong', '2023-09-04');
+
+        $response = $this->handlerWithRacingStore()->handle($this->revertRequest(Auth::user(), [
+            'action'   => 'bulk-reject',
+            'selected' => [$this->bulkToken('I1')],
+        ]));
+
+        self::assertSame(302, $response->getStatusCode());
+        self::assertSame('warning', FlashMessages::getMessages()[0]->status);
+        // The racing store's markRejected threw before writing, so the real row stays Pending.
+        self::assertSame(MatchStatus::Pending, $this->reloadRow('I1')->status);
+    }
+
+    /**
+     * The worklist renders the #65 controls: the quality-flag filter pills, the sort links, and the
+     * bulk-reject form with a selection checkbox (via the HTML5 `form` attribute) on the open row.
+     *
+     * @return void
+     */
+    #[Test]
+    public function theWorklistRendersTheFilterSortAndBulkRejectControls(): void
+    {
+        MatchSeeder::seed($this->store(), 'I1', MatchStatus::Pending, 'strong', '2023-09-04');
+
+        $html = (string) $this->handler()->handle($this->worklistRequest(Auth::user()))->getBody();
+
+        self::assertStringContainsString('om-worklist-flags', $html);
+        self::assertStringContainsString('om-worklist-sort', $html);
+        self::assertStringContainsString('id="om-bulk-reject"', $html);
+        self::assertStringContainsString('name="selected[]"', $html);
+        self::assertStringContainsString('form="om-bulk-reject"', $html);
+        // The status/flag/sort links carry the other active params, so switching one keeps the others
+        // (the pagination links do the same).
+        self::assertStringContainsString('flag=all', $html);
+        self::assertStringContainsString('sort=score', $html);
+    }
+
+    /**
      * A Confirmed row renders a revert POST form carrying the CSRF token and the revert action/person/url
      * hidden fields, so the button is wired to the handler's POST branch.
      *
@@ -680,6 +831,121 @@ final class ObituaryWorklistHandlerTest extends IntegrationTestCase
     }
 
     /**
+     * Builds the `personId:rowKey` bulk-reject selection token for the given seeded xref (#65), matching
+     * the token the worklist template renders on the checkbox.
+     *
+     * @param string $xref The seeded person xref.
+     *
+     * @return string The selection token.
+     */
+    private function bulkToken(string $xref): string
+    {
+        return $xref . ':' . StoredMatchKey::fromUrl('https://trauer.example/' . $xref);
+    }
+
+    /**
+     * A worklist handler whose store's markRejected always throws (standing in for a row that raced to a
+     * terminal state between the read and the write), so the bulk-reject batch's resilience can be
+     * asserted without a real concurrency window.
+     *
+     * @return ObituaryWorklistHandler The test-wired handler.
+     */
+    private function handlerWithRacingStore(): ObituaryWorklistHandler
+    {
+        return new class(self::MODULE_NAMESPACE, $this->dir) extends ObituaryWorklistHandler {
+            /**
+             * @param string $viewNamespace The view namespace the handler renders under.
+             * @param string $storeDir      The temp store directory injected for the test.
+             */
+            public function __construct(string $viewNamespace, private readonly string $storeDir)
+            {
+                parent::__construct($viewNamespace);
+            }
+
+            protected function storeForTree(Tree $tree): MatchStore
+            {
+                // FileMatchStore is final, so wrap it in a decorator that delegates every read/write to
+                // the real store EXCEPT markRejected, which throws — standing in for a row that raced to a
+                // terminal state between the batch's read and its write.
+                return new class(new FileMatchStore($this->storeDir)) implements MatchStore {
+                    public function __construct(private readonly MatchStore $inner)
+                    {
+                    }
+
+                    public function markRejected(string $personId, string $obituaryUrl, ?string $reason): void
+                    {
+                        throw new TerminalMatchTransitionException('raced to a terminal state');
+                    }
+
+                    public function upsertPending(StoredMatch $match): bool
+                    {
+                        return $this->inner->upsertPending($match);
+                    }
+
+                    /**
+                     * @return list<StoredMatch>
+                     */
+                    public function findByPerson(string $personId): array
+                    {
+                        return $this->inner->findByPerson($personId);
+                    }
+
+                    /**
+                     * @return list<StoredMatch>
+                     */
+                    public function allPending(): array
+                    {
+                        return $this->inner->allPending();
+                    }
+
+                    /**
+                     * @return list<StoredMatch>
+                     */
+                    public function all(): array
+                    {
+                        return $this->inner->all();
+                    }
+
+                    public function findOne(string $personId, string $rowKey): ?StoredMatch
+                    {
+                        return $this->inner->findOne($personId, $rowKey);
+                    }
+
+                    public function markUncertain(string $personId, string $obituaryUrl, ?string $reason): void
+                    {
+                        $this->inner->markUncertain($personId, $obituaryUrl, $reason);
+                    }
+
+                    public function markConfirmed(string $personId, string $obituaryUrl, WriteBack $writeBack): bool
+                    {
+                        return $this->inner->markConfirmed($personId, $obituaryUrl, $writeBack);
+                    }
+
+                    public function revert(string $personId, string $obituaryUrl): void
+                    {
+                        $this->inner->revert($personId, $obituaryUrl);
+                    }
+                };
+            }
+        };
+    }
+
+    /**
+     * Reloads a seeded person's stored row by xref (the seeder uses a deterministic obituary URL).
+     *
+     * @param string $xref The seeded person xref.
+     *
+     * @return StoredMatch The reloaded row.
+     */
+    private function reloadRow(string $xref): StoredMatch
+    {
+        $row = $this->store()->findOne($xref, StoredMatchKey::fromUrl('https://trauer.example/' . $xref));
+        self::assertInstanceOf(StoredMatch::class, $row);
+
+        return $row;
+    }
+
+    /**
      * Hand-rewrites a single field of person I1's on-disk stored row, used to inject a corrupt value the
      * normal store API cannot produce.
      *
@@ -703,8 +969,9 @@ final class ObituaryWorklistHandlerTest extends IntegrationTestCase
      * Builds a POST request for the worklist route authenticated as the given user, carrying the parsed
      * body exactly as webtrees' middleware would after CSRF validation.
      *
-     * @param UserInterface         $user The user attached as the request's `user` attribute.
-     * @param array<string, string> $body The parsed POST body.
+     * @param UserInterface        $user The user attached as the request's `user` attribute.
+     * @param array<string, mixed> $body The parsed POST body (a value may be a scalar, the bulk-reject
+     *                                   `selected[]` list, or — for a hardening test — a nested array).
      *
      * @return ServerRequestInterface The request the handler consumes.
      */

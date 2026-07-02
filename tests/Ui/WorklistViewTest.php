@@ -52,12 +52,15 @@ final class WorklistViewTest extends TestCase
             'pending',
             '/tree/demo/obituary-review/I1/abc',
             null,
+            'I1:abc',
         );
 
         $view = new WorklistView(
             [$row],
             ['total' => 1, 'open' => 1, 'confirmed' => 0, 'rejected' => 0, 'uncertain' => 0],
             'all',
+            'all',
+            'score',
             1,
             1,
             1,
@@ -65,7 +68,10 @@ final class WorklistViewTest extends TestCase
 
         self::assertSame('Max Mustermann', $view->rows[0]->personName);
         self::assertSame('/tree/demo/obituary-review/I1/abc', $view->rows[0]->reviewUrl);
+        self::assertSame('I1:abc', $view->rows[0]->bulkRejectToken);
         self::assertSame(1, $view->counts['open']);
         self::assertSame('all', $view->statusFilter);
+        self::assertSame('all', $view->flagFilter);
+        self::assertSame('score', $view->sort);
     }
 }

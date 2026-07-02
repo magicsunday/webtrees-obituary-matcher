@@ -43,6 +43,28 @@ $statusFilters = [
     'rejected'  => I18N::translate('Rejected'),
     'uncertain' => I18N::translate('Uncertain'),
 ];
+
+$flagFilters = [
+    'all'       => I18N::translate('All'),
+    'conflict'  => I18N::translate('Conflicts'),
+    'ambiguous' => I18N::translate('Ambiguous'),
+];
+
+$sortOptions = [
+    'score' => I18N::translate('Score'),
+    'name'  => I18N::translate('Name'),
+    'death' => I18N::translate('Date of death'),
+];
+
+// The shared base params every worklist nav/pagination link carries; each link spreads these and
+// overrides exactly the one dimension it changes, so a link can never silently drop the others (the
+// pre-#65 pagination links dropped flag/sort until they were added — this keeps a single source of truth).
+$navParams = [
+    'tree'   => $tree->name(),
+    'status' => $view->statusFilter,
+    'flag'   => $view->flagFilter,
+    'sort'   => $view->sort,
+];
 ?>
 <div class="om-worklist">
     <h2><?= e(I18N::translate('Death notices')) ?></h2>
@@ -91,17 +113,46 @@ $statusFilters = [
             <?php foreach ($statusFilters as $key => $label) : ?>
                 <li class="nav-item">
                     <a class="nav-link<?= $view->statusFilter === $key ? ' active' : '' ?>"
-                       href="<?= e(route(ObituaryWorklistHandler::ROUTE_NAME, ['tree' => $tree->name(), 'status' => $key])) ?>"><?= e($label) ?></a>
+                       href="<?= e(route(ObituaryWorklistHandler::ROUTE_NAME, [...$navParams, 'status' => $key])) ?>"><?= e($label) ?></a>
                 </li>
             <?php endforeach ?>
         </ul>
 
+        <ul class="om-worklist-flags nav nav-pills">
+            <?php foreach ($flagFilters as $key => $label) : ?>
+                <li class="nav-item">
+                    <a class="nav-link<?= $view->flagFilter === $key ? ' active' : '' ?>"
+                       href="<?= e(route(ObituaryWorklistHandler::ROUTE_NAME, [...$navParams, 'flag' => $key])) ?>"><?= e($label) ?></a>
+                </li>
+            <?php endforeach ?>
+        </ul>
+
+        <p class="om-worklist-sort">
+            <?= e(I18N::translate('Sort by')) ?>:
+            <?php foreach ($sortOptions as $key => $label) : ?>
+                <a class="om-sort-link<?= $view->sort === $key ? ' active' : '' ?>"
+                   href="<?= e(route(ObituaryWorklistHandler::ROUTE_NAME, [...$navParams, 'sort' => $key])) ?>"><?= e($label) ?></a>
+            <?php endforeach ?>
+        </p>
+
         <?php if ($view->rows === []) : ?>
             <p class="om-worklist-empty"><?= e(I18N::translate('No matches for this filter.')) ?></p>
         <?php else : ?>
+            <?php
+            // The bulk-reject form lives OUTSIDE the table so the per-row revert forms are not nested
+            // inside it (invalid HTML); each rejectable row's checkbox associates with it via the HTML5
+            // `form` attribute.
+            ?>
+            <form method="post" id="om-bulk-reject" class="om-bulk-reject-form" action="<?= e(route(ObituaryWorklistHandler::ROUTE_NAME, ['tree' => $tree->name()])) ?>">
+                <?= csrf_field() ?>
+                <input type="hidden" name="action" value="bulk-reject">
+                <button type="submit" class="btn btn-outline-danger btn-sm"><?= e(I18N::translate('Reject selected')) ?></button>
+            </form>
+
             <table class="table table-sm om-worklist-table">
                 <thead>
                     <tr>
+                        <th><span class="visually-hidden"><?= e(I18N::translate('Select')) ?></span></th>
                         <th><?= e(I18N::translate('Individual')) ?></th>
                         <th><?= e(I18N::translate('Match')) ?></th>
                         <th><?= e(I18N::translate('Score')) ?></th>
@@ -114,6 +165,12 @@ $statusFilters = [
                 <tbody>
                     <?php foreach ($view->rows as $row) : ?>
                         <tr class="om-worklist-row om-band-<?= e($row->bandKey) ?>" data-xref="<?= e($row->personId) ?>">
+                            <td class="om-select">
+                                <?php if ($row->bulkRejectToken !== null) : ?>
+                                    <input type="checkbox" class="form-check-input" form="om-bulk-reject" name="selected[]" value="<?= e($row->bulkRejectToken) ?>"
+                                           aria-label="<?= e(I18N::translate('Select %s for bulk reject', $row->personName)) ?>">
+                                <?php endif ?>
+                            </td>
                             <td>
                                 <a href="<?= e($row->personUrl) ?>"><?= e($row->personName) ?></a>
                             </td>
@@ -156,7 +213,7 @@ $statusFilters = [
                         <li class="page-item<?= $view->page <= 1 ? ' disabled' : '' ?>">
                             <?php if ($view->page > 1) : ?>
                                 <a class="page-link"
-                                   href="<?= e(route(ObituaryWorklistHandler::ROUTE_NAME, ['tree' => $tree->name(), 'status' => $view->statusFilter, 'page' => $view->page - 1])) ?>"><?= e(I18N::translate('previous')) ?></a>
+                                   href="<?= e(route(ObituaryWorklistHandler::ROUTE_NAME, [...$navParams, 'page' => $view->page - 1])) ?>"><?= e(I18N::translate('previous')) ?></a>
                             <?php else : ?>
                                 <span class="page-link"><?= e(I18N::translate('previous')) ?></span>
                             <?php endif ?>
@@ -167,7 +224,7 @@ $statusFilters = [
                         <li class="page-item<?= $view->page >= $view->totalPages ? ' disabled' : '' ?>">
                             <?php if ($view->page < $view->totalPages) : ?>
                                 <a class="page-link"
-                                   href="<?= e(route(ObituaryWorklistHandler::ROUTE_NAME, ['tree' => $tree->name(), 'status' => $view->statusFilter, 'page' => $view->page + 1])) ?>"><?= e(I18N::translate('next')) ?></a>
+                                   href="<?= e(route(ObituaryWorklistHandler::ROUTE_NAME, [...$navParams, 'page' => $view->page + 1])) ?>"><?= e(I18N::translate('next')) ?></a>
                             <?php else : ?>
                                 <span class="page-link"><?= e(I18N::translate('next')) ?></span>
                             <?php endif ?>
