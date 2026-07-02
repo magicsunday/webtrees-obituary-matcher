@@ -1,0 +1,70 @@
+{
+    "schemaVersion": 1,
+    "jobId": "job-2024-0001-abcdef",
+    "candidates": [
+        {
+            "personId": "I123-Mustermann",
+            "names": [
+                {
+                    "kind": "primary",
+                    "full": "Max Mustermann",
+                    "given": "Max",
+                    "surname": "Mustermann"
+                }
+            ],
+            "excludedHosts": [
+                "h0.example",
+                "h1.example",
+                "h2.example",
+                "h3.example",
+                "h4.example",
+                "h5.example",
+                "h6.example",
+                "h7.example",
+                "h8.example",
+                "h9.example",
+                "h10.example",
+                "h11.example",
+                "h12.example",
+                "h13.example",
+                "h14.example",
+                "h15.example",
+                "h16.example",
+                "h17.example",
+                "h18.example",
+                "h19.example",
+                "h20.example",
+                "h21.example",
+                "h22.example",
+                "h23.example",
+                "h24.example",
+                "h25.example",
+                "h26.example",
+                "h27.example",
+                "h28.example",
+                "h29.example",
+                "h30.example",
+                "h31.example",
+                "h32.example",
+                "h33.example",
+                "h34.example",
+                "h35.example",
+                "h36.example",
+                "h37.example",
+                "h38.example",
+                "h39.example",
+                "h40.example",
+                "h41.example",
+                "h42.example",
+                "h43.example",
+                "h44.example",
+                "h45.example",
+                "h46.example",
+                "h47.example",
+                "h48.example",
+                "h49.example",
+                "h50.example"
+            ]
+        }
+    ]
+}

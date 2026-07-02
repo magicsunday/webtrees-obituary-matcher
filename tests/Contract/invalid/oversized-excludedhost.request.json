@@ -1,0 +1,20 @@
+{
+    "schemaVersion": 1,
+    "jobId": "job-2024-0001-abcdef",
+    "candidates": [
+        {
+            "personId": "I123-Mustermann",
+            "names": [
+                {
+                    "kind": "primary",
+                    "full": "Max Mustermann",
+                    "given": "Max",
+                    "surname": "Mustermann"
+                }
+            ],
+            "excludedHosts": [
+                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            ]
+        }
+    ]
+}

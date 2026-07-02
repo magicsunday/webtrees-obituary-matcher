@@ -110,6 +110,18 @@
                     "items": {
                         "$ref": "#/$defs/QueryHint"
                     }
+                },
+                "excludedHosts": {
+                    "description": "Canonical hostnames the candidate already has an OPEN match on \u2014 a \"don't re-return an obituary from one of these hosts\" hint. Advisory only: the finder MAY skip these portals, but the matcher de-dupes on ingest regardless, so ignoring it costs at most a redundant (idempotently-ingested) re-return. Each entry is one lowercased canonical host (no scheme, port or path), as produced by the matcher's host normaliser.",
+                    "type": "array",
+                    "maxItems": 50,
+                    "uniqueItems": true,
+                    "items": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 253,
+                        "pattern": "^[^\\s/:?#\\[\\]@\\\\*%A-Z]+$"
+                    }
                 }
             }
         },

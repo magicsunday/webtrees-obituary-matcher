@@ -13,11 +13,16 @@ namespace MagicSunday\ObituaryMatcher\Support;
 
 use MagicSunday\ObituaryMatcher\Domain\PersonName;
 
+use function array_filter;
 use function array_slice;
+use function array_unique;
+use function array_values;
 use function count;
 use function implode;
 use function max;
+use function mb_strlen;
 use function mb_substr;
+use function preg_match;
 use function trim;
 
 /**
@@ -50,6 +55,37 @@ final readonly class FinderCandidateRequest
     private const int MAX_DEDUP_KEY_LENGTH = 200;
 
     /**
+     * The maximum number of excluded hosts emitted per candidate (the schema's `maxItems`). The producer
+     * caps its (deduplicated, sorted) list to this bound so a candidate with more open-match hosts still
+     * yields a schema-valid body — the hint is advisory, so dropping the tail past the cap only forgoes a
+     * few "don't re-return" hints, never a match.
+     */
+    private const int MAX_EXCLUDED_HOSTS = 50;
+
+    /**
+     * The PCRE predicate an excluded host must match to be emitted. It is a deliberately STRICTER
+     * (Unicode-aware, `/u`) twin of the schema's `excludedHosts.items.pattern`. The schema pattern is
+     * ECMA-262 and relies on `\s`, whose meaning varies by validator (a byte-mode PCRE `\s` is ASCII-only;
+     * ECMA and Python `\s` match different Unicode whitespace sets). To keep the producer output a subset
+     * of what EVERY conformant validator accepts — so one normaliser-emitted host can never make the whole
+     * job request schema-invalid — this rejects the UNION of all those sets by class rather than
+     * enumerating codepoints: `\p{Z}` (every Unicode separator/whitespace) and `\p{C}` (every control and
+     * format character, incl. NEL, the BOM and the C0 information separators) alongside the ASCII `\s`,
+     * the URL-structural characters and uppercase. What survives is only graphical, non-structural hosts
+     * (letters, digits, dots, hyphens — ASCII and IDN), which every validator admits. The stricter-than-
+     * schema direction is safe (it only forgoes an advisory hint for a malformed host); a contract test
+     * pins the length/array constraints and the subset relationship is verified behaviourally.
+     */
+    private const string EXCLUDED_HOST_PATTERN = '~^[^\s\p{Z}\p{C}/:?#\[\]@\\\\*%A-Z]+$~u';
+
+    /**
+     * The maximum length (in Unicode codepoints) of an excluded host — the schema's `maxLength` (the
+     * 253-octet DNS name ceiling). The normaliser does not bound host length, so a host longer than this
+     * is filtered out rather than being allowed to make the whole request schema-invalid.
+     */
+    private const int EXCLUDED_HOST_MAX_LENGTH = 253;
+
+    /**
      * The maximum number of contract query hints per candidate (the schema's `maxItems`).
      */
     private const int MAX_QUERY_HINTS = 50;
@@ -61,8 +97,9 @@ final readonly class FinderCandidateRequest
      * @param PersonName           $name          The decomposed name, projected onto contract name entries.
      * @param list<CandidateQuery> $queries       The prioritised, deduplicated plain-text queries.
      * @param list<string>         $excludedHosts The canonical hosts the candidate already has an open
-     *                                            match on; a finder hint carried for the enqueue side, but
-     *                                            NOT yet part of the published contract, hence off the wire.
+     *                                            match on; an advisory finder hint (also used enqueue-side).
+     *                                            {@see self::toArray()} emits the contract-conforming, capped
+     *                                            subset onto the wire when non-empty.
      */
     public function __construct(
         public string $personId,
@@ -75,23 +112,67 @@ final readonly class FinderCandidateRequest
     /**
      * Serialises the candidate into the published `CandidateFacts` shape (see the #56 contract).
      *
-     * Only the contract keys are emitted: the person reference, the projected `names`, and the
-     * pre-built `queryHints`. The internal `excludedHosts` hint is intentionally omitted — a follow-up
-     * will extend the contract to carry it.
+     * Emits the person reference, the projected `names`, the pre-built `queryHints` and — only when the
+     * candidate actually has open matches to skip — the `excludedHosts` hint. An empty exclusion list is
+     * omitted so a candidate with no open matches produces a minimal wire body.
      *
      * @return array{
      *   personId: string,
      *   names: list<array{kind?: string, full?: string, given?: string, surname?: string}>,
-     *   queryHints: list<array{query: string, dedupKey: string, priority: int}>
+     *   queryHints: list<array{query: string, dedupKey: string, priority: int}>,
+     *   excludedHosts?: list<string>
      * }
      */
     public function toArray(): array
     {
-        return [
+        $candidate = [
             'personId'   => $this->personId,
             'names'      => $this->nameEntries(),
             'queryHints' => $this->queryHints(),
         ];
+
+        // The excludedHosts hint is advisory (the matcher de-dupes on ingest regardless), so an empty
+        // list carries no information — omit it to keep the wire body minimal, and only emit it when the
+        // candidate has at least one host to skip. The empty case is the default and most common, so guard
+        // it first to skip the whole pipeline. Otherwise enforce every contract constraint at this boundary
+        // so the emitted subset is always schema-valid regardless of the (public, arbitrary) input: filter
+        // to fully conforming hosts (the host normaliser's output domain is broader than the contract — a
+        // bracketed IPv6 literal or an over-long host — and one non-conforming host must not invalidate the
+        // whole request), deduplicate (the schema requires uniqueItems), then cap to the contract maximum.
+        if ($this->excludedHosts !== []) {
+            // Deduplicate BEFORE filtering so the regex/length checks run once per distinct host, not once
+            // per occurrence (conformsToContract is idempotent, so the result is identical either way).
+            $hosts = array_values(array_filter(array_unique($this->excludedHosts), $this->conformsToContract(...)));
+
+            if ($hosts !== []) {
+                $candidate['excludedHosts'] = array_slice($hosts, 0, self::MAX_EXCLUDED_HOSTS);
+            }
+        }
+
+        return $candidate;
+    }
+
+    /**
+     * Whether a host satisfies EVERY per-item constraint of the schema's `excludedHosts` array — the
+     * length bounds AND the character pattern — so the producer's emitted list is a subset of what the
+     * contract accepts and no single normaliser-emitted host can invalidate the whole request. Length is
+     * measured in Unicode codepoints to match JSON-Schema `minLength`/`maxLength` semantics.
+     *
+     * @param string $host The candidate host to test.
+     *
+     * @return bool True when the host conforms to every excludedHosts item constraint.
+     */
+    private function conformsToContract(string $host): bool
+    {
+        // Pattern first: the `/u` predicate also rejects invalid UTF-8, so mb_strlen only ever measures a
+        // well-formed string, and a host failing the (cheap) character check skips the multibyte length
+        // calculation entirely. The pattern's `+` quantifier already enforces the schema's minLength of 1
+        // (a match is never empty), so only the upper length bound remains to check here.
+        if (preg_match(self::EXCLUDED_HOST_PATTERN, $host) !== 1) {
+            return false;
+        }
+
+        return mb_strlen($host, 'UTF-8') <= self::EXCLUDED_HOST_MAX_LENGTH;
     }
 
     /**
