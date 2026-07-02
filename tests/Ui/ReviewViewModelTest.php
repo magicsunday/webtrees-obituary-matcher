@@ -164,7 +164,7 @@ final class ReviewViewModelTest extends TestCase
                 'classification' => 'super-strong',
                 'signals'        => [
                     'name'     => ['score' => 45, 'max' => 45, 'reasons' => []],
-                    'cemetery' => ['score' => 5, 'max' => 5, 'reasons' => ['enriched']],
+                    'nonsense' => ['score' => 5, 'max' => 5, 'reasons' => ['bogus']],
                 ],
             ]),
             $this->person()
@@ -172,6 +172,41 @@ final class ReviewViewModelTest extends TestCase
 
         self::assertSame('none', $vm->bandKey);
         self::assertSame(['name'], array_column($vm->signals, 'key'));
+    }
+
+    /**
+     * The enriched signals (relatives / age / cemetery) — active in the enriched ingest profile — are now
+     * surfaced in the "why this score" breakdown after the four base signals, each carrying its
+     * score/max/reasons, so the reviewer sees the family/age/burial matches the engine scored (#61). Only
+     * the keys actually present in the payload project, so the base profile is unaffected.
+     *
+     * @return void
+     */
+    #[Test]
+    public function projectsTheEnrichedRelativesAgeAndCemeterySignals(): void
+    {
+        $vm = ReviewViewModel::fromStoredMatch(
+            $this->match([
+                // Fed OUT of canonical order on purpose: projectSignals derives the row order from the
+                // DISPLAYED_SIGNALS constant (base-before-enriched), NOT from payload insertion order, so
+                // the ordered assertSame below is a real ordering discriminator rather than a set check.
+                'signals' => [
+                    'cemetery'  => ['score' => 10, 'max' => 10, 'reasons' => ['cemetery names a known place']],
+                    'relatives' => ['score' => 20, 'max' => 35, 'reasons' => ['relative "Max Muster" matches spouse']],
+                    'name'      => ['score' => 40, 'max' => 45, 'reasons' => []],
+                    'age'       => ['score' => 15, 'max' => 20, 'reasons' => ['age matches the implied birth window']],
+                ],
+            ]),
+            $this->person()
+        );
+
+        self::assertSame(['name', 'relatives', 'age', 'cemetery'], array_column($vm->signals, 'key'));
+
+        $relatives = $vm->signals[1];
+        self::assertSame('relatives', $relatives['key']);
+        self::assertSame(20, $relatives['score']);
+        self::assertSame(35, $relatives['max']);
+        self::assertSame(['relative "Max Muster" matches spouse'], $relatives['reasons']);
     }
 
     /**

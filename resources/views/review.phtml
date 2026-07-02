@@ -33,12 +33,16 @@ $signalLabels = [
     'birth'        => I18N::translate('Birth'),
     'place'        => I18N::translate('Place'),
     'plausibility' => I18N::translate('Plausibility'),
+    'relatives'    => I18N::translate('Relatives'),
+    'age'          => I18N::translate('Age'),
+    'cemetery'     => I18N::translate('Cemetery'),
 ];
 
 // Labels for the extracted obituary fact keys the producer emits. An unknown key falls back to the
 // raw key so a new producer fact still renders (untranslated) rather than vanishing.
 $factLabels = [
-    'place' => I18N::translate('Place'),
+    'place'    => I18N::translate('Place'),
+    'cemetery' => I18N::translate('Cemetery'),
 ];
 
 // Labels for the conflict field names ConflictDetector emits ('birth date', 'death date', 'age'). An
