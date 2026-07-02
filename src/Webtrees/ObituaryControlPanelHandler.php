@@ -83,7 +83,7 @@ class ObituaryControlPanelHandler implements RequestHandlerInterface
      * The default minimum-age setting (years) applied when none is persisted or the stored value is
      * unusable.
      */
-    private const int DEFAULT_MIN_AGE = 90;
+    private const int DEFAULT_MIN_AGE = CandidateCriteria::DEFAULT_MIN_AGE;
 
     /**
      * The default per-run candidate limit applied when none is persisted or the stored value is unusable.
@@ -91,14 +91,14 @@ class ObituaryControlPanelHandler implements RequestHandlerInterface
     private const int DEFAULT_LIMIT = 50;
 
     /**
-     * The inclusive bounds for the minimum-age setting.
+     * The inclusive lower bound for the minimum-age setting (the shared candidate-age domain floor).
      */
-    private const int MIN_AGE_FLOOR = 0;
+    private const int MIN_AGE_FLOOR = CandidateCriteria::AGE_FLOOR;
 
     /**
-     * The inclusive upper bound for the minimum-age setting.
+     * The inclusive upper bound for the minimum-age setting (the shared candidate-age domain ceiling).
      */
-    private const int MIN_AGE_CEILING = 120;
+    private const int MIN_AGE_CEILING = CandidateCriteria::AGE_CEILING;
 
     /**
      * The inclusive lower bound for the per-run candidate limit.

@@ -4,11 +4,14 @@ declare(strict_types=1);
 
 use Fisharebest\Webtrees\I18N;
 use Fisharebest\Webtrees\Tree;
+use MagicSunday\ObituaryMatcher\Ui\CandidateFilterView;
 use MagicSunday\ObituaryMatcher\Ui\WorklistView;
+use MagicSunday\ObituaryMatcher\Webtrees\CandidateCriteria;
 use MagicSunday\ObituaryMatcher\Webtrees\ObituaryWorklistHandler;
 
 /** @var Tree $tree */
 /** @var WorklistView $view */
+/** @var CandidateFilterView $candidateFilter */
 
 $bandLabels = [
     'strong'   => I18N::translate('Strong match'),
@@ -43,6 +46,29 @@ $statusFilters = [
 ?>
 <div class="om-worklist">
     <h2><?= e(I18N::translate('Death notices')) ?></h2>
+
+    <section class="om-candidate-filter">
+        <h3><?= e(I18N::translate('Preview who would be searched')) ?></h3>
+        <form method="get" class="d-flex flex-wrap align-items-center gap-2" action="<?= e(route(ObituaryWorklistHandler::ROUTE_NAME, ['tree' => $tree->name()])) ?>">
+            <input type="hidden" name="cand_preview" value="1">
+            <label class="me-3">
+                <?= e(I18N::translate('Minimum age')) ?>
+                <input type="number" class="form-control" name="cand_min_age" min="<?= e((string) CandidateCriteria::AGE_FLOOR) ?>" max="<?= e((string) CandidateCriteria::AGE_CEILING) ?>" value="<?= e((string) $candidateFilter->minAge) ?>">
+            </label>
+            <label class="me-3">
+                <?= e(I18N::translate('Maximum age')) ?>
+                <input type="number" class="form-control" name="cand_max_age" min="<?= e((string) CandidateCriteria::AGE_FLOOR) ?>" max="<?= e((string) CandidateCriteria::AGE_CEILING) ?>" value="<?= e($candidateFilter->maxAge !== null ? (string) $candidateFilter->maxAge : '') ?>">
+            </label>
+            <label class="form-check-label me-3">
+                <input type="checkbox" class="form-check-input" name="cand_unknown_birth" value="1"<?= $candidateFilter->includeUnknownBirth ? ' checked' : '' ?>>
+                <?= e(I18N::translate('Include people without a known birth date')) ?>
+            </label>
+            <button type="submit" class="btn btn-primary"><?= e(I18N::translate('Preview count')) ?></button>
+        </form>
+        <?php if ($candidateFilter->matchCount !== null) : ?>
+            <p class="om-candidate-count">≈ <?= e(I18N::plural('%s person would be searched', '%s people would be searched', $candidateFilter->matchCount, I18N::number($candidateFilter->matchCount) . ($candidateFilter->matchCountReachedCap ? '+' : ''))) ?></p>
+        <?php endif ?>
+    </section>
 
     <p class="om-worklist-counts">
         <?= e(I18N::translate('Total: %d', $view->counts['total'])) ?>

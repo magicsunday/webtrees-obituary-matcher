@@ -86,7 +86,7 @@ final readonly class CandidateRepository
                 continue;
             }
 
-            if (!$this->isOldEnough($candidate, $referenceYear, $minAge, $criteria->includeUnknownBirth)) {
+            if (!$this->isWithinAgeWindow($candidate, $referenceYear, $minAge, $criteria->maxAge, $criteria->includeUnknownBirth)) {
                 continue;
             }
 
@@ -231,23 +231,27 @@ final readonly class CandidateRepository
     }
 
     /**
-     * Privacy-conservative age re-check: keep a candidate only when its LATEST possible
-     * birth still implies an age of at least the minimum. This drops e.g. a
-     * `BET 1936 AND 1940` birth whose upper bound (1940) is too young even though its
-     * lower bound passed the coarse SQL `d_year` bound. A candidate without any known
-     * birth survives only when unknown births are explicitly requested.
+     * Privacy-conservative age-window re-check: age is measured against the candidate's LATEST possible
+     * birth — i.e. the YOUNGEST the person can be. That keeps the lower bound conservative (only the
+     * certainly-old-enough pass: a `BET 1936 AND 1940` birth is dropped because its youngest reading, 1940,
+     * is too young even though its 1936 lower bound cleared the coarse SQL `d_year` bound) and the optional
+     * upper bound inclusive-when-uncertain (only the certainly-too-old are dropped), which is the right
+     * default for a search filter that must not silently miss a searchable person. A candidate without any
+     * known birth survives only when unknown births are explicitly requested.
      *
      * @param PersonCandidate $candidate           The candidate to re-check.
      * @param int             $referenceYear       The year age is measured against.
      * @param int             $minAge              The minimum age in years.
+     * @param int|null        $maxAge              The maximum age in years, or null for no upper bound.
      * @param bool            $includeUnknownBirth Whether an unknown birth still qualifies.
      *
-     * @return bool Whether the candidate is old enough to keep.
+     * @return bool Whether the candidate falls within the requested age window.
      */
-    private function isOldEnough(
+    private function isWithinAgeWindow(
         PersonCandidate $candidate,
         int $referenceYear,
         int $minAge,
+        ?int $maxAge,
         bool $includeUnknownBirth,
     ): bool {
         $latestBirthYear = $candidate->birth->latest?->year;
@@ -256,6 +260,59 @@ final readonly class CandidateRepository
             return $includeUnknownBirth;
         }
 
-        return ($referenceYear - $latestBirthYear) >= $minAge;
+        $youngestAge = $referenceYear - $latestBirthYear;
+
+        if ($youngestAge < $minAge) {
+            return false;
+        }
+
+        return ($maxAge === null)
+            || ($youngestAge <= $maxAge);
+    }
+
+    /**
+     * Counts the candidates a selection would search, honouring the SAME privacy gate, age window and
+     * unknown-birth rule as {@see self::findCandidatesLazily()} — it drains that generator, so the count
+     * can never over-report a privacy-hidden or too-young/too-old individual. Used for the worklist's
+     * "≈ N people match" selection preview (#63).
+     *
+     * The count is BOUNDED by $limit: it stops hydrating the moment $limit candidates are reached and
+     * returns $limit, so a preview on a very large tree can never drain the whole eligible population into
+     * an unbounded hydration loop (memory stays flat — the generator streams one candidate at a time — and
+     * the walk is capped in time). A caller that gets back exactly $limit renders the count as "$limit+".
+     *
+     * The dominant cost — hydrating an {@see Individual}, its privacy gate and its date re-check per
+     * candidate — is what the cap bounds. The cheap SQL pre-filter still materialises the matching xref
+     * STRINGS (bounded by the tree, and, with includeUnknownBirth, potentially most of it), because those
+     * ids feed the deterministic lowest-xref-first ordering the enqueue path shares and cannot be
+     * SQL-LIMITed without under-counting (the privacy + age re-check run in PHP after the query). That id
+     * list is orders of magnitude lighter than hydrating them, and the whole path is manager-gated and
+     * runs only on an explicit preview.
+     *
+     * @param Tree              $tree     The tree whose candidates are counted.
+     * @param CandidateCriteria $criteria The selection criteria.
+     * @param int               $limit    The maximum candidates to count before stopping (a defensive cap).
+     *
+     * @return int The number of matching individuals, capped at $limit.
+     */
+    public function countCandidates(Tree $tree, CandidateCriteria $criteria, int $limit): int
+    {
+        // A non-positive cap counts nothing (mirrors EnqueueService::enqueue()'s `$limit < 1` guard): the
+        // `$count >= $limit` break below would otherwise fire only AFTER the first ++, wrongly returning 1.
+        if ($limit <= 0) {
+            return 0;
+        }
+
+        $count = 0;
+
+        foreach ($this->findCandidatesLazily($tree, $criteria) as $ignoredCandidate) {
+            ++$count;
+
+            if ($count >= $limit) {
+                break;
+            }
+        }
+
+        return $count;
     }
 }

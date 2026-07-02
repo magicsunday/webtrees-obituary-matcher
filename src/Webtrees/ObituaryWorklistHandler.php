@@ -28,6 +28,7 @@ use MagicSunday\ObituaryMatcher\Matching\MatchStatus;
 use MagicSunday\ObituaryMatcher\Matching\MatchStore;
 use MagicSunday\ObituaryMatcher\Matching\StoredMatch;
 use MagicSunday\ObituaryMatcher\Matching\StoredMatchKey;
+use MagicSunday\ObituaryMatcher\Ui\CandidateFilterView;
 use MagicSunday\ObituaryMatcher\Ui\WorklistPresenter;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
@@ -36,6 +37,7 @@ use Throwable;
 
 use function in_array;
 use function max;
+use function min;
 use function redirect;
 use function route;
 use function sprintf;
@@ -67,6 +69,14 @@ class ObituaryWorklistHandler implements RequestHandlerInterface
      * The route URL pattern.
      */
     public const string ROUTE_URL = '/tree/{tree}/obituary-worklist';
+
+    /**
+     * The defensive upper bound on the candidate-count preview (#63): the count stops hydrating at this
+     * many candidates and is rendered as "N+", so a preview on a very large tree can never trigger an
+     * unbounded hydration walk. A generous ceiling — far above any realistic batch a manager would search
+     * at once — so the exact figure still shows for normal trees.
+     */
+    private const int PREVIEW_COUNT_CAP = 1000;
 
     /**
      * Constructor.
@@ -144,10 +154,74 @@ class ObituaryWorklistHandler implements RequestHandlerInterface
         $view = (new WorklistPresenter())->build($entries, $status, $page);
 
         return $this->viewResponse($this->viewNamespace . '::worklist', [
-            'title' => $this->worklistTitle(),
-            'tree'  => $tree,
-            'view'  => $view,
+            'title'           => $this->worklistTitle(),
+            'tree'            => $tree,
+            'view'            => $view,
+            'candidateFilter' => $this->candidateFilterView($request, $tree),
         ]);
+    }
+
+    /**
+     * Builds the candidate-selection filter view (#63) from the request's query params: the age window
+     * (min, optional max) and the include-unknown-birth toggle, each clamped to a sane range. Only when a
+     * preview was explicitly requested (the `cand_preview` marker the "Preview count" submit carries) does
+     * it run the (population-hydrating) count — a plain worklist render leaves the count null and pays
+     * nothing. The count routes through {@see CandidateRepository::countCandidates()}, so it honours the
+     * exact privacy gate + age window the real search would: a filter previews WHO would be searched but
+     * can never surface a person the privacy gate hides.
+     *
+     * @param ServerRequestInterface $request The incoming request.
+     * @param Tree                   $tree    The tree whose candidates are previewed.
+     *
+     * @return CandidateFilterView The projected filter state + optional count.
+     */
+    private function candidateFilterView(ServerRequestInterface $request, Tree $tree): CandidateFilterView
+    {
+        $params = Validator::queryParams($request);
+        $minAge = max(CandidateCriteria::AGE_FLOOR, min(CandidateCriteria::AGE_CEILING, $params->integer('cand_min_age', CandidateCriteria::DEFAULT_MIN_AGE)));
+        $maxRaw = max(CandidateCriteria::AGE_FLOOR, min(CandidateCriteria::AGE_CEILING, $params->integer('cand_max_age', 0)));
+        // A blank or 0 max means "no upper bound" — 0 is not a meaningful age ceiling here (nobody old
+        // enough to search is <= 0), so it is the natural sentinel, and a blank number field arrives as 0
+        // indistinguishably. Any positive value is the real ceiling.
+        $maxAge  = $maxRaw > 0 ? $maxRaw : null;
+        $unknown = $params->boolean('cand_unknown_birth', false);
+
+        $count      = null;
+        $reachedCap = false;
+
+        if ($params->boolean('cand_preview', false)) {
+            $cap   = $this->previewCountCap();
+            $count = $this->candidateRepository()->countCandidates(
+                $tree,
+                new CandidateCriteria(minAge: $minAge, includeUnknownBirth: $unknown, maxAge: $maxAge),
+                $cap,
+            );
+            $reachedCap = $count >= $cap;
+        }
+
+        return new CandidateFilterView($minAge, $maxAge, $unknown, $count, $reachedCap);
+    }
+
+    /**
+     * The candidate selector used for the "≈ N people match" preview. A protected seam so a test can
+     * drive the count over a repository whose tree is an in-memory fixture.
+     *
+     * @return CandidateRepository The candidate selector.
+     */
+    protected function candidateRepository(): CandidateRepository
+    {
+        return new CandidateRepository();
+    }
+
+    /**
+     * The defensive cap applied to the candidate-count preview. A protected seam so a test can drive the
+     * "N+" over-cap rendering with a low cap instead of seeding a thousand-candidate tree.
+     *
+     * @return int The maximum candidates counted before the preview reports "N+".
+     */
+    protected function previewCountCap(): int
+    {
+        return self::PREVIEW_COUNT_CAP;
     }
 
     /**

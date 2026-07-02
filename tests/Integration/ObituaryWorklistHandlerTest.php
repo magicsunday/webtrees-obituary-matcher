@@ -43,6 +43,8 @@ use MagicSunday\ObituaryMatcher\Ui\SourceLink;
 use MagicSunday\ObituaryMatcher\Ui\WorklistPresenter;
 use MagicSunday\ObituaryMatcher\Ui\WorklistRowView;
 use MagicSunday\ObituaryMatcher\Ui\WorklistView;
+use MagicSunday\ObituaryMatcher\Webtrees\CandidateCriteria;
+use MagicSunday\ObituaryMatcher\Webtrees\CandidateRepository;
 use MagicSunday\ObituaryMatcher\Webtrees\MatchSeeder;
 use MagicSunday\ObituaryMatcher\Webtrees\ObituaryWorklistHandler;
 use MagicSunday\ObituaryMatcher\Webtrees\RevertConsistencyGate;
@@ -96,6 +98,18 @@ use function json_encode;
 #[UsesClass(RevertReason::class)]
 #[UsesClass(RevertConsistencyGate::class)]
 #[UsesClass(WriteBackReverter::class)]
+#[UsesClass(CandidateRepository::class)]
+#[UsesClass(CandidateCriteria::class)]
+#[UsesClass(\MagicSunday\ObituaryMatcher\Ui\CandidateFilterView::class)]
+#[UsesClass(\MagicSunday\ObituaryMatcher\Webtrees\PersonCandidateAdapter::class)]
+#[UsesClass(\MagicSunday\ObituaryMatcher\Webtrees\WebtreesDateMapper::class)]
+#[UsesClass(\MagicSunday\ObituaryMatcher\Support\CallNameParser::class)]
+#[UsesClass(\MagicSunday\ObituaryMatcher\Domain\PersonCandidate::class)]
+#[UsesClass(\MagicSunday\ObituaryMatcher\Domain\PersonName::class)]
+#[UsesClass(\MagicSunday\ObituaryMatcher\Domain\DateRange::class)]
+#[UsesClass(\MagicSunday\ObituaryMatcher\Domain\DateValue::class)]
+#[UsesClass(\MagicSunday\ObituaryMatcher\Domain\DatePrecision::class)]
+#[UsesClass(\MagicSunday\ObituaryMatcher\Domain\Gender::class)]
 final class ObituaryWorklistHandlerTest extends IntegrationTestCase
 {
     use RemovesFlatTempStoreTrait;
@@ -150,6 +164,11 @@ final class ObituaryWorklistHandlerTest extends IntegrationTestCase
             . "0 @I2@ INDI\n1 NAME Emma /Ortlos/\n1 SEX F\n1 BIRT\n2 PLAC Hamburg\n"
             . "0 @I3@ INDI\n1 NAME Karl /Beispiel/\n1 SEX M\n"
             . "0 @IHTML@ INDI\n1 NAME <b>Max</b> /Mustermann/\n1 SEX M\n"
+            // Two candidate individuals (#63): born 1900 with no death date, so they are always old
+            // enough (age > 120 at any wall-clock year) and stay searchable candidates. They carry no
+            // stored match, so they never add a worklist ROW — only the candidate-count preview sees them.
+            . "0 @I5@ INDI\n1 NAME Alt /Kandidat/\n1 SEX M\n1 BIRT\n2 DATE 1 JAN 1900\n"
+            . "0 @I6@ INDI\n1 NAME Greta /Kandidatin/\n1 SEX F\n1 BIRT\n2 DATE 2 FEB 1900\n"
         );
 
         $this->dir = $this->makeFlatStoreDir('om-worklist-');
@@ -283,6 +302,109 @@ final class ObituaryWorklistHandlerTest extends IntegrationTestCase
 
         // A filter link never pins a page, so switching filter always resets to page one.
         self::assertStringNotContainsString('status=open&amp;page=', $html);
+    }
+
+    /**
+     * The candidate-selection filter form (#63) renders on the worklist with its age-window controls, but
+     * a plain render (no preview request) computes and shows no count — the population-hydrating count is
+     * paid only on an explicit preview.
+     *
+     * @return void
+     */
+    #[Test]
+    public function theWorklistRendersTheCandidateSelectionFilter(): void
+    {
+        $html = (string) $this->handler()->handle($this->worklistRequest(Auth::user()))->getBody();
+
+        self::assertStringContainsString('class="om-candidate-filter"', $html);
+        self::assertStringContainsString('name="cand_min_age"', $html);
+        self::assertStringContainsString('name="cand_max_age"', $html);
+        self::assertStringContainsString('name="cand_unknown_birth"', $html);
+        // No preview was requested, so the count line (its own class) is absent — the loose "would be
+        // searched" phrase also lives in the form heading, so the count marker is what discriminates.
+        self::assertStringNotContainsString('om-candidate-count', $html);
+    }
+
+    /**
+     * A preview request (the `cand_preview` marker present) runs the count through the candidate
+     * repository and renders the "≈ N people would be searched" line reflecting it.
+     *
+     * @return void
+     */
+    #[Test]
+    public function aCandidatePreviewRendersTheMatchCount(): void
+    {
+        // The fixture has exactly two death-date-less individuals old enough to search (I5 + I6, born
+        // 1900); I1 has a death date, I2/I3/IHTML have no qualifying birth. So the preview counts 2.
+        $html = (string) $this->handler()
+            ->handle($this->worklistRequestWithQuery(Auth::user(), ['cand_preview' => '1', 'cand_min_age' => '80']))
+            ->getBody();
+
+        self::assertStringContainsString('class="om-candidate-count"', $html);
+        self::assertStringContainsString('2 people would be searched', $html);
+    }
+
+    /**
+     * The preview honours the maxAge upper bound end to end (proving the handler wires cand_max_age into
+     * the criteria): a max of 100 excludes the age-126 I5/I6 (empty window → 0), while an explicit max of
+     * 0 is the "no upper bound" sentinel (0 = off, NOT exclude-all), so the two candidates return.
+     *
+     * @return void
+     */
+    #[Test]
+    public function thePreviewHonoursTheMaxAgeWindow(): void
+    {
+        $bounded = (string) $this->handler()
+            ->handle($this->worklistRequestWithQuery(Auth::user(), ['cand_preview' => '1', 'cand_min_age' => '80', 'cand_max_age' => '100']))
+            ->getBody();
+
+        self::assertStringContainsString('0 people would be searched', $bounded);
+
+        $zeroMax = (string) $this->handler()
+            ->handle($this->worklistRequestWithQuery(Auth::user(), ['cand_preview' => '1', 'cand_min_age' => '80', 'cand_max_age' => '0']))
+            ->getBody();
+
+        self::assertStringContainsString('2 people would be searched', $zeroMax);
+    }
+
+    /**
+     * The preview honours the include-unknown-birth toggle: off (default), only the two born-1900
+     * candidates count; on, the three death-date-less, birth-date-less individuals (I2/I3/IHTML) also
+     * surface — proving the handler wires cand_unknown_birth into the criteria.
+     *
+     * @return void
+     */
+    #[Test]
+    public function thePreviewHonoursTheUnknownBirthToggle(): void
+    {
+        $off = (string) $this->handler()
+            ->handle($this->worklistRequestWithQuery(Auth::user(), ['cand_preview' => '1', 'cand_min_age' => '80']))
+            ->getBody();
+
+        self::assertStringContainsString('2 people would be searched', $off);
+
+        $on = (string) $this->handler()
+            ->handle($this->worklistRequestWithQuery(Auth::user(), ['cand_preview' => '1', 'cand_min_age' => '80', 'cand_unknown_birth' => '1']))
+            ->getBody();
+
+        self::assertStringContainsString('5 people would be searched', $on);
+    }
+
+    /**
+     * When the eligible population reaches the defensive cap, the preview renders a lower bound ("N+")
+     * rather than draining the whole tree: with the cap forced to 1, the two born-1900 candidates are
+     * counted only up to 1, and the preview reports "1+" (#63, Gemini hardening).
+     *
+     * @return void
+     */
+    #[Test]
+    public function aPreviewOverTheCapRendersALowerBound(): void
+    {
+        $html = (string) $this->cappedHandler(1)
+            ->handle($this->worklistRequestWithQuery(Auth::user(), ['cand_preview' => '1', 'cand_min_age' => '80']))
+            ->getBody();
+
+        self::assertStringContainsString('1+ person would be searched', $html);
     }
 
     /**
@@ -689,6 +811,39 @@ final class ObituaryWorklistHandlerTest extends IntegrationTestCase
     }
 
     /**
+     * A worklist handler whose candidate-count preview cap is forced to the given value, so the "N+"
+     * over-cap rendering can be asserted without seeding a cap-sized candidate population.
+     *
+     * @param int $cap The forced preview count cap.
+     *
+     * @return ObituaryWorklistHandler The test-wired handler.
+     */
+    private function cappedHandler(int $cap): ObituaryWorklistHandler
+    {
+        return new class(self::MODULE_NAMESPACE, $this->dir, $cap) extends ObituaryWorklistHandler {
+            /**
+             * @param string $viewNamespace The view namespace the handler renders under.
+             * @param string $storeDir      The temp store directory injected for the test.
+             * @param int    $cap           The forced preview count cap.
+             */
+            public function __construct(string $viewNamespace, private readonly string $storeDir, private readonly int $cap)
+            {
+                parent::__construct($viewNamespace);
+            }
+
+            protected function storeForTree(Tree $tree): MatchStore
+            {
+                return new FileMatchStore($this->storeDir);
+            }
+
+            protected function previewCountCap(): int
+            {
+                return $this->cap;
+            }
+        };
+    }
+
+    /**
      * Builds a GET request for the worklist route authenticated as the given user, carrying the tree
      * and the route attribute exactly as webtrees' middleware would.
      *
@@ -697,6 +852,20 @@ final class ObituaryWorklistHandlerTest extends IntegrationTestCase
      * @return ServerRequestInterface The request the handler consumes.
      */
     private function worklistRequest(UserInterface $user): ServerRequestInterface
+    {
+        return $this->worklistRequestWithQuery($user, []);
+    }
+
+    /**
+     * Builds a GET request for the worklist route as the given user, carrying the tree + route attribute
+     * and the given query params (the candidate-filter form submits via GET query params, #63).
+     *
+     * @param UserInterface        $user  The user attached as the request's `user` attribute.
+     * @param array<string,string> $query The query params to attach.
+     *
+     * @return ServerRequestInterface The request the handler consumes.
+     */
+    private function worklistRequestWithQuery(UserInterface $user, array $query): ServerRequestInterface
     {
         $factory = Registry::container()->get(ServerRequestFactoryInterface::class);
         self::assertInstanceOf(ServerRequestFactoryInterface::class, $factory);
@@ -710,7 +879,8 @@ final class ObituaryWorklistHandlerTest extends IntegrationTestCase
             ->withAttribute('client-ip', '127.0.0.1')
             ->withAttribute('route', $route)
             ->withAttribute('tree', $this->tree)
-            ->withAttribute('user', $user);
+            ->withAttribute('user', $user)
+            ->withQueryParams($query);
 
         Registry::container()->set(Tree::class, $this->tree);
         Registry::container()->set(ServerRequestInterface::class, $request);
