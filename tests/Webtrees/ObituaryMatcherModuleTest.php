@@ -64,4 +64,49 @@ final class ObituaryMatcherModuleTest extends TestCase
         // returns the key verbatim; the per-individual count lives in the tab content, never here.
         self::assertSame('Death notices', (new ObituaryMatcherModule())->tabTitle());
     }
+
+    /**
+     * customTranslations() loads the module's compiled German catalogue: the shipped
+     * `resources/lang/de/messages.mo` (built by `make lang` from the committed `.po`) round-trips a known
+     * msgid to its German msgstr, so a `de` session renders the German copy rather than the English key.
+     *
+     * @return void
+     */
+    #[Test]
+    public function customTranslationsLoadsTheCompiledGermanCatalogue(): void
+    {
+        $translations = (new ObituaryMatcherModule())->customTranslations('de');
+
+        self::assertArrayHasKey('Death notices', $translations);
+        self::assertSame('Traueranzeigen', $translations['Death notices']);
+    }
+
+    /**
+     * customTranslations() returns an empty map for a locale that ships no catalogue file, so the module
+     * falls back to the English call-site literals instead of failing.
+     *
+     * @return void
+     */
+    #[Test]
+    public function customTranslationsIsEmptyForALocaleWithoutACatalogue(): void
+    {
+        self::assertSame([], (new ObituaryMatcherModule())->customTranslations('zz-nonexistent'));
+    }
+
+    /**
+     * customTranslations() rejects a language tag carrying anything other than ASCII letters, digits and
+     * hyphens — notably a `/` or `..` traversal sequence — to an empty map, so a hostile tag can never
+     * reach the filesystem as a path segment. The input is a DISCRIMINATING traversal vector: `../lang/de`
+     * resolves to `resources/lang/../lang/de/messages.mo`, i.e. the module's REAL German catalogue, so
+     * without the whitelist guard this would load a non-empty map — only the guard produces the empty
+     * result asserted here. A trailing-newline tag is rejected too (the `D`-anchored `$`).
+     *
+     * @return void
+     */
+    #[Test]
+    public function customTranslationsRejectsAPathTraversalLanguageTag(): void
+    {
+        self::assertSame([], (new ObituaryMatcherModule())->customTranslations('../lang/de'));
+        self::assertSame([], (new ObituaryMatcherModule())->customTranslations("de\n"));
+    }
 }
