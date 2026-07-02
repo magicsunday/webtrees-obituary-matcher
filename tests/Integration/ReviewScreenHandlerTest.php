@@ -28,6 +28,7 @@ use Fisharebest\Webtrees\Module\ModuleThemeInterface;
 use Fisharebest\Webtrees\Module\WebtreesTheme;
 use Fisharebest\Webtrees\Registry;
 use Fisharebest\Webtrees\Services\ModuleService;
+use Fisharebest\Webtrees\Services\UserService;
 use Fisharebest\Webtrees\Session;
 use Fisharebest\Webtrees\Tree;
 use Fisharebest\Webtrees\View;
@@ -49,6 +50,7 @@ use MagicSunday\ObituaryMatcher\Ui\ReviewViewModel;
 use MagicSunday\ObituaryMatcher\Ui\SourceLink;
 use MagicSunday\ObituaryMatcher\Ui\SuggestionViewModel;
 use MagicSunday\ObituaryMatcher\Ui\TreePersonView;
+use MagicSunday\ObituaryMatcher\Webtrees\EnqueuePersonHandler;
 use MagicSunday\ObituaryMatcher\Webtrees\MatchSeeder;
 use MagicSunday\ObituaryMatcher\Webtrees\ObituaryWriteBack;
 use MagicSunday\ObituaryMatcher\Webtrees\PortalSourceRepository;
@@ -145,6 +147,11 @@ final class ReviewScreenHandlerTest extends IntegrationTestCase
         (new WebRoutes())->load($routerContainer->getMap());
         $routerContainer->getMap()
             ->get(ReviewScreenHandler::ROUTE_NAME, ReviewScreenHandler::ROUTE_URL, ReviewScreenHandler::class)
+            ->allows(RequestMethodInterface::METHOD_POST);
+        // The obituary tab renders a manager-only enqueue-person form (#64), so its route must resolve
+        // when a tab render runs as a manager.
+        $routerContainer->getMap()
+            ->get(EnqueuePersonHandler::ROUTE_NAME, EnqueuePersonHandler::ROUTE_URL, EnqueuePersonHandler::class)
             ->allows(RequestMethodInterface::METHOD_POST);
         Registry::container()->set(RouterContainer::class, $routerContainer);
 
@@ -411,6 +418,44 @@ final class ReviewScreenHandlerTest extends IntegrationTestCase
         self::assertStringContainsString('href="https://Trauer.Example/a?utm_source=x"', $html);
         self::assertStringContainsString('target="_blank"', $html);
         self::assertStringContainsString('1 open suggestion', $html);
+        // The tab renders as a manager (the default test principal), so the per-person enqueue form (#64)
+        // is present and points at the enqueue-person route.
+        self::assertStringContainsString('class="om-enqueue-person"', $html);
+        self::assertStringContainsString('obituary-enqueue', $html);
+    }
+
+    /**
+     * The per-person enqueue form (#64) is the negative control for the manager gate: rendered for a
+     * genuine non-manager it is HIDDEN, while the suggestion body still renders (so the absence is a real
+     * gate result, not an empty tab). This proves the `Auth::isManager` guard in tab.phtml discriminates —
+     * deleting it would render the form unconditionally and fail this test.
+     *
+     * @return void
+     */
+    #[Test]
+    public function aNonManagerTabHidesTheEnqueueForm(): void
+    {
+        $url = 'https://trauer.example/nonmgr';
+        $this->seedPendingMatchRaw('I1', $url);
+        $this->bindBaseRequest();
+
+        // Resolve the individual while still the (visible-everything) admin, then drop to a genuine
+        // non-manager purely for the render — the tab gate reads Auth::user(), not the individual.
+        $individual = $this->individual('I1', $this->tree);
+        self::assertInstanceOf(Individual::class, $individual);
+
+        $member = (new UserService())->create('tab-nonmgr', 'Member', 'tab-nonmgr@example.test', 'secret-pw-123456');
+        Auth::login($member);
+
+        $html = view(self::MODULE_NAMESPACE . '::tab', [
+            'individual'  => $individual,
+            'suggestions' => [SuggestionViewModel::fromStoredMatch($this->store()->findByPerson('I1')[0])],
+        ]);
+
+        // Positive anchor: the suggestion body still renders, so the negative below cannot pass vacuously.
+        self::assertStringContainsString('1 open suggestion', $html);
+        // The manager-only enqueue form is hidden from a non-manager.
+        self::assertStringNotContainsString('om-enqueue-person', $html);
     }
 
     /**

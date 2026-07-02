@@ -426,4 +426,66 @@ final class EnqueueServiceTest extends AbstractEnqueueTestCase
 
         self::assertSame(['I1'], $this->queuedPersonIds($summary->jobId));
     }
+
+    /**
+     * enqueueOne enqueues exactly the manager-chosen person (#64): one job carrying only that xref, the
+     * summary reporting a single candidate. This is the per-person producer path — no age selection.
+     *
+     * @return void
+     */
+    #[Test]
+    public function enqueueOneEnqueuesTheChosenPerson(): void
+    {
+        $tree = $this->importFixtureTree(
+            "0 HEAD\n1 SOUR t\n1 GEDC\n2 VERS 5.5.1\n1 CHAR UTF-8\n"
+            . "0 @I1@ INDI\n1 NAME Otto /Searchable/\n2 GIVN Otto\n2 SURN Searchable\n1 SEX M\n1 BIRT\n2 DATE 17 MAR 1930\n0 TRLR\n",
+            'enqueue-one-happy',
+        );
+
+        $summary = $this->enqueueService()->enqueueOne($tree->id(), 'I1', 'de-DE');
+
+        self::assertNotNull($summary->jobId);
+        self::assertSame(1, $summary->candidates);
+        self::assertSame(0, $summary->skippedInflight);
+        self::assertSame(['I1'], $this->queuedPersonIds($summary->jobId));
+    }
+
+    /**
+     * enqueueOne returns a null-jobId summary and submits nothing for an unknown xref — a manager cannot
+     * queue a person who does not exist in the tree.
+     *
+     * @return void
+     */
+    #[Test]
+    public function enqueueOneQueuesNothingForAnUnknownXref(): void
+    {
+        $tree = $this->ottoTree('enqueue-one-unknown');
+
+        $summary = $this->enqueueService()->enqueueOne($tree->id(), 'I999', 'de-DE');
+
+        self::assertNull($summary->jobId);
+        self::assertSame(0, $summary->candidates);
+        self::assertSame([], $this->queuedJobIds());
+    }
+
+    /**
+     * enqueueOne does not double-enqueue a person who already has a job in flight for this tree: it
+     * returns a skipped=1 summary with a null jobId and submits nothing.
+     *
+     * @return void
+     */
+    #[Test]
+    public function enqueueOneSkipsAPersonAlreadyInFlight(): void
+    {
+        $tree = $this->ottoTree('enqueue-one-inflight');
+
+        $this->seedInflightJob($tree->id(), ['I1']);
+
+        $summary = $this->enqueueService()->enqueueOne($tree->id(), 'I1', 'de-DE');
+
+        self::assertNull($summary->jobId);
+        self::assertSame(0, $summary->candidates);
+        self::assertSame(1, $summary->skippedInflight);
+        self::assertSame([], $this->queuedJobIds());
+    }
 }

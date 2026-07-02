@@ -2,9 +2,11 @@
 
 declare(strict_types=1);
 
+use Fisharebest\Webtrees\Auth;
 use Fisharebest\Webtrees\I18N;
 use Fisharebest\Webtrees\Individual;
 use MagicSunday\ObituaryMatcher\Ui\SuggestionViewModel;
+use MagicSunday\ObituaryMatcher\Webtrees\EnqueuePersonHandler;
 use MagicSunday\ObituaryMatcher\Webtrees\ReviewScreenHandler;
 
 /** @var Individual $individual */
@@ -48,4 +50,12 @@ $statusLabels = [
                href="<?= e(route(ReviewScreenHandler::ROUTE_NAME, ['tree' => $individual->tree()->name(), 'xref' => $individual->xref(), 'key' => $s->rowKey])) ?>"><?= e(I18N::translate('Review')) ?></a>
         </div>
     <?php endforeach ?>
+
+    <?php if (Auth::isManager($individual->tree())) : ?>
+        <form class="om-enqueue-person" method="post"
+              action="<?= e(route(EnqueuePersonHandler::ROUTE_NAME, ['tree' => $individual->tree()->name(), 'xref' => $individual->xref()])) ?>">
+            <?= csrf_field() ?>
+            <button type="submit"><?= e(I18N::translate('Search for death notices')) ?></button>
+        </form>
+    <?php endif ?>
 </div>
