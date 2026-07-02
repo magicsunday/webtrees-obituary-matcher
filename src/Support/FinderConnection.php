@@ -19,7 +19,6 @@ use SensitiveParameter;
 use function in_array;
 use function is_string;
 use function parse_url;
-use function preg_match;
 use function rtrim;
 use function strtolower;
 
@@ -76,7 +75,7 @@ final readonly class FinderConnection
      */
     public static function rest(string $baseUrl, #[SensitiveParameter] ?string $token): self
     {
-        if (preg_match('/[\x00-\x1F\x7F]/', $baseUrl) === 1) {
+        if (ControlChars::contains($baseUrl)) {
             throw new InvalidArgumentException('The finder base URL must not contain control characters.');
         }
 
@@ -121,7 +120,7 @@ final readonly class FinderConnection
 
         if (
             ($token !== null)
-            && (preg_match('/[\x00-\x1F\x7F]/', $token) === 1)
+            && ControlChars::contains($token)
         ) {
             throw new InvalidArgumentException('The finder bearer token must not contain control characters.');
         }

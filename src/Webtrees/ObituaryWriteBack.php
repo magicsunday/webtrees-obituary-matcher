@@ -16,6 +16,7 @@ use Fisharebest\Webtrees\Registry;
 use Fisharebest\Webtrees\Source;
 use Fisharebest\Webtrees\Tree;
 use MagicSunday\ObituaryMatcher\Matching\WriteBack;
+use MagicSunday\ObituaryMatcher\Support\ControlChars;
 use MagicSunday\ObituaryMatcher\Support\GedcomDateConverter;
 use MagicSunday\ObituaryMatcher\Support\MalformedDeathDateException;
 use MagicSunday\ObituaryMatcher\Support\UrlHostNormalizer;
@@ -97,7 +98,7 @@ class ObituaryWriteBack
         // Precondition: a clean, single-line http(s) URL (no GEDCOM-line injection via 3 PAGE).
         if (
             (preg_match('~^https?://~i', $obituaryUrl) !== 1)
-            || (preg_match('/[\x00-\x1F\x7F]/', $obituaryUrl) === 1)
+            || ControlChars::contains($obituaryUrl)
         ) {
             throw new WriteBackPreconditionException('The obituary URL is not a clean http(s) single-line value.');
         }
@@ -108,7 +109,7 @@ class ObituaryWriteBack
             throw new WriteBackPreconditionException('The obituary URL has no parseable host.');
         }
 
-        if (preg_match('/[\x00-\x1F\x7F]/', $host) === 1) {
+        if (ControlChars::contains($host)) {
             throw new WriteBackPreconditionException('The obituary host contains control characters.');
         }
 
@@ -124,7 +125,7 @@ class ObituaryWriteBack
         // 2 PLAC line. Reject before any write so the confirm aborts atomically.
         if (
             ($cleanCemetery !== null)
-            && (preg_match('/[\x00-\x1F\x7F]/', $cleanCemetery) === 1)
+            && ControlChars::contains($cleanCemetery)
         ) {
             throw new WriteBackPreconditionException('The cemetery name contains control characters.');
         }
@@ -344,7 +345,7 @@ class ObituaryWriteBack
     {
         // A CR/LF or other control character in the host would break out of the GEDCOM REFN/TITL/PUBL
         // line and inject arbitrary sub-records, so reject it before it reaches createRecord().
-        if (preg_match('/[\x00-\x1F\x7F]/', $host) === 1) {
+        if (ControlChars::contains($host)) {
             throw new WriteBackPreconditionException('The source host carries a control character.');
         }
 

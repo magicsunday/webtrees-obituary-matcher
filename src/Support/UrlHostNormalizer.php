@@ -15,7 +15,6 @@ use function in_array;
 use function is_string;
 use function mb_strtolower;
 use function parse_url;
-use function preg_match;
 use function str_starts_with;
 use function substr;
 
@@ -59,7 +58,7 @@ final readonly class UrlHostNormalizer
         // This guard runs against the RAW input because parse_url() — invoked first inside
         // normalizeForIdentity() — silently rewrites a control char in the host to `_`, so a
         // post-normalisation host check would never see it.
-        if (preg_match('/[\x00-\x1F\x7F]/', $url) === 1) {
+        if (ControlChars::contains($url)) {
             return null;
         }
 
