@@ -18,21 +18,24 @@ declare(strict_types=1);
  * prints the one-line tally and maps the outcome to an exit code.
  *
  * `--tree` is REQUIRED: it is the NUMERIC webtrees tree id (the integer primary key) of the single
- * tree to enqueue. `--base-url` is REQUIRED: the REST base URL of the obituary finder, and `--token` is
- * the optional bearer token. `--rest-pending` is the in-flight ledger root directory (defaults to the
- * running instance's `data/obituary-matcher/rest-pending`, resolved relative to this module's install
- * location). `--limit` caps the number of candidates written into the request (default 50). `--min-age`
- * is the minimum age (in years) a candidate must have reached for inclusion (default 90). All are
- * `=`-form long options. The `--base-url`/`--token` MUST match the control-panel finder config (reading
- * persisted module preferences from the CLI is deferred — it needs CLI module-instance resolution).
+ * tree to enqueue. The finder connection (REST base URL and optional bearer token) is NOT passed on the
+ * command line: it is read from the SAVED control-panel config of the registered module, under the same
+ * REST consent gate the admin UI enforces, so the module must have REST configured and enabled
+ * (`finder_transport === 'rest'` plus a valid stored base URL) or this adapter refuses to run. This keeps
+ * the token strictly out of argv and logs — it lives only in the persisted preference and the outbound
+ * Authorization header. `--rest-pending` is the in-flight ledger root directory (defaults to the running
+ * instance's `data/obituary-matcher/rest-pending`, resolved relative to this module's install location).
+ * `--limit` caps the number of candidates written into the request (default 50). `--min-age` is the
+ * minimum age (in years) a candidate must have reached for inclusion (default 90). All are `=`-form long
+ * options.
  *
  * Usage:
- *   php tools/enqueue.php --tree=1 --base-url=https://finder.example [--token=secret]
- *       [--rest-pending=/path/to/rest-pending] [--limit=50] [--min-age=90]
+ *   php tools/enqueue.php --tree=1 [--rest-pending=/path/to/rest-pending] [--limit=50] [--min-age=90]
  *
  * Exit codes: 0 on a completed run (including a run that finds zero candidates), 1 when the boot
- * fails, the DB is unreachable, `--tree` is missing/non-numeric, `--base-url` is missing/invalid, the
- * ledger root cannot be located, the tree id is unknown, or the enqueue itself fails.
+ * fails, the DB is unreachable, `--tree` is missing/non-numeric, the module is not installed/enabled, the
+ * finder connection is not configured, the ledger root cannot be located, the tree id is unknown, or the
+ * enqueue itself fails.
  *
  * @author  Rico Sonntag <mail@ricosonntag.de>
  * @license https://opensource.org/licenses/GPL-3.0 GNU General Public License v3.0
@@ -40,8 +43,10 @@ declare(strict_types=1);
  */
 
 use Fisharebest\Webtrees\I18N;
+use MagicSunday\ObituaryMatcher\Webtrees\CliModuleResolver;
 use MagicSunday\ObituaryMatcher\Webtrees\EnqueueService;
 use MagicSunday\ObituaryMatcher\Webtrees\EnqueueServiceFactory;
+use MagicSunday\ObituaryMatcher\Webtrees\FinderCliConfigurationException;
 use MagicSunday\ObituaryMatcher\Webtrees\HeadlessBootstrap;
 use MagicSunday\ObituaryMatcher\Webtrees\RestCliBootstrap;
 
@@ -60,16 +65,14 @@ $options = getopt('', [
     'tree:',        // required → single colon
     'limit::',
     'min-age::',
-    'base-url::',
-    'token::',
     'rest-pending::',
 ]);
 $options = $options === false ? [] : $options;
 
 // The optional-value (`::`) long options parse as `false` when passed without the `=` form
-// (`--base-url https://x`); reject that explicitly so a malformed flag gets a precise hint rather than
-// being silently coerced to its default below.
-foreach (['limit', 'min-age', 'base-url', 'token', 'rest-pending'] as $flag) {
+// (`--limit 50`); reject that explicitly so a malformed flag gets a precise hint rather than being
+// silently coerced to its default below.
+foreach (['limit', 'min-age', 'rest-pending'] as $flag) {
     if (
         array_key_exists($flag, $options)
         && !is_string($options[$flag])
@@ -83,25 +86,7 @@ foreach (['limit', 'min-age', 'base-url', 'token', 'rest-pending'] as $flag) {
 $treeOption        = $options['tree'] ?? null;
 $limitOption       = $options['limit'] ?? null;
 $minAgeOption      = $options['min-age'] ?? null;
-$baseUrlOption     = $options['base-url'] ?? null;
-$tokenOption       = $options['token'] ?? null;
 $restPendingOption = $options['rest-pending'] ?? null;
-
-// Resolve the REST wiring (the required --base-url, the in-flight ledger root and the validated finder
-// connection) through the shared bootstrap BEFORE the expensive boot, so a CLI/connection misuse fails
-// fast with a fixed hint and the token never spills into a stack trace.
-try {
-    [$connection, $restPendingRoot] = RestCliBootstrap::resolve(
-        $baseUrlOption,
-        $tokenOption,
-        $restPendingOption,
-        dirname(__DIR__),
-    );
-} catch (RuntimeException $exception) {
-    fwrite(STDERR, $exception->getMessage() . PHP_EOL);
-
-    exit(1);
-}
 
 // --tree is REQUIRED and must be numeric: the producer enqueues exactly one tree per run. A missing,
 // non-string (the required-value `:` form passed without `=`), or non-numeric --tree is a misuse;
@@ -133,6 +118,44 @@ $minAge = (is_string($minAgeOption) && ctype_digit($minAgeOption) && ((int) $min
 // routes the raw detail to the guarded error_log sink (the privacy-critical S46 handling) and exits
 // non-zero. The PDOException-first arm ordering and the guarded sink live in that shared method.
 HeadlessBootstrap::bootForCli('enqueue');
+
+// Resolve the REGISTERED module and its REST wiring inside ONE guarded block. Both the module discovery
+// and the persisted-config read touch the database, so a discovery/query fault is routed to the guarded
+// sink below rather than escaping to cron STDERR. The connection is read from the saved control-panel
+// config under the same REST consent gate the admin UI enforces; a not-configured/disabled connection
+// fails fast with a fixed hint and the token never spills into argv or a stack trace.
+try {
+    // Module discovery needs the booted runtime, so it runs after the boot; a disabled or absent module
+    // yields null and the CLI refuses (an inactive install must not drive the cron).
+    $module = CliModuleResolver::resolveActiveModule();
+
+    if ($module === null) {
+        fwrite(STDERR, 'The obituary-matcher module is not installed or enabled in this webtrees instance.' . PHP_EOL);
+
+        exit(1);
+    }
+
+    [$connection, $restPendingRoot] = RestCliBootstrap::resolve(
+        $module,
+        $restPendingOption,
+        dirname(__DIR__),
+    );
+} catch (FinderCliConfigurationException $exception) {
+    // A not-configured/disabled connection or an invalid --rest-pending path: the message is a fixed,
+    // secret-free operator hint (never the stored base URL or token), so it is safe to echo.
+    fwrite(STDERR, $exception->getMessage() . PHP_EOL);
+
+    exit(1);
+} catch (Throwable $exception) {
+    // Any OTHER failure while resolving the connection — notably a database error from reading the
+    // persisted preferences, whose message could embed SQL/DSN — must NOT reach cron output. Print a
+    // fixed category and route the detail to the SAME guarded sink the bootstrap uses (error_log
+    // defaults to STDERR in CLI, so it only logs when a real sink is configured — the S46 lesson).
+    fwrite(STDERR, 'Could not resolve the finder configuration.' . PHP_EOL);
+    HeadlessBootstrap::logCliError('enqueue', $exception);
+
+    exit(1);
+}
 
 // Resolve the locale from the booted instance language so the finder queries carry the instance's
 // configured language tag.

@@ -11,24 +11,26 @@ declare(strict_types=1);
 
 namespace MagicSunday\ObituaryMatcher\Webtrees;
 
-use InvalidArgumentException;
 use MagicSunday\ObituaryMatcher\Support\FinderConnection;
+use MagicSunday\ObituaryMatcher\Support\FinderConnectionResolver;
 use MagicSunday\ObituaryMatcher\Support\WebtreesInstallLocator;
-use RuntimeException;
-use SensitiveParameter;
 
 use function is_string;
 use function rtrim;
 use function str_starts_with;
 
 /**
- * The shared REST bootstrap for the headless CLI adapters. After the REST cutover the `tools/enqueue.php`
- * and `tools/drain.php` composition roots resolve the very same three things from their parsed options —
- * the required `--base-url`, the in-flight ledger root (explicit `--rest-pending` or the running
- * instance's default) and the validated {@see FinderConnection} — so that wiring lives here once and the
- * two adapters cannot drift. Every misuse throws a {@see RuntimeException} whose message is the exact
- * operator-facing hint; the caller prints it to STDERR and exits non-zero. The token is a
- * {@see SensitiveParameter} so a throw from anywhere in this method never spills it into a stack trace.
+ * The shared REST bootstrap for the headless CLI adapters. After the config-only cutover the
+ * `tools/enqueue.php` and `tools/drain.php` composition roots resolve the very same two things — the
+ * validated {@see FinderConnection} (read from the PERSISTED module config, under the SAME REST consent
+ * gate the admin control panel enforces) and the in-flight ledger root (explicit `--rest-pending` or the
+ * running instance's default) — so that wiring lives here once and the two adapters cannot drift. The
+ * connection is NO LONGER taken from `--base-url`/`--token` arguments: it is resolved from the module's
+ * saved preferences through {@see FinderConnectionResolver}, so the token only ever lives in the persisted
+ * preference and the outbound Authorization header, never in argv or a log line. Every misuse throws a
+ * {@see FinderCliConfigurationException} whose message is the exact operator-facing hint; the caller
+ * prints it to STDERR and exits non-zero, while routing any OTHER {@see \Throwable} (e.g. a database error
+ * from reading the preferences) to the guarded log sink so no internal detail reaches cron output.
  *
  * @author  Rico Sonntag <mail@ricosonntag.de>
  * @license https://opensource.org/licenses/GPL-3.0 GNU General Public License v3.0
@@ -44,52 +46,46 @@ final class RestCliBootstrap
     }
 
     /**
-     * Resolves the validated REST finder connection and the in-flight ledger root from the parsed CLI
-     * options shared by the enqueue and drain adapters. The ledger root is the explicit `--rest-pending`
-     * value or, when absent, the running instance's default resolved through the layout-independent
-     * locator relative to the module root; a default-resolved root that is merely absent is NOT an error
-     * (the ledger creates it on first record). A malformed base URL or token is rejected at the single
-     * {@see FinderConnection::rest()} source, and the failure message never echoes the secret.
+     * Resolves the validated REST finder connection and the in-flight ledger root shared by the enqueue
+     * and drain adapters. The connection is read from the PERSISTED module config through
+     * {@see FinderConnectionResolver::fromConfig()}, under the SAME REST consent gate the admin control
+     * panel enforces: unless `finder_transport === 'rest'` is set and a valid base URL is stored the
+     * connection is null and a misuse is raised. The ledger root is the explicit `--rest-pending` value
+     * or, when absent, the running instance's default resolved through the layout-independent locator
+     * relative to the module root; a default-resolved root that is merely absent is NOT an error (the
+     * ledger creates it on first record). The operator hint never echoes the stored base URL or token.
      *
-     * @param string|null $baseUrlOption     The raw `--base-url` value (already narrowed to string|null).
-     * @param string|null $tokenOption       The raw `--token` value (already narrowed to string|null).
-     * @param string|null $restPendingOption The raw `--rest-pending` value (already narrowed to string|null).
-     * @param string      $moduleRoot        The module root directory (the `tools/` parent) the ledger default is resolved from.
+     * @param ObituaryMatcherModule $module            The registered module whose saved preferences carry the finder connection.
+     * @param string|null           $restPendingOption The raw `--rest-pending` value (already narrowed to string|null).
+     * @param string                $moduleRoot        The module root directory (the `tools/` parent) the ledger default is resolved from.
      *
      * @return array{FinderConnection, string} The validated connection and the resolved ledger root.
      *
-     * @throws RuntimeException On a missing/empty base URL, an unlocatable ledger root, or an invalid REST connection.
+     * @throws FinderCliConfigurationException When the finder connection is not configured (REST not enabled or no valid
+     *                                         stored base URL), or the ledger root cannot be located.
      */
     public static function resolve(
-        ?string $baseUrlOption,
-        #[SensitiveParameter]
-        ?string $tokenOption,
+        ObituaryMatcherModule $module,
         ?string $restPendingOption,
         string $moduleRoot,
     ): array {
-        // --base-url is REQUIRED: every REST adapter talks to the finder endpoint. A missing/empty base
-        // URL is a misuse; fail loud.
-        if (
-            ($baseUrlOption === null)
-            || ($baseUrlOption === '')
-        ) {
-            throw new RuntimeException('--base-url=<url> is required (the REST finder endpoint).');
+        // The connection comes from the persisted control-panel config, NOT from argv: this enforces the
+        // same consent gate the admin UI uses (finder_transport === 'rest' plus a valid base URL) and
+        // keeps the token out of the process arguments. A not-configured/disabled connection is a misuse;
+        // the hint points the operator at the control panel and never echoes the stored credentials.
+        $connection = FinderConnectionResolver::fromConfig(
+            $module->getPreference('finder_transport', ''),
+            $module->getPreference('finder_base_url', ''),
+            $module->getPreference('finder_token', ''),
+        );
+
+        if (!$connection instanceof FinderConnection) {
+            throw new FinderCliConfigurationException(
+                'The finder connection is not configured or REST is not enabled — open the module control panel, enter the REST base URL and token, and save.',
+            );
         }
 
         $restPendingRoot = self::ledgerRoot($restPendingOption, $moduleRoot);
-
-        $token = (($tokenOption !== null) && ($tokenOption !== '')) ? $tokenOption : null;
-
-        // A malformed base URL (not http(s), or carrying a control character) is rejected by
-        // FinderConnection::rest(); rethrow a fixed hint rather than letting the original stack trace
-        // (with the token in a header build's frame) escape to STDERR.
-        try {
-            $connection = FinderConnection::rest($baseUrlOption, $token);
-        } catch (InvalidArgumentException) {
-            throw new RuntimeException(
-                'Invalid REST connection: --base-url must be an http(s) URL and neither --base-url nor --token may contain control characters.',
-            );
-        }
 
         return [$connection, $restPendingRoot];
     }
@@ -109,7 +105,7 @@ final class RestCliBootstrap
      *
      * @return string The resolved absolute ledger root (any trailing separator removed).
      *
-     * @throws RuntimeException On an unlocatable default root or an empty/relative/filesystem-root explicit path.
+     * @throws FinderCliConfigurationException On an unlocatable default root or an empty/relative/filesystem-root explicit path.
      */
     private static function ledgerRoot(?string $restPendingOption, string $moduleRoot): string
     {
@@ -120,7 +116,7 @@ final class RestCliBootstrap
             $default = (new WebtreesInstallLocator($moduleRoot))->defaultRestPendingRoot();
 
             if (!is_string($default)) {
-                throw new RuntimeException(
+                throw new FinderCliConfigurationException(
                     'Could not locate the running-instance rest-pending dir beside this module; pass --rest-pending=<dir> explicitly.',
                 );
             }
@@ -143,7 +139,7 @@ final class RestCliBootstrap
             ($normalized === '')
             || !str_starts_with($restPendingOption, '/')
         ) {
-            throw new RuntimeException(
+            throw new FinderCliConfigurationException(
                 '--rest-pending must be an absolute path to a dedicated directory (e.g. /var/lib/webtrees/data/obituary-matcher/rest-pending).',
             );
         }
