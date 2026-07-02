@@ -35,6 +35,8 @@ use Psr\Http\Message\ServerRequestInterface;
 use Psr\Http\Server\RequestHandlerInterface;
 use Throwable;
 
+use function count;
+use function explode;
 use function in_array;
 use function max;
 use function min;
@@ -109,7 +111,7 @@ class ObituaryWorklistHandler implements RequestHandlerInterface
         }
 
         if ($request->getMethod() === RequestMethodInterface::METHOD_POST) {
-            return $this->applyRevert($request, $tree);
+            return $this->applyPostAction($request, $tree);
         }
 
         return $this->renderWorklist($request, $tree);
@@ -149,9 +151,11 @@ class ObituaryWorklistHandler implements RequestHandlerInterface
         }
 
         $status = Validator::queryParams($request)->string('status', 'all');
+        $flag   = Validator::queryParams($request)->string('flag', 'all');
+        $sort   = Validator::queryParams($request)->string('sort', 'score');
         $page   = max(1, Validator::queryParams($request)->integer('page', 1));
 
-        $view = (new WorklistPresenter())->build($entries, $status, $page);
+        $view = (new WorklistPresenter())->build($entries, $status, $flag, $sort, $page);
 
         return $this->viewResponse($this->viewNamespace . '::worklist', [
             'title'           => $this->worklistTitle(),
@@ -225,29 +229,39 @@ class ObituaryWorklistHandler implements RequestHandlerInterface
     }
 
     /**
-     * Applies a per-row revert POST: it resolves the Confirmed row and individual, runs the shared
-     * {@see RevertService} in normal mode (the --force override is CLI-only), maps the outcome to a flash
-     * and always redirects back to the worklist (PRG; no 500 escapes). A missing, cross-row-mismatched,
-     * non-Confirmed or write-back-less row, or a vanished individual, is a benign warning. The store
-     * lookup and individual resolution sit INSIDE the try/catch because `findOne` is fail-loud on a
-     * corrupt row (unlike the GET scan) — a corrupt row must redirect with a danger flash, not 500. No
-     * flash echoes the raw URL. A valid `action=revert` POST always PRG-redirects; only an unknown action
-     * is answered with 400 (a client error, thrown BEFORE the try).
+     * Dispatches a worklist POST by its `action` body field: `revert` to the single-row write-back revert
+     * ({@see revertOne()}), `bulk-reject` to the multi-select batch rejection ({@see bulkReject()}). Both
+     * delegate a PRG redirect back to the worklist; an unknown or missing action is a client error answered
+     * with 400.
      *
      * @param ServerRequestInterface $request The incoming POST request.
-     * @param Tree                   $tree    The tree whose row is reverted.
+     * @param Tree                   $tree    The tree the POST targets.
      *
-     * @return ResponseInterface The PRG redirect to the worklist.
+     * @return ResponseInterface The delegated PRG redirect response.
      *
-     * @throws HttpBadRequestException When the POST action is not "revert".
+     * @throws HttpBadRequestException When the POST action is neither "revert" nor "bulk-reject".
      */
-    private function applyRevert(ServerRequestInterface $request, Tree $tree): ResponseInterface
+    private function applyPostAction(ServerRequestInterface $request, Tree $tree): ResponseInterface
+    {
+        return match (Validator::parsedBody($request)->string('action', '')) {
+            'revert'      => $this->revertOne($request, $tree),
+            'bulk-reject' => $this->bulkReject($request, $tree),
+            default       => throw new HttpBadRequestException(),
+        };
+    }
+
+    /**
+     * Reverts a single confirmed match's write-back (the per-row revert action). Always PRG-redirects to
+     * the worklist with a flash.
+     *
+     * @param ServerRequestInterface $request The incoming POST request.
+     * @param Tree                   $tree    The tree the row belongs to.
+     *
+     * @return ResponseInterface The redirect response.
+     */
+    private function revertOne(ServerRequestInterface $request, Tree $tree): ResponseInterface
     {
         $worklistUrl = route(self::ROUTE_NAME, ['tree' => $tree->name()]);
-
-        if (Validator::parsedBody($request)->string('action', '') !== 'revert') {
-            throw new HttpBadRequestException();
-        }
 
         $personId = Validator::parsedBody($request)->string('person', '');
         $url      = Validator::parsedBody($request)->string('url', '');
@@ -280,6 +294,76 @@ class ObituaryWorklistHandler implements RequestHandlerInterface
             Log::addErrorLog(sprintf('Obituary matcher: a revert request failed for person %s (%s).', $personId, $throwable::class));
             FlashMessages::addMessage(I18N::translate('The match could not be reverted.'), 'danger');
         }
+
+        return redirect($worklistUrl);
+    }
+
+    /**
+     * Rejects every selected OPEN match in one action (#65 bulk-reject). Each selected checkbox carries a
+     * `personId:rowKey` token; the row is re-resolved from the store (authoritative — the token is
+     * untrusted), and only a non-terminal (Pending / Uncertain) row is rejected: a Confirmed row has a
+     * write-back a reject must not silently strand (undoing it is the separate Revert action) and a
+     * Rejected row is already terminal. A corrupt or unresolvable token is skipped, never aborting the
+     * batch. Always PRG-redirects with a count flash.
+     *
+     * @param ServerRequestInterface $request The incoming POST request.
+     * @param Tree                   $tree    The tree the rows belong to.
+     *
+     * @return ResponseInterface The redirect response.
+     */
+    private function bulkReject(ServerRequestInterface $request, Tree $tree): ResponseInterface
+    {
+        $worklistUrl = route(self::ROUTE_NAME, ['tree' => $tree->name()]);
+        $store       = $this->storeForTree($tree);
+        $rejected    = 0;
+
+        foreach (Validator::parsedBody($request)->array('selected') as $token) {
+            try {
+                // The token is untrusted: Validator::array() does NOT narrow its elements to strings, so a
+                // crafted nested body (selected[0][]=x) yields an array here and explode() would TypeError.
+                // Parsing inside the try lets the catch absorb that — along with a corrupt row or a
+                // concurrent transition — so one bad selection never aborts the batch or escapes as a 500.
+                $parts = explode(':', $token, 2);
+
+                if (count($parts) !== 2) {
+                    continue;
+                }
+
+                [$personId, $rowKey] = $parts;
+
+                $row = $store->findOne($personId, $rowKey);
+
+                if (!$row instanceof StoredMatch) {
+                    continue;
+                }
+
+                // Defence-in-depth (mirrors revertOne): keep the write on the exact row that was read, so
+                // a misplaced/corrupt store row can never write a tombstone under a mismatched personId.
+                if ($row->personId !== $personId) {
+                    continue;
+                }
+
+                // A Confirmed row has a write-back a reject must not strand (undoing it is the separate
+                // Revert action) and a Rejected row is already terminal — both are skipped.
+                if ($row->status->isTerminal()) {
+                    continue;
+                }
+
+                $store->markRejected($personId, $row->obituaryUrl, null);
+                ++$rejected;
+            } catch (Throwable) {
+                // A non-string/corrupt token, an invalid key, OR a concurrent transition that turned the
+                // row terminal between the read and the write (markRejected is status-guarded and throws a
+                // TerminalMatchTransitionException on a now-Confirmed row) — skip this one, never abort the
+                // batch and never escape as a 500.
+                continue;
+            }
+        }
+
+        FlashMessages::addMessage(
+            I18N::plural('%s match rejected.', '%s matches rejected.', $rejected, I18N::number($rejected)),
+            $rejected > 0 ? 'success' : 'warning',
+        );
 
         return redirect($worklistUrl);
     }

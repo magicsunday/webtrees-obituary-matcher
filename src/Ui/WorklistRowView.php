@@ -39,6 +39,9 @@ final readonly class WorklistRowView
      * @param string      $statusKey         The lifecycle status backing value (the template maps it to a label).
      * @param string|null $reviewUrl         The per-item review URL, or null for a terminal row.
      * @param string|null $revertObituaryUrl The raw obituary URL for the revert form, set only on a Confirmed row.
+     * @param string|null $bulkRejectToken   The `personId:rowKey` selection token for the bulk-reject
+     *                                       checkbox, set only on a non-terminal (Pending/Uncertain) row;
+     *                                       null on a terminal row (no bulk-reject checkbox).
      */
     public function __construct(
         public string $personName,
@@ -52,6 +55,7 @@ final readonly class WorklistRowView
         public string $statusKey,
         public ?string $reviewUrl,
         public ?string $revertObituaryUrl,
+        public ?string $bulkRejectToken,
     ) {
     }
 }

@@ -53,31 +53,43 @@ final class WorklistPresenterTest extends TestCase
     /**
      * Builds a presenter entry wrapping a {@see StoredMatch} with the given status and score.
      *
-     * @param string      $id        The candidate XREF.
-     * @param int         $score     The match score for the payload.
-     * @param MatchStatus $status    The lifecycle status.
-     * @param string|null $reviewUrl The non-terminal review URL.
+     * @param string      $id           The candidate XREF.
+     * @param int         $score        The match score for the payload.
+     * @param MatchStatus $status       The lifecycle status.
+     * @param string|null $reviewUrl    The non-terminal review URL.
+     * @param bool        $hardConflict Whether the payload carries a hard conflict (#65 flag filter).
+     * @param bool        $ambiguous    Whether the payload is ambiguous (#65 flag filter).
+     * @param string|null $deathDate    The extracted ISO death date, or null (#65 death sort).
+     * @param string|null $personName   The display name, or null for the default "Person <id>".
      *
      * @return array{match: StoredMatch, personName: string, personId: string, personUrl: string, reviewUrl: string|null}
      */
-    private function entry(string $id, int $score, MatchStatus $status, ?string $reviewUrl = '/r/x'): array
-    {
+    private function entry(
+        string $id,
+        int $score,
+        MatchStatus $status,
+        ?string $reviewUrl = '/r/x',
+        bool $hardConflict = false,
+        bool $ambiguous = false,
+        ?string $deathDate = '2023-09-04',
+        ?string $personName = null,
+    ): array {
         $match = [
             'personId'       => $id,
             'obituaryUrl'    => 'https://obituary.example/' . $id,
             'score'          => $score,
-            'hardConflict'   => false,
+            'hardConflict'   => $hardConflict,
             'signals'        => [],
-            'extractedFacts' => ['deathDate' => '2023-09-04'],
+            'extractedFacts' => $deathDate !== null ? ['deathDate' => $deathDate] : [],
             'classification' => 'strong',
-            'ambiguous'      => false,
+            'ambiguous'      => $ambiguous,
             'runnerUp'       => null,
             'review'         => null,
         ];
 
         return [
             'match'      => new StoredMatch($id, $match['obituaryUrl'], $status, $match),
-            'personName' => 'Person ' . $id,
+            'personName' => $personName ?? 'Person ' . $id,
             'personId'   => $id,
             'personUrl'  => '/p/' . $id,
             'reviewUrl'  => ($status === MatchStatus::Pending) || ($status === MatchStatus::Uncertain) ? $reviewUrl : null,
@@ -114,7 +126,7 @@ final class WorklistPresenterTest extends TestCase
             $this->entry('I2', 80, MatchStatus::Confirmed),
             $this->entry('I3', 70, MatchStatus::Rejected),
             $this->entry('I4', 60, MatchStatus::Uncertain),
-        ], 'all', 1);
+        ], 'all', 'all', 'score', 1);
 
         self::assertSame(['total' => 4, 'open' => 1, 'confirmed' => 1, 'rejected' => 1, 'uncertain' => 1], $view->counts);
     }
@@ -130,7 +142,7 @@ final class WorklistPresenterTest extends TestCase
         $view = (new WorklistPresenter())->build([
             $this->entry('I1', 90, MatchStatus::Pending),
             $this->entry('I2', 80, MatchStatus::Uncertain),
-        ], 'open', 1);
+        ], 'open', 'all', 'score', 1);
 
         self::assertCount(1, $view->rows);
         self::assertSame('I1', $view->rows[0]->personId);
@@ -147,9 +159,95 @@ final class WorklistPresenterTest extends TestCase
         $view = (new WorklistPresenter())->build([
             $this->entry('I1', 90, MatchStatus::Pending),
             $this->entry('I2', 80, MatchStatus::Rejected),
-        ], 'bogus', 1);
+        ], 'bogus', 'all', 'score', 1);
 
         self::assertCount(2, $view->rows);
+    }
+
+    /**
+     * The conflict flag filter keeps only rows carrying a hard conflict (#65).
+     *
+     * @return void
+     */
+    #[Test]
+    public function filtersByTheConflictFlag(): void
+    {
+        $view = (new WorklistPresenter())->build([
+            $this->entry('I1', 90, MatchStatus::Pending, '/r/x', hardConflict: true),
+            $this->entry('I2', 80, MatchStatus::Pending),
+        ], 'all', 'conflict', 'score', 1);
+
+        self::assertCount(1, $view->rows);
+        self::assertSame('I1', $view->rows[0]->personId);
+        self::assertSame('conflict', $view->flagFilter);
+    }
+
+    /**
+     * The ambiguous flag filter keeps only rows flagged ambiguous (#65).
+     *
+     * @return void
+     */
+    #[Test]
+    public function filtersByTheAmbiguousFlag(): void
+    {
+        $view = (new WorklistPresenter())->build([
+            $this->entry('I1', 90, MatchStatus::Pending, '/r/x', ambiguous: true),
+            $this->entry('I2', 80, MatchStatus::Pending),
+        ], 'all', 'ambiguous', 'score', 1);
+
+        self::assertCount(1, $view->rows);
+        self::assertSame('I1', $view->rows[0]->personId);
+    }
+
+    /**
+     * The name sort orders by display name ascending, overriding the default score order (#65): the
+     * higher-scored "Zeta" sorts AFTER "Alpha".
+     *
+     * @return void
+     */
+    #[Test]
+    public function sortsByNameAscending(): void
+    {
+        $view = (new WorklistPresenter())->build([
+            $this->entry('I1', 95, MatchStatus::Pending, '/r/x', personName: 'Zeta'),
+            $this->entry('I2', 90, MatchStatus::Pending, '/r/x', personName: 'Alpha'),
+        ], 'all', 'all', 'name', 1);
+
+        self::assertSame(['Alpha', 'Zeta'], array_map(static fn (WorklistRowView $r): string => $r->personName, $view->rows));
+    }
+
+    /**
+     * The death sort orders by the extracted ISO death date ascending, a null-death row last, overriding
+     * the default score order (#65).
+     *
+     * @return void
+     */
+    #[Test]
+    public function sortsByDeathDateAscendingWithNullsLast(): void
+    {
+        $view = (new WorklistPresenter())->build([
+            $this->entry('I1', 90, MatchStatus::Pending, '/r/x', deathDate: null),
+            $this->entry('I2', 80, MatchStatus::Pending, '/r/x', deathDate: '2020-01-01'),
+            $this->entry('I3', 70, MatchStatus::Pending, '/r/x', deathDate: '2010-01-01'),
+        ], 'all', 'all', 'death', 1);
+
+        self::assertSame(['I3', 'I2', 'I1'], array_map(static fn (WorklistRowView $r): string => $r->personId, $view->rows));
+    }
+
+    /**
+     * An unknown flag or sort falls back to the defaults (all / score).
+     *
+     * @return void
+     */
+    #[Test]
+    public function unknownFlagAndSortFallBackToDefaults(): void
+    {
+        $view = (new WorklistPresenter())->build([
+            $this->entry('I1', 90, MatchStatus::Pending),
+        ], 'all', 'bogus', 'bogus', 1);
+
+        self::assertSame('all', $view->flagFilter);
+        self::assertSame('score', $view->sort);
     }
 
     /**
@@ -164,7 +262,7 @@ final class WorklistPresenterTest extends TestCase
             $this->entry('I2', 50, MatchStatus::Pending),
             $this->entry('I1', 50, MatchStatus::Pending),
             $this->entry('I3', 90, MatchStatus::Pending),
-        ], 'all', 1);
+        ], 'all', 'all', 'score', 1);
 
         self::assertSame(['I3', 'I1', 'I2'], array_map(static fn ($r) => $r->personId, $view->rows));
     }
@@ -186,7 +284,7 @@ final class WorklistPresenterTest extends TestCase
 
         $broken['match'] = new StoredMatch('I1', $broken['match']->obituaryUrl, MatchStatus::Pending, $payload);
 
-        $view = (new WorklistPresenter())->build([$broken], 'all', 1);
+        $view = (new WorklistPresenter())->build([$broken], 'all', 'all', 'score', 1);
 
         self::assertSame(0, $view->rows[0]->score);
     }
@@ -205,7 +303,7 @@ final class WorklistPresenterTest extends TestCase
         $view = (new WorklistPresenter())->build([
             $this->entry('915', 50, MatchStatus::Pending),
             $this->entry('1000', 50, MatchStatus::Pending),
-        ], 'all', 1);
+        ], 'all', 'all', 'score', 1);
 
         self::assertSame(['1000', '915'], array_map(static fn ($r) => $r->personId, $view->rows));
     }
@@ -250,7 +348,7 @@ final class WorklistPresenterTest extends TestCase
         /** @var ClassifiedMatchArray $payload */
         $entry['match'] = new StoredMatch('I1', $entry['match']->obituaryUrl, MatchStatus::Pending, $payload);
 
-        $view = (new WorklistPresenter())->build([$entry], 'all', 1);
+        $view = (new WorklistPresenter())->build([$entry], 'all', 'all', 'score', 1);
 
         self::assertSame($expectedBand, $view->rows[0]->bandKey);
         self::assertSame($expectedDeathDate, $view->rows[0]->deathDate);
@@ -290,12 +388,12 @@ final class WorklistPresenterTest extends TestCase
         }
         $presenter = new WorklistPresenter();
 
-        $page1 = $presenter->build($entries, 'all', 1);
+        $page1 = $presenter->build($entries, 'all', 'all', 'score', 1);
         self::assertCount(WorklistPresenter::WORKLIST_PAGE_SIZE, $page1->rows);
         self::assertSame(3, $page1->totalPages);
         self::assertSame(120, $page1->totalFiltered);
 
-        $clamped = $presenter->build($entries, 'all', 99);
+        $clamped = $presenter->build($entries, 'all', 'all', 'score', 99);
         self::assertSame(3, $clamped->page);
         self::assertCount(20, $clamped->rows); // 120 - 2*50
     }
@@ -311,7 +409,7 @@ final class WorklistPresenterTest extends TestCase
         $view = (new WorklistPresenter())->build([
             $this->entry('I1', 90, MatchStatus::Confirmed),
             $this->entry('I2', 80, MatchStatus::Pending),
-        ], 'all', 1);
+        ], 'all', 'all', 'score', 1);
 
         $byId = [];
 
@@ -335,7 +433,7 @@ final class WorklistPresenterTest extends TestCase
         $pending   = $this->entry('I2', 80, MatchStatus::Pending);
         $rejected  = $this->entry('I3', 70, MatchStatus::Rejected);
 
-        $view = (new WorklistPresenter())->build([$confirmed, $pending, $rejected], 'all', 1);
+        $view = (new WorklistPresenter())->build([$confirmed, $pending, $rejected], 'all', 'all', 'score', 1);
 
         $byId = [];
 
@@ -358,7 +456,7 @@ final class WorklistPresenterTest extends TestCase
     #[Test]
     public function emptyInputYieldsEmptyViewWithOnePage(): void
     {
-        $view = (new WorklistPresenter())->build([], 'all', 1);
+        $view = (new WorklistPresenter())->build([], 'all', 'all', 'score', 1);
 
         self::assertSame([], $view->rows);
         self::assertSame(['total' => 0, 'open' => 0, 'confirmed' => 0, 'rejected' => 0, 'uncertain' => 0], $view->counts);
