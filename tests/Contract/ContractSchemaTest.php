@@ -436,6 +436,36 @@ final class ContractSchemaTest extends TestCase
                 self::ID_PREFIX . 'job-request.schema.json',
                 'minLength',
             ],
+            'duplicate excludedHosts → uniqueItems' => [
+                'duplicate-excludedhosts.request.json',
+                self::ID_PREFIX . 'job-request.schema.json',
+                'uniqueItems',
+            ],
+            'too many excludedHosts → maxItems' => [
+                'too-many-excludedhosts.request.json',
+                self::ID_PREFIX . 'job-request.schema.json',
+                'maxItems',
+            ],
+            'over-long excludedHost → maxLength' => [
+                'oversized-excludedhost.request.json',
+                self::ID_PREFIX . 'job-request.schema.json',
+                'maxLength',
+            ],
+            'excludedHost with whitespace → pattern' => [
+                'bad-excludedhost.request.json',
+                self::ID_PREFIX . 'job-request.schema.json',
+                'pattern',
+            ],
+            'excludedHost carrying a scheme/path → pattern' => [
+                'scheme-excludedhost.request.json',
+                self::ID_PREFIX . 'job-request.schema.json',
+                'pattern',
+            ],
+            'excludedHost with uppercase → pattern' => [
+                'uppercase-excludedhost.request.json',
+                self::ID_PREFIX . 'job-request.schema.json',
+                'pattern',
+            ],
         ];
     }
 

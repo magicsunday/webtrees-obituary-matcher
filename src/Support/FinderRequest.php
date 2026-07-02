@@ -62,7 +62,8 @@ final readonly class FinderRequest
      *   candidates: list<array{
      *     personId: string,
      *     names: list<array{kind?: string, full?: string, given?: string, surname?: string}>,
-     *     queryHints: list<array{query: string, dedupKey: string, priority: int}>
+     *     queryHints: list<array{query: string, dedupKey: string, priority: int}>,
+     *     excludedHosts?: list<string>
      *   }>
      * }
      */

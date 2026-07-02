@@ -95,14 +95,15 @@ final class FinderRequestFactoryTest extends TestCase
     }
 
     /**
-     * The factory threads a per-personId excludedHosts map onto the matching candidate object, but the
-     * hint stays OFF the wire (not part of the published contract); a candidate absent from the map
-     * carries an empty list.
+     * The factory threads a per-personId excludedHosts map onto the matching candidate object, and (since
+     * #83) the hint is serialised onto the wire — but only for a candidate that actually has exclusions.
+     * A candidate absent from the map carries an empty list, which toArray omits so its wire body stays
+     * minimal.
      *
      * @return void
      */
     #[Test]
-    public function buildThreadsExcludedHostsOntoTheCandidateObjectButNotTheWire(): void
+    public function buildThreadsExcludedHostsOntoTheCandidateAndEmitsThemWhenPresent(): void
     {
         $candidates = [
             new PersonCandidate(
@@ -138,10 +139,13 @@ final class FinderRequestFactoryTest extends TestCase
         self::assertSame(['example.test', 'other.test'], $request->candidates[0]->excludedHosts);
         self::assertSame([], $request->candidates[1]->excludedHosts);
 
-        // ... but never serialised onto the wire.
+        // ... and (since #83) serialised onto the wire — emitted for the candidate that has exclusions,
+        // omitted for the one that does not (an empty list carries no information).
         $array = $request->toArray();
         self::assertSame(1, $array['schemaVersion']);
-        self::assertArrayNotHasKey('excludedHosts', $array['candidates'][0]);
+        // The optional key is read with a null default (phpstan-safe on the `excludedHosts?` shape); the
+        // assertSame is still discriminating — an omitted hint would compare null against the list and fail.
+        self::assertSame(['example.test', 'other.test'], $array['candidates'][0]['excludedHosts'] ?? null);
         self::assertArrayNotHasKey('excludedHosts', $array['candidates'][1]);
     }
 }

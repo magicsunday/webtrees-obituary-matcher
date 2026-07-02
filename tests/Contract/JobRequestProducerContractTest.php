@@ -27,8 +27,10 @@ use PHPUnit\Framework\Attributes\CoversNothing;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
+use ReflectionClassConstant;
 
 use function array_map;
+use function file_get_contents;
 use function json_decode;
 use function json_encode;
 use function range;
@@ -61,8 +63,10 @@ final class JobRequestProducerContractTest extends TestCase
     private const string SCHEMA_ID = 'https://raw.githubusercontent.com/magicsunday/webtrees-obituary-matcher/main/schemas/job-request.schema.json';
 
     /**
-     * The real producer output validates against the published job-request schema, and none of the
-     * retired internal keys (`treeId`, `createdAt`, per-candidate `excludedHosts`) leak onto the wire.
+     * The real producer output validates against the published job-request schema; the retired envelope
+     * keys (`treeId`, `createdAt`) never leak onto the wire, and the optional per-candidate
+     * `excludedHosts` hint is omitted when the candidate has no open matches (this candidate has none, so
+     * it must be absent — the emit path is covered by {@see self::theProducerEmitsExcludedHostsWhenPresent()}).
      *
      * @return void
      *
@@ -114,10 +118,270 @@ final class JobRequestProducerContractTest extends TestCase
         self::assertIsArray($candidates);
         $candidateBody = $candidates[0];
         self::assertIsArray($candidateBody);
+        // This candidate has no open matches, so the optional excludedHosts hint is omitted (minimal body).
         self::assertArrayNotHasKey('excludedHosts', $candidateBody);
         self::assertArrayNotHasKey('queries', $candidateBody);
         self::assertArrayHasKey('names', $candidateBody);
         self::assertNotEmpty($candidateBody['names']);
+    }
+
+    /**
+     * When a candidate DOES have open matches, the producer emits the per-candidate `excludedHosts` hint
+     * and the resulting body still validates against the published schema — the accept path for the field
+     * #83 added (the reject fixtures cover its bounds).
+     *
+     * @return void
+     *
+     * @throws JsonException If the produced body is not encodable/decodable JSON.
+     */
+    #[Test]
+    public function theProducerEmitsExcludedHostsWhenPresent(): void
+    {
+        $candidate = new PersonCandidate(
+            'I1',
+            Gender::Female,
+            new PersonName(['Erika'], null, 'Mustermann', null, []),
+            DateRange::year(1938),
+            null,
+            [],
+            DateRange::unknown()
+        );
+
+        // Include an internationalised (IDN, non-ASCII) host: the matcher's canonical-host normaliser
+        // lowercases but does NOT punycode, so a real German portal host can carry non-ASCII letters. This
+        // pins that the schema's host pattern admits them (the negated-ASCII-blocklist stays IDN-safe).
+        $request = (new FinderRequestFactory(new QueryGenerator()))->build(
+            'job-1',
+            new DateTimeImmutable('2026-06-20T00:00:00+00:00'),
+            'de-DE',
+            [$candidate],
+            11,
+            ['I1' => ['trauer.example.de', 'trauer-münchen.example']],
+        );
+
+        $json = json_encode($request->toArray(), JSON_THROW_ON_ERROR);
+
+        $result = $this->validator()->validate(
+            json_decode($json, flags: JSON_THROW_ON_ERROR),
+            self::SCHEMA_ID
+        );
+
+        self::assertTrue($result->isValid(), 'The producer output with excludedHosts does not validate against the schema');
+
+        $decoded = json_decode($json, true, flags: JSON_THROW_ON_ERROR);
+        self::assertIsArray($decoded);
+        $candidates = $decoded['candidates'];
+        self::assertIsArray($candidates);
+        $candidateBody = $candidates[0];
+        self::assertIsArray($candidateBody);
+        self::assertSame(['trauer.example.de', 'trauer-münchen.example'], $candidateBody['excludedHosts']);
+    }
+
+    /**
+     * The producer caps the per-candidate excludedHosts at the contract maximum ({@see FinderCandidateRequest}
+     * caps at 50), so a candidate carrying MORE open-match hosts than the cap still yields a body that
+     * validates against the schema's `maxItems` rather than one liable to rejection.
+     *
+     * @return void
+     *
+     * @throws JsonException If the produced body is not encodable/decodable JSON.
+     */
+    #[Test]
+    public function theProducerCapsExcludedHostsAtTheContractMaximum(): void
+    {
+        $candidate = new PersonCandidate(
+            'I1',
+            Gender::Female,
+            new PersonName(['Erika'], null, 'Mustermann', null, []),
+            DateRange::year(1938),
+            null,
+            [],
+            DateRange::unknown()
+        );
+
+        // 51 distinct valid hosts — one over the schema's maxItems of 50.
+        $tooMany = array_map(static fn (int $i): string => 'host-' . $i . '.example', range(0, 50));
+
+        $request = (new FinderRequestFactory(new QueryGenerator()))->build(
+            'job-1',
+            new DateTimeImmutable('2026-06-20T00:00:00+00:00'),
+            'de-DE',
+            [$candidate],
+            11,
+            ['I1' => $tooMany],
+        );
+
+        $json   = json_encode($request->toArray(), JSON_THROW_ON_ERROR);
+        $result = $this->validator()->validate(
+            json_decode($json, flags: JSON_THROW_ON_ERROR),
+            self::SCHEMA_ID
+        );
+
+        self::assertTrue($result->isValid(), 'A candidate with more than 50 excluded hosts must still validate (the producer caps the list)');
+
+        $decoded = json_decode($json, true, flags: JSON_THROW_ON_ERROR);
+        self::assertIsArray($decoded);
+        $candidates = $decoded['candidates'];
+        self::assertIsArray($candidates);
+        $candidateBody = $candidates[0];
+        self::assertIsArray($candidateBody);
+        $emittedHosts = $candidateBody['excludedHosts'];
+        self::assertIsArray($emittedHosts);
+        self::assertCount(50, $emittedHosts, 'The producer caps excludedHosts at MAX_EXCLUDED_HOSTS = the schema maxItems of 50');
+    }
+
+    /**
+     * Hosts the normaliser can emit but the schema rejects — a bracketed IPv6 literal (`[2001:db8::1]`,
+     * brackets/colons the pattern forbids), an over-long host (254 codepoints, past maxLength), AND a host
+     * carrying a Unicode-whitespace codepoint (`\u{00A0}` NBSP — which the schema's ECMA-262 Unicode `\s`
+     * rejects and the producer's `/u` filter also rejects, unlike a byte-mode PCRE `\s`) — are all filtered
+     * out of the advisory hint by the producer, so no such open-match source can make the whole job request
+     * schema-invalid. The conforming sibling host still ships. This pins that the producer enforces the FULL
+     * per-item constraint set (length AND the Unicode-aware pattern), keeping its output a subset of what
+     * any conformant validator accepts.
+     *
+     * @return void
+     *
+     * @throws JsonException If the produced body is not encodable/decodable JSON.
+     */
+    #[Test]
+    public function theProducerDropsContractNonConformingHostsRatherThanInvalidatingTheRequest(): void
+    {
+        $candidate = new PersonCandidate(
+            'I1',
+            Gender::Female,
+            new PersonName(['Erika'], null, 'Mustermann', null, []),
+            DateRange::year(1938),
+            null,
+            [],
+            DateRange::unknown()
+        );
+
+        $request = (new FinderRequestFactory(new QueryGenerator()))->build(
+            'job-1',
+            new DateTimeImmutable('2026-06-20T00:00:00+00:00'),
+            'de-DE',
+            [$candidate],
+            11,
+            ['I1' => ['[2001:db8::1]', str_repeat('a', 254), "exa\u{00A0}mple.test", 'trauer.example.de']],
+        );
+
+        $json   = json_encode($request->toArray(), JSON_THROW_ON_ERROR);
+        $result = $this->validator()->validate(
+            json_decode($json, flags: JSON_THROW_ON_ERROR),
+            self::SCHEMA_ID
+        );
+
+        self::assertTrue($result->isValid(), 'A non-conforming host must be dropped, not invalidate the request');
+
+        $decoded = json_decode($json, true, flags: JSON_THROW_ON_ERROR);
+        self::assertIsArray($decoded);
+        $candidates = $decoded['candidates'];
+        self::assertIsArray($candidates);
+        $candidateBody = $candidates[0];
+        self::assertIsArray($candidateBody);
+        self::assertSame(['trauer.example.de'], $candidateBody['excludedHosts']);
+    }
+
+    /**
+     * The producer's host filter pins the same LENGTH and ARRAY constraints as the schema's
+     * `excludedHosts` (minLength / maxLength / maxItems / uniqueItems), so those cannot drift. The
+     * character pattern is deliberately NOT asserted byte-equal: the PHP filter is a STRICTER,
+     * Unicode-aware (`/u`) superset of the schema's ECMA-262 pattern — it additionally rejects the Unicode
+     * whitespace a byte-mode PCRE `\s` would miss — so the producer output stays a subset of what EVERY
+     * conformant validator accepts. That subset relationship is verified behaviourally by
+     * {@see self::theProducerDropsContractNonConformingHostsRatherThanInvalidatingTheRequest()} (which
+     * drops a Unicode-whitespace host) rather than by a byte-identity that would falsely red on the
+     * intended stricter-than-schema divergence.
+     *
+     * @return void
+     *
+     * @throws JsonException If the schema file is not valid JSON.
+     */
+    #[Test]
+    public function theProducerHostFilterConstraintsMatchTheSchema(): void
+    {
+        $raw = file_get_contents(self::SCHEMA_DIR . '/job-request.schema.json');
+        self::assertIsString($raw);
+
+        $schema = json_decode($raw, true, flags: JSON_THROW_ON_ERROR);
+        self::assertIsArray($schema);
+        $defs = $schema['$defs'] ?? null;
+        self::assertIsArray($defs);
+        $candidateFacts = $defs['CandidateFacts'] ?? null;
+        self::assertIsArray($candidateFacts);
+        $properties = $candidateFacts['properties'] ?? null;
+        self::assertIsArray($properties);
+        $excludedHosts = $properties['excludedHosts'] ?? null;
+        self::assertIsArray($excludedHosts);
+        $items = $excludedHosts['items'] ?? null;
+        self::assertIsArray($items);
+
+        // minLength is enforced intrinsically by the host pattern's `+` quantifier (a match is never
+        // empty), so there is no separate producer constant; pin that the schema still declares it as 1.
+        self::assertSame(1, $items['minLength'] ?? null, 'The schema minLength must stay 1 (the host pattern enforces it)');
+        self::assertSame(
+            $items['maxLength'] ?? null,
+            (new ReflectionClassConstant(FinderCandidateRequest::class, 'EXCLUDED_HOST_MAX_LENGTH'))->getValue(),
+            'The producer maxLength must match the schema'
+        );
+        // The array-level cap mirrors the schema's maxItems, closing the last per-array item bound.
+        self::assertSame(
+            $excludedHosts['maxItems'] ?? null,
+            (new ReflectionClassConstant(FinderCandidateRequest::class, 'MAX_EXCLUDED_HOSTS'))->getValue(),
+            'The producer cap must match the schema maxItems'
+        );
+        // uniqueItems has no value to pin, but the schema must declare it (the producer enforces it by
+        // deduplicating); a producer test proves the dedup, this guards the schema keeps requiring it.
+        self::assertTrue($excludedHosts['uniqueItems'] ?? null, 'The schema must require uniqueItems on excludedHosts');
+    }
+
+    /**
+     * Duplicate hosts in the (public, arbitrary) input are deduplicated by the producer before emission,
+     * so the wire body satisfies the schema's `uniqueItems` rather than being rejected. The de-duplicated
+     * result keeps one of each, list-indexed.
+     *
+     * @return void
+     *
+     * @throws JsonException If the produced body is not encodable/decodable JSON.
+     */
+    #[Test]
+    public function theProducerDeduplicatesExcludedHosts(): void
+    {
+        $candidate = new PersonCandidate(
+            'I1',
+            Gender::Female,
+            new PersonName(['Erika'], null, 'Mustermann', null, []),
+            DateRange::year(1938),
+            null,
+            [],
+            DateRange::unknown()
+        );
+
+        $request = (new FinderRequestFactory(new QueryGenerator()))->build(
+            'job-1',
+            new DateTimeImmutable('2026-06-20T00:00:00+00:00'),
+            'de-DE',
+            [$candidate],
+            11,
+            ['I1' => ['trauer.example.de', 'anzeiger.example.com', 'trauer.example.de']],
+        );
+
+        $json   = json_encode($request->toArray(), JSON_THROW_ON_ERROR);
+        $result = $this->validator()->validate(
+            json_decode($json, flags: JSON_THROW_ON_ERROR),
+            self::SCHEMA_ID
+        );
+
+        self::assertTrue($result->isValid(), 'Duplicate hosts must be deduplicated, not invalidate the request');
+
+        $decoded = json_decode($json, true, flags: JSON_THROW_ON_ERROR);
+        self::assertIsArray($decoded);
+        $candidates = $decoded['candidates'];
+        self::assertIsArray($candidates);
+        $candidateBody = $candidates[0];
+        self::assertIsArray($candidateBody);
+        self::assertSame(['trauer.example.de', 'anzeiger.example.com'], $candidateBody['excludedHosts']);
     }
 
     /**
