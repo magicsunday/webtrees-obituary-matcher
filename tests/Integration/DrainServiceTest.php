@@ -21,6 +21,7 @@ use MagicSunday\ObituaryMatcher\Matching\MatchStore;
 use MagicSunday\ObituaryMatcher\Matching\StoredMatch;
 use MagicSunday\ObituaryMatcher\Matching\WriteBack;
 use MagicSunday\ObituaryMatcher\Queue\FailedJob;
+use MagicSunday\ObituaryMatcher\Queue\FailureCategory;
 use MagicSunday\ObituaryMatcher\Queue\JobTransport;
 use MagicSunday\ObituaryMatcher\Scoring\Classifier;
 use MagicSunday\ObituaryMatcher\Scoring\EnrichedMatchEngine;
@@ -58,6 +59,7 @@ use RuntimeException;
 #[UsesClass(StoredMatch::class)]
 #[UsesClass(\MagicSunday\ObituaryMatcher\Queue\CompletedJob::class)]
 #[UsesClass(FailedJob::class)]
+#[UsesClass(FailureCategory::class)]
 #[UsesClass(\MagicSunday\ObituaryMatcher\Queue\ResponseValidator::class)]
 #[UsesClass(EnrichedMatchEngine::class)]
 #[UsesClass(Classifier::class)]
@@ -360,7 +362,7 @@ final class DrainServiceTest extends AbstractDrainTestCase
         self::assertSame(1, $summary->failed);
 
         // Finalisation: the job was parked under the ingest_failed category, NOT released.
-        self::assertSame('ingest_failed', $transport->failureReason('job-001'));
+        self::assertSame(FailureCategory::IngestFailed, $transport->failureReason('job-001'));
         self::assertFalse($transport->wasReleased('job-001'));
 
         // Store delta: the real per-tree store (separate from the throwing double) holds no row.
@@ -393,8 +395,8 @@ final class DrainServiceTest extends AbstractDrainTestCase
              */
             public function fetchCompleted(): iterable
             {
-                yield new FailedJob('job-a', 1, ['I1'], 'finder_failed');
-                yield new FailedJob('job-b', 1, ['I1'], 'finder_failed');
+                yield new FailedJob('job-a', 1, ['I1'], FailureCategory::FinderFailed);
+                yield new FailedJob('job-b', 1, ['I1'], FailureCategory::FinderFailed);
             }
 
             /**
@@ -407,7 +409,7 @@ final class DrainServiceTest extends AbstractDrainTestCase
             /**
              * {@inheritDoc}
              */
-            public function markFailed(string $jobId, string $reasonCategory, array $warnings = []): void
+            public function markFailed(string $jobId, FailureCategory $reasonCategory, array $warnings = []): void
             {
                 throw new RuntimeException('park failed');
             }

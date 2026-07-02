@@ -27,6 +27,7 @@ use MagicSunday\ObituaryMatcher\Queue\BodyFault;
 use MagicSunday\ObituaryMatcher\Queue\CappedJsonBodyReader;
 use MagicSunday\ObituaryMatcher\Queue\CompletedJob;
 use MagicSunday\ObituaryMatcher\Queue\FailedJob;
+use MagicSunday\ObituaryMatcher\Queue\FailureCategory;
 use MagicSunday\ObituaryMatcher\Queue\ResponseValidationException;
 use MagicSunday\ObituaryMatcher\Queue\ResponseValidator;
 use MagicSunday\ObituaryMatcher\Queue\RestJobTransport;
@@ -91,6 +92,7 @@ use const JSON_THROW_ON_ERROR;
 #[UsesClass(Place::class)]
 #[UsesClass(ObituaryNameParser::class)]
 #[UsesClass(ObituaryDateParser::class)]
+#[UsesClass(FailureCategory::class)]
 final class RestJobTransportTest extends TempDirTestCase
 {
     use ScriptableHttpClientTrait;
@@ -238,7 +240,7 @@ final class RestJobTransportTest extends TempDirTestCase
 
         self::assertCount(1, $outcomes);
         self::assertInstanceOf(FailedJob::class, $outcomes[0]);
-        self::assertSame('response_invalid', $outcomes[0]->reasonCategory);
+        self::assertSame(FailureCategory::ResponseInvalid, $outcomes[0]->reasonCategory);
     }
 
     /**
@@ -257,7 +259,7 @@ final class RestJobTransportTest extends TempDirTestCase
 
         self::assertCount(1, $outcomes);
         self::assertInstanceOf(FailedJob::class, $outcomes[0]);
-        self::assertSame('finder_job_missing', $outcomes[0]->reasonCategory);
+        self::assertSame(FailureCategory::FinderJobMissing, $outcomes[0]->reasonCategory);
     }
 
     /**
@@ -279,7 +281,7 @@ final class RestJobTransportTest extends TempDirTestCase
 
         self::assertCount(1, $outcomes);
         self::assertInstanceOf(FailedJob::class, $outcomes[0]);
-        self::assertSame('finder_failed', $outcomes[0]->reasonCategory);
+        self::assertSame(FailureCategory::FinderFailed, $outcomes[0]->reasonCategory);
     }
 
     /**
@@ -342,7 +344,7 @@ final class RestJobTransportTest extends TempDirTestCase
 
         self::assertCount(1, $outcomes);
         self::assertInstanceOf(FailedJob::class, $outcomes[0]);
-        self::assertSame('response_invalid', $outcomes[0]->reasonCategory);
+        self::assertSame(FailureCategory::ResponseInvalid, $outcomes[0]->reasonCategory);
     }
 
     /**
@@ -363,7 +365,7 @@ final class RestJobTransportTest extends TempDirTestCase
 
         self::assertCount(1, $outcomes);
         self::assertInstanceOf(FailedJob::class, $outcomes[0]);
-        self::assertSame('response_invalid', $outcomes[0]->reasonCategory);
+        self::assertSame(FailureCategory::ResponseInvalid, $outcomes[0]->reasonCategory);
     }
 
     /**
@@ -498,7 +500,7 @@ final class RestJobTransportTest extends TempDirTestCase
 
         self::assertCount(1, $outcomes);
         self::assertInstanceOf(FailedJob::class, $outcomes[0]);
-        self::assertSame('response_invalid', $outcomes[0]->reasonCategory);
+        self::assertSame(FailureCategory::ResponseInvalid, $outcomes[0]->reasonCategory);
     }
 
     /**
@@ -539,7 +541,7 @@ final class RestJobTransportTest extends TempDirTestCase
 
         self::assertCount(1, $outcomes);
         self::assertInstanceOf(FailedJob::class, $outcomes[0]);
-        self::assertSame('response_invalid', $outcomes[0]->reasonCategory);
+        self::assertSame(FailureCategory::ResponseInvalid, $outcomes[0]->reasonCategory);
     }
 
     /**
@@ -561,7 +563,7 @@ final class RestJobTransportTest extends TempDirTestCase
 
         self::assertCount(1, $outcomes);
         self::assertInstanceOf(FailedJob::class, $outcomes[0]);
-        self::assertSame('response_invalid', $outcomes[0]->reasonCategory);
+        self::assertSame(FailureCategory::ResponseInvalid, $outcomes[0]->reasonCategory);
     }
 
     /**
@@ -794,7 +796,7 @@ final class RestJobTransportTest extends TempDirTestCase
         $ledger->record('job-1', 7, ['I1'], '2024-05-21T08:29:55Z');
 
         $http = $this->http([]);
-        $this->newRest($http, $ledger)->markFailed('job-1', 'ingest_failed');
+        $this->newRest($http, $ledger)->markFailed('job-1', FailureCategory::IngestFailed);
 
         self::assertSame([], $ledger->jobIds());
         self::assertCount(0, $http->sent);
