@@ -21,11 +21,12 @@ use function is_string;
 /**
  * The persistence record of a confirm's GEDCOM write-back, stored on a {@see StoredMatch} when it
  * is confirmed, so a later Revert can undo exactly what was written. `deatFactId`, `sourceXref` and
- * `sourceCreated` are always populated; `buriFactId` (2d-3b) carries the written BURI fact id when a
- * cemetery was written and stays `null` otherwise; `citationIds` (standalone citations) is reserved
- * and stays `[]`.
+ * `sourceCreated` are always populated; `buriFactId` (2d-3b) carries the written BURI fact id and
+ * `cremFactId` (#62) the written CREM fact id — a notice is either a burial OR a cremation, so at most
+ * one of the two is set and the other stays `null`; `citationIds` (standalone citations) is reserved and
+ * stays `[]`.
  *
- * @phpstan-type WriteBackArray array{deatFactId: string, buriFactId: string|null, sourceXref: string, sourceCreated: bool, citationIds: list<string>}
+ * @phpstan-type WriteBackArray array{deatFactId: string, buriFactId: string|null, cremFactId: string|null, sourceXref: string, sourceCreated: bool, citationIds: list<string>}
  *
  * @author  Rico Sonntag <mail@ricosonntag.de>
  * @license https://opensource.org/licenses/GPL-3.0 GNU General Public License v3.0
@@ -40,6 +41,7 @@ final readonly class WriteBack
      * @param string       $sourceXref    The portal source record xref the citation points at.
      * @param bool         $sourceCreated Whether this confirm newly created the portal source.
      * @param string|null  $buriFactId    The fact id of the written BURI fact; null when no burial was written.
+     * @param string|null  $cremFactId    The fact id of the written CREM fact; null when no cremation was written.
      * @param list<string> $citationIds   Reserved; empty in 2d-3a (the citation is inline in DEAT).
      */
     public function __construct(
@@ -47,6 +49,7 @@ final readonly class WriteBack
         public string $sourceXref,
         public bool $sourceCreated,
         public ?string $buriFactId = null,
+        public ?string $cremFactId = null,
         public array $citationIds = [],
     ) {
     }
@@ -61,6 +64,7 @@ final readonly class WriteBack
         return [
             'deatFactId'    => $this->deatFactId,
             'buriFactId'    => $this->buriFactId,
+            'cremFactId'    => $this->cremFactId,
             'sourceXref'    => $this->sourceXref,
             'sourceCreated' => $this->sourceCreated,
             'citationIds'   => $this->citationIds,
@@ -82,6 +86,7 @@ final readonly class WriteBack
         $sourceXref    = $row['sourceXref'] ?? null;
         $sourceCreated = $row['sourceCreated'] ?? null;
         $buriFactId    = $row['buriFactId'] ?? null;
+        $cremFactId    = $row['cremFactId'] ?? null;
         $citationIds   = $row['citationIds'] ?? [];
 
         if (
@@ -97,6 +102,13 @@ final readonly class WriteBack
             && !is_string($buriFactId)
         ) {
             throw new InvalidArgumentException('Write-back buriFactId must be a string or null.');
+        }
+
+        if (
+            ($cremFactId !== null)
+            && !is_string($cremFactId)
+        ) {
+            throw new InvalidArgumentException('Write-back cremFactId must be a string or null.');
         }
 
         if (
@@ -116,6 +128,6 @@ final readonly class WriteBack
             $narrowedCitationIds[] = $citationId;
         }
 
-        return new self($deatFactId, $sourceXref, $sourceCreated, $buriFactId, $narrowedCitationIds);
+        return new self($deatFactId, $sourceXref, $sourceCreated, $buriFactId, $cremFactId, $narrowedCitationIds);
     }
 }

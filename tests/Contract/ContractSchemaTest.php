@@ -366,6 +366,11 @@ final class ContractSchemaTest extends TestCase
                 self::ID_PREFIX . 'job-response.schema.json',
                 'additionalProperties',
             ],
+            'unknown notice disposition → enum' => [
+                'bad-disposition.response.json',
+                self::ID_PREFIX . 'job-response.schema.json',
+                'enum',
+            ],
             'calendar-invalid date → format' => [
                 'bad-date.response.json',
                 self::ID_PREFIX . 'job-response.schema.json',

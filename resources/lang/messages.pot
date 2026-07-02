@@ -331,7 +331,7 @@ msgstr ""
 msgid "Review"
 msgstr ""
 
-#: resources/views/review.phtml:63 src/Webtrees/ReviewScreenHandler.php:483
+#: resources/views/review.phtml:63 src/Webtrees/ReviewScreenHandler.php:503
 msgid "Review match"
 msgstr ""
 
@@ -397,11 +397,11 @@ msgstr ""
 msgid "Test connection"
 msgstr ""
 
-#: src/Webtrees/ReviewScreenHandler.php:331
+#: src/Webtrees/ReviewScreenHandler.php:351
 msgid "The death fact was written but could not be recorded; please review it."
 msgstr ""
 
-#: src/Webtrees/ReviewScreenHandler.php:312
+#: src/Webtrees/ReviewScreenHandler.php:332
 msgid "The death notice could not be written; please try again."
 msgstr ""
 
@@ -428,23 +428,23 @@ msgid "The finder storage location is unavailable."
 msgstr ""
 
 #: src/Webtrees/ObituaryWorklistHandler.php:207 src/Webtrees/RevertFlash.php:68
-#: src/Webtrees/ReviewScreenHandler.php:390
+#: src/Webtrees/ReviewScreenHandler.php:410
 msgid "The match could not be reverted."
 msgstr ""
 
-#: src/Webtrees/ReviewScreenHandler.php:342
+#: src/Webtrees/ReviewScreenHandler.php:362
 msgid "The match was confirmed and the death date was written."
 msgstr ""
 
-#: src/Webtrees/ReviewScreenHandler.php:208
+#: src/Webtrees/ReviewScreenHandler.php:210
 msgid "The match was marked uncertain."
 msgstr ""
 
-#: src/Webtrees/ReviewScreenHandler.php:202
+#: src/Webtrees/ReviewScreenHandler.php:204
 msgid "The match was rejected."
 msgstr ""
 
-#: src/Webtrees/ReviewScreenHandler.php:304
+#: src/Webtrees/ReviewScreenHandler.php:324
 msgid "The obituary did not carry writable data."
 msgstr ""
 
@@ -452,11 +452,12 @@ msgstr ""
 msgid "This individual already has a death date."
 msgstr ""
 
-#: src/Webtrees/ReviewScreenHandler.php:296
+#: src/Webtrees/ReviewScreenHandler.php:316
 msgid "This individual already has a death date; nothing was written."
 msgstr ""
 
-#: src/Webtrees/ReviewScreenHandler.php:285
+#: src/Webtrees/ReviewScreenHandler.php:295
+#: src/Webtrees/ReviewScreenHandler.php:305
 msgid "This match can no longer be confirmed."
 msgstr ""
 
@@ -464,10 +465,10 @@ msgstr ""
 msgid "This match cannot be reverted."
 msgstr ""
 
-#: src/Webtrees/ReviewScreenHandler.php:178
-#: src/Webtrees/ReviewScreenHandler.php:224
-#: src/Webtrees/ReviewScreenHandler.php:324
-#: src/Webtrees/ReviewScreenHandler.php:337
+#: src/Webtrees/ReviewScreenHandler.php:180
+#: src/Webtrees/ReviewScreenHandler.php:226
+#: src/Webtrees/ReviewScreenHandler.php:344
+#: src/Webtrees/ReviewScreenHandler.php:357
 msgid "This match was already finalised by someone else."
 msgstr ""
 

@@ -75,7 +75,7 @@ final readonly class RevertService
         }
 
         // The targets this revert is responsible for: DEAT always, BURI when one was written.
-        $targetCount = 1 + (int) ($writeBack->buriFactId !== null);
+        $targetCount = 1 + (int) ($writeBack->buriFactId !== null) + (int) ($writeBack->cremFactId !== null);
 
         try {
             $result = $this->reverter->revert($individual, $writeBack, $force);

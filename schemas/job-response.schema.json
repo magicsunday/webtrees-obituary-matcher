@@ -197,6 +197,18 @@
                     "format": "date",
                     "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
                 },
+                "disposition": {
+                    "description": "How the body was disposed of, when the notice states it \u2014 selects the confirm write-back event (a burial writes a sourced BURI, a cremation a sourced CREM). Absent or null means burial.",
+                    "type": [
+                        "string",
+                        "null"
+                    ],
+                    "enum": [
+                        "burial",
+                        "cremation",
+                        null
+                    ]
+                },
                 "relatives": {
                     "description": "Relatives named in the notice (used by the matcher's relative scorer).",
                     "type": "array",

@@ -117,7 +117,10 @@ final readonly class ReviewViewModel
         // handler's pre-write re-check share one decision (see ConfirmGate).
         $confirm = ConfirmGate::evaluate($hardConflict, $person->deathDate !== null, $deathRaw);
 
-        unset($extractedFacts['deathDate']);
+        // `disposition` is an internal write-back routing flag (it selects BURI vs CREM on confirm), not
+        // obituary content for the reviewer — drop it too so the review screen never renders a raw,
+        // untranslated `disposition: cremation` row (it is present only for a cremation notice).
+        unset($extractedFacts['deathDate'], $extractedFacts['disposition']);
 
         return new self(
             $person,

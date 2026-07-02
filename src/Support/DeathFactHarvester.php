@@ -13,6 +13,7 @@ namespace MagicSunday\ObituaryMatcher\Support;
 
 use MagicSunday\ObituaryMatcher\Domain\DateValue;
 use MagicSunday\ObituaryMatcher\Domain\DeathNoticeRecord;
+use MagicSunday\ObituaryMatcher\Domain\Disposition;
 use MagicSunday\ObituaryMatcher\Domain\ObituaryRecord;
 use MagicSunday\ObituaryMatcher\Domain\Place;
 
@@ -70,7 +71,8 @@ final class DeathFactHarvester
      *
      * @param DeathNoticeRecord $notice The enriched death notice.
      *
-     * @return array<string,string> Facts to harvest (deathDate, cemetery, funeralDate as present).
+     * @return array<string,string> Facts to harvest (deathDate, cemetery, funeralDate as present, plus
+     *                              `disposition=cremation` when the notice is a cremation).
      */
     public static function harvestFromNotice(DeathNoticeRecord $notice): array
     {
@@ -99,6 +101,12 @@ final class DeathFactHarvester
             $date = $notice->funeralDate->earliest;
 
             $facts['funeralDate'] = sprintf('%04d-%02d-%02d', $date->year, $date->month ?? 1, $date->day ?? 1);
+        }
+
+        // Burial is the default, so only a cremation is stamped — the confirm write-back reads this to emit
+        // a sourced CREM instead of a BURI. Absence therefore means burial.
+        if ($notice->disposition === Disposition::Cremation) {
+            $facts['disposition'] = Disposition::Cremation->value;
         }
 
         return $facts;

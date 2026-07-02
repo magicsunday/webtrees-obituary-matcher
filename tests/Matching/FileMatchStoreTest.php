@@ -933,7 +933,7 @@ final class FileMatchStoreTest extends TempDirTestCase
         $row = $store->findOne('I1', StoredMatchKey::fromUrl($url));
         self::assertInstanceOf(StoredMatch::class, $row);
         self::assertSame(MatchStatus::Confirmed, $row->status);
-        self::assertSame(['deatFactId' => 'deat-1', 'buriFactId' => null, 'sourceXref' => 'S5', 'sourceCreated' => true, 'citationIds' => []], $row->writeBack);
+        self::assertSame(['deatFactId' => 'deat-1', 'buriFactId' => null, 'cremFactId' => null, 'sourceXref' => 'S5', 'sourceCreated' => true, 'citationIds' => []], $row->writeBack);
     }
 
     /**

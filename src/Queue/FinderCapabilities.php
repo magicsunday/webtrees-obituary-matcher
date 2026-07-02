@@ -51,6 +51,7 @@ final readonly class FinderCapabilities
         'age',
         'funeralDate',
         'relatives',
+        'disposition',
     ];
 
     /**

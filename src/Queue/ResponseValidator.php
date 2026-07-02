@@ -14,6 +14,7 @@ namespace MagicSunday\ObituaryMatcher\Queue;
 use DateTimeImmutable;
 use Exception;
 use MagicSunday\ObituaryMatcher\Domain\DeathNoticeRecord;
+use MagicSunday\ObituaryMatcher\Domain\Disposition;
 use MagicSunday\ObituaryMatcher\Domain\NoticeRelative;
 use MagicSunday\ObituaryMatcher\Domain\NoticeType;
 use MagicSunday\ObituaryMatcher\Domain\PersonName;
@@ -59,6 +60,7 @@ use const PHP_URL_SCHEME;
  *                     "cemetery": string,          // optional, non-empty string => Place
  *                     "age": int,                  // optional
  *                     "funeralDate": string,       // optional, parsed via ObituaryDateParser
+ *                     "disposition": string,       // optional, burial|cremation => Disposition; absent=burial, unknown drops the notice
  *                     "relatives": [               // optional, malformed entries skipped
  *                         {"name": string, "relationGuess": string, "confidence": float}
  *                     ],
@@ -194,6 +196,27 @@ final readonly class ResponseValidator
             ? NoticeType::fromStringOrDefault($noticeTypeRaw)
             : NoticeType::Obituary;
 
+        // A PRESENT disposition must be exactly a known case. An unknown/typo'd or non-string value must
+        // NOT silently coerce to burial — that would write a wrong BURI for an intended cremation — so the
+        // malformed notice is dropped (consistent with the schema's enum and the no-usable-name drop
+        // below). Only an absent (or null) disposition means burial.
+        $dispositionRaw = $notice['disposition'] ?? null;
+        $disposition    = Disposition::Burial;
+
+        if ($dispositionRaw !== null) {
+            if (!is_string($dispositionRaw)) {
+                return null;
+            }
+
+            $parsedDisposition = Disposition::tryFrom($dispositionRaw);
+
+            if (!$parsedDisposition instanceof Disposition) {
+                return null;
+            }
+
+            $disposition = $parsedDisposition;
+        }
+
         $rawName = $notice['name'] ?? null;
 
         if (
@@ -223,6 +246,7 @@ final readonly class ResponseValidator
             $url,
             $source,
             $fetchedAt,
+            $disposition,
         );
     }
 

@@ -15,6 +15,7 @@ use DateTimeImmutable;
 use MagicSunday\ObituaryMatcher\Domain\DateRange;
 use MagicSunday\ObituaryMatcher\Domain\DateValue;
 use MagicSunday\ObituaryMatcher\Domain\DeathNoticeRecord;
+use MagicSunday\ObituaryMatcher\Domain\Disposition;
 use MagicSunday\ObituaryMatcher\Domain\NoticeType;
 use MagicSunday\ObituaryMatcher\Domain\PersonName;
 use MagicSunday\ObituaryMatcher\Domain\Place;
@@ -76,6 +77,36 @@ final class DeathFactHarvesterTest extends TestCase
                     'deathDate'   => '2024-03-01',
                     'cemetery'    => 'Waldfriedhof',
                     'funeralDate' => '2024-03-08',
+                ],
+            ],
+
+            // cremation disposition -> disposition=cremation stamped alongside the other facts.
+            'cremation stamps disposition' => [
+                self::notice(
+                    death: DateRange::exact(new DateValue(2024, 3, 1)),
+                    cemetery: new Place('Waldfriedhof'),
+                    funeralDate: DateRange::exact(new DateValue(2024, 3, 8)),
+                    disposition: Disposition::Cremation,
+                ),
+                [
+                    'deathDate'   => '2024-03-01',
+                    'cemetery'    => 'Waldfriedhof',
+                    'funeralDate' => '2024-03-08',
+                    'disposition' => 'cremation',
+                ],
+            ],
+
+            // burial disposition -> NO disposition key (burial is the default, absence means burial).
+            'burial stamps no disposition' => [
+                self::notice(
+                    death: DateRange::exact(new DateValue(2024, 3, 1)),
+                    cemetery: new Place('Waldfriedhof'),
+                    funeralDate: DateRange::unknown(),
+                    disposition: Disposition::Burial,
+                ),
+                [
+                    'deathDate' => '2024-03-01',
+                    'cemetery'  => 'Waldfriedhof',
                 ],
             ],
 
@@ -167,6 +198,7 @@ final class DeathFactHarvesterTest extends TestCase
         DateRange $death,
         ?Place $cemetery,
         DateRange $funeralDate,
+        Disposition $disposition = Disposition::Burial,
     ): DeathNoticeRecord {
         return new DeathNoticeRecord(
             NoticeType::Obituary,
@@ -182,6 +214,7 @@ final class DeathFactHarvesterTest extends TestCase
             'https://obituary.example/notice/erika',
             'portal',
             new DateTimeImmutable('2026-06-21T10:00:00+00:00'),
+            $disposition,
         );
     }
 }

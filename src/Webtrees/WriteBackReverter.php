@@ -52,6 +52,10 @@ class WriteBackReverter
             $targetIds[] = $writeBack->buriFactId;
         }
 
+        if ($writeBack->cremFactId !== null) {
+            $targetIds[] = $writeBack->cremFactId;
+        }
+
         $resolved = [];
         $missing  = [];
 

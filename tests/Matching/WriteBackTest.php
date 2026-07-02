@@ -40,6 +40,7 @@ final class WriteBackTest extends TestCase
         self::assertSame([
             'deatFactId'    => 'deat-1',
             'buriFactId'    => null,
+            'cremFactId'    => null,
             'sourceXref'    => 'S123',
             'sourceCreated' => true,
             'citationIds'   => [],
@@ -51,7 +52,34 @@ final class WriteBackTest extends TestCase
         self::assertSame('S123', $restored->sourceXref);
         self::assertTrue($restored->sourceCreated);
         self::assertNull($restored->buriFactId);
+        self::assertNull($restored->cremFactId);
         self::assertSame([], $restored->citationIds);
+    }
+
+    /**
+     * A cremation write-back round-trips its cremFactId (with buriFactId null — the two are mutually
+     * exclusive), so a later Revert can resolve the written CREM.
+     *
+     * @return void
+     */
+    #[Test]
+    public function roundTripsACremationWriteBack(): void
+    {
+        $writeBack = new WriteBack('deat-1', 'S123', false, null, 'crem-9');
+
+        self::assertSame([
+            'deatFactId'    => 'deat-1',
+            'buriFactId'    => null,
+            'cremFactId'    => 'crem-9',
+            'sourceXref'    => 'S123',
+            'sourceCreated' => false,
+            'citationIds'   => [],
+        ], $writeBack->toArray());
+
+        $restored = WriteBack::fromArray($writeBack->toArray());
+
+        self::assertNull($restored->buriFactId);
+        self::assertSame('crem-9', $restored->cremFactId);
     }
 
     /**
@@ -119,6 +147,24 @@ final class WriteBackTest extends TestCase
             'sourceXref'    => 'S1',
             'sourceCreated' => true,
             'buriFactId'    => 123,
+        ]);
+    }
+
+    /**
+     * fromArray rejects a present cremFactId that is not a string.
+     *
+     * @return void
+     */
+    #[Test]
+    public function fromArrayRejectsANonStringCremFactId(): void
+    {
+        $this->expectException(InvalidArgumentException::class);
+
+        WriteBack::fromArray([
+            'deatFactId'    => 'd',
+            'sourceXref'    => 'S1',
+            'sourceCreated' => true,
+            'cremFactId'    => 123,
         ]);
     }
 

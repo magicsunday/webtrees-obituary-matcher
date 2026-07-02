@@ -72,6 +72,7 @@ final class ObituaryWriteBackTest extends IntegrationTestCase
             . "0 @I5@ INDI\n1 NAME Paul /Leer/\n1 SEX M\n1 DEAT\n"
             . "0 @I6@ INDI\n1 NAME Greta /Asche/\n1 SEX F\n1 CREM\n2 DATE 03 MAR 1995\n"
             . "0 @I7@ INDI\n1 NAME Wili /Grablos/\n1 SEX M\n1 BIRT\n2 DATE 1 JAN 1940\n1 BURI\n"
+            . "0 @I8@ INDI\n1 NAME Emil /Ohnedatum/\n1 SEX M\n1 BIRT\n2 DATE 2 FEB 1941\n1 CREM\n"
         );
     }
 
@@ -389,6 +390,83 @@ final class ObituaryWriteBackTest extends IntegrationTestCase
         self::assertStringContainsString('2 SOUR @' . $writeBack->sourceXref . '@', $gedcom);
         self::assertStringContainsString('3 PAGE https://trauer.example/x', $gedcom);
         self::assertTrue(strpos($gedcom, '2 DATE') < strpos($gedcom, '2 PLAC'), 'BURI DATE must precede PLAC');
+    }
+
+    /**
+     * A cremation notice writes a sourced CREM instead of a BURI — the same dated, placed, source-cited
+     * shape (DATE before PLAC), just the CREM tag — and records the id under `cremFactId` with
+     * `buriFactId` null (the two are mutually exclusive). No BURI is written.
+     *
+     * @return void
+     */
+    #[Test]
+    public function aCremationWritesASourcedCremInsteadOfABurial(): void
+    {
+        $tree = $this->tree();
+
+        $writeBack = $this->writer()->writeConfirm($this->person('I1', $tree), '2023-09-04', 'Krematorium Beispielstadt', '2023-09-10', 'https://trauer.example/x', true);
+
+        self::assertNull($writeBack->buriFactId);
+        self::assertNotNull($writeBack->cremFactId);
+
+        self::assertCount(0, iterator_to_array($this->person('I1', $tree)->facts(['BURI'], false, null, true)));
+
+        $crem = iterator_to_array($this->person('I1', $tree)->facts(['CREM'], false, null, true));
+
+        self::assertCount(1, $crem);
+        $gedcom = $crem[0]->gedcom();
+        self::assertStringContainsString('2 PLAC Krematorium Beispielstadt', $gedcom);
+        self::assertStringContainsString('2 DATE 10 SEP 2023', $gedcom);
+        self::assertStringContainsString('2 SOUR @' . $writeBack->sourceXref . '@', $gedcom);
+        self::assertStringContainsString('3 PAGE https://trauer.example/x', $gedcom);
+        self::assertTrue(strpos($gedcom, '2 DATE') < strpos($gedcom, '2 PLAC'), 'CREM DATE must precede PLAC');
+    }
+
+    /**
+     * An existing (bare, undated) CREM is never shadowed by a duplicate: the death still writes, but the
+     * cremation write is skipped and `cremFactId` stays null — the CREM parallel of the existing-BURI
+     * guard, exercising the tag-parameterised duplicate check. I8 carries a bare `1 CREM` (no date), so
+     * the death-date guard passes.
+     *
+     * @return void
+     */
+    #[Test]
+    public function anExistingCremSkipsTheCremWriteButTheDeathStillWrites(): void
+    {
+        $tree      = $this->tree();
+        $writeBack = $this->writer()->writeConfirm($this->person('I8', $tree), '2023-09-04', 'Krematorium', '2023-09-10', 'https://trauer.example/x', true);
+
+        self::assertNull($writeBack->cremFactId);
+        self::assertNotSame('', $writeBack->deatFactId);
+        self::assertCount(1, iterator_to_array($this->person('I8', $tree)->facts(['CREM'], false, null, true)));
+        self::assertCount(1, iterator_to_array($this->person('I8', $tree)->facts(['DEAT'], false, null, true)));
+    }
+
+    /**
+     * A cremation notice often states no crematorium/cemetery — unlike a burial, a cremation is still
+     * recorded (the cremation itself is the fact), so a CREM is written with its funeral DATE and source
+     * citation but NO PLAC. This is the deliberate BURI-vs-CREM asymmetry: a burial needs a place, a
+     * cremation does not.
+     *
+     * @return void
+     */
+    #[Test]
+    public function aCremationWithoutACemeteryStillWritesASourcedCrem(): void
+    {
+        $tree = $this->tree();
+
+        $writeBack = $this->writer()->writeConfirm($this->person('I1', $tree), '2023-09-04', null, '2023-09-10', 'https://trauer.example/x', true);
+
+        self::assertNull($writeBack->buriFactId);
+        self::assertNotNull($writeBack->cremFactId);
+
+        $crem = iterator_to_array($this->person('I1', $tree)->facts(['CREM'], false, null, true));
+
+        self::assertCount(1, $crem);
+        $gedcom = $crem[0]->gedcom();
+        self::assertStringContainsString('2 DATE 10 SEP 2023', $gedcom);
+        self::assertStringContainsString('2 SOUR @' . $writeBack->sourceXref . '@', $gedcom);
+        self::assertStringNotContainsString('2 PLAC', $gedcom);
     }
 
     /**
