@@ -56,13 +56,13 @@ use const LOCK_UN;
  * dropped on finalisation ({@see remove()}) or handed back ({@see release()}) when the job is not yet
  * ready. A claim stranded by a crashed drain (older than {@see STALE_SECONDS}) is swept back to pending
  * so it is retried, and is surfaced by {@see staleCount()}. A claimed-but-unfinalised job is still in
- * flight, so {@see entries()}/{@see jobIds()}/{@see openJobCount()} report the union of both locations.
+ * flight, so {@see entries()}/{@see openJobCount()} report the union of both locations.
  *
  * The mutating transitions (claim, release, remove and the stale reclaim) are serialised by an exclusive
  * advisory lock ({@see LOCK_FILE}, held only for the microseconds a rename takes, never across a network
  * poll or an ingest), so a check-then-rename in one drain is never split by a competing transition in
  * another — this is what makes the claim atomic against a concurrent reclaim and the finalisation atomic
- * against a concurrent release. The READ scans ({@see entries()}/{@see openJobCount()}/{@see jobIds()})
+ * against a concurrent release. The READ scans ({@see entries()}/{@see openJobCount()})
  * deliberately run lock-free to keep the enqueue-dedup and control-panel paths cheap; a job caught
  * mid-rename by a concurrent union scan could momentarily be missed, at worst enqueuing a redundant
  * (idempotently-ingested) duplicate job — a bounded, non-corrupting best-effort trade.
@@ -345,7 +345,7 @@ final readonly class RestPendingLedger
      * Counts every in-flight ledger FILE whose basename is a path-safe jobId, across BOTH the pending root
      * and the claimed subdirectory, regardless of whether its CONTENT narrows cleanly. A poisoned,
      * oversized or structurally-invalid entry still represents a remote job that was submitted and not yet
-     * drained, so it counts as open here (in contrast to {@see self::entries()}/{@see self::jobIds()},
+     * drained, so it counts as open here (in contrast to {@see self::entries()},
      * which skip such files). A claimed job is still open, so the claimed subdirectory is counted too.
      * Returns 0 when the ledger root does not exist or cannot be read. Mirrors the {@see self::entries()}
      * scan (FilesystemIterator + isFile + `.json` suffix, UnexpectedValueException-guarded) so the
@@ -357,23 +357,6 @@ final readonly class RestPendingLedger
     public function openJobCount(): int
     {
         return $this->countDirectory($this->root) + $this->countDirectory($this->claimedRoot());
-    }
-
-    /**
-     * Returns the jobIds of every well-formed in-flight entry, derived from the same poison-tolerant
-     * union scan as {@see self::entries()}.
-     *
-     * @return list<string>
-     */
-    public function jobIds(): array
-    {
-        $ids = [];
-
-        foreach ($this->entries() as $entry) {
-            $ids[] = $entry['jobId'];
-        }
-
-        return $ids;
     }
 
     /**

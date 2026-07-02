@@ -95,6 +95,7 @@ use const JSON_THROW_ON_ERROR;
 #[UsesClass(FailureCategory::class)]
 final class RestJobTransportTest extends TempDirTestCase
 {
+    use ProjectsLedgerJobIds;
     use ScriptableHttpClientTrait;
 
     /**
@@ -300,7 +301,7 @@ final class RestJobTransportTest extends TempDirTestCase
         $transport = $this->newRest($http, $ledger);
 
         self::assertSame([], iterator_to_array($transport->fetchCompleted()));
-        self::assertSame(['job-1'], $ledger->jobIds());
+        self::assertSame(['job-1'], self::jobIdsOf($ledger));
     }
 
     /**
@@ -323,7 +324,7 @@ final class RestJobTransportTest extends TempDirTestCase
         $transport = $this->newRest($http, $ledger);
 
         self::assertSame([], iterator_to_array($transport->fetchCompleted()));
-        self::assertSame(['job-1'], $ledger->jobIds());
+        self::assertSame(['job-1'], self::jobIdsOf($ledger));
     }
 
     /**
@@ -439,7 +440,7 @@ final class RestJobTransportTest extends TempDirTestCase
 
         self::assertCount(0, $outcomes);
         self::assertSame(1, $stream->closeCalls);
-        self::assertSame(['job-1'], $ledger->jobIds());
+        self::assertSame(['job-1'], self::jobIdsOf($ledger));
     }
 
     /**
@@ -520,7 +521,7 @@ final class RestJobTransportTest extends TempDirTestCase
         $transport = $this->newRest($http, $ledger);
 
         self::assertSame([], iterator_to_array($transport->fetchCompleted()));
-        self::assertSame(['job-1'], $ledger->jobIds());
+        self::assertSame(['job-1'], self::jobIdsOf($ledger));
     }
 
     /**
@@ -593,7 +594,7 @@ final class RestJobTransportTest extends TempDirTestCase
         self::assertCount(1, $outcomes);
         self::assertInstanceOf(CompletedJob::class, $outcomes[0]);
         self::assertSame('job-ok', $outcomes[0]->jobId);
-        self::assertContains('job-torn', $ledger->jobIds());
+        self::assertContains('job-torn', self::jobIdsOf($ledger));
     }
 
     /**
@@ -622,7 +623,7 @@ final class RestJobTransportTest extends TempDirTestCase
             self::assertStringNotContainsString('secret-token', $exception->getTraceAsString());
         }
 
-        self::assertSame([], $ledger->jobIds());
+        self::assertSame([], self::jobIdsOf($ledger));
     }
 
     /**
@@ -648,7 +649,7 @@ final class RestJobTransportTest extends TempDirTestCase
             // Expected: the remote acknowledged a different job.
         }
 
-        self::assertSame([], $ledger->jobIds());
+        self::assertSame([], self::jobIdsOf($ledger));
         self::assertCount(2, $http->sent);
         self::assertSame('DELETE', $http->sent[1]->getMethod());
         self::assertStringContainsString('/jobs/job-1', (string) $http->sent[1]->getUri());
@@ -677,7 +678,7 @@ final class RestJobTransportTest extends TempDirTestCase
             // Expected: the 202 body could not be read back to confirm the job.
         }
 
-        self::assertSame([], $ledger->jobIds());
+        self::assertSame([], self::jobIdsOf($ledger));
         self::assertCount(2, $http->sent);
         self::assertSame('DELETE', $http->sent[1]->getMethod());
         self::assertStringContainsString('/jobs/job-1', (string) $http->sent[1]->getUri());
@@ -706,7 +707,7 @@ final class RestJobTransportTest extends TempDirTestCase
             // Expected: the entry exceeds the read-back byte cap after the remote already accepted it.
         }
 
-        self::assertSame([], $ledger->jobIds());
+        self::assertSame([], self::jobIdsOf($ledger));
         self::assertCount(2, $http->sent);
         self::assertSame('DELETE', $http->sent[1]->getMethod());
         self::assertStringContainsString('/jobs/huge', (string) $http->sent[1]->getUri());
@@ -756,7 +757,7 @@ final class RestJobTransportTest extends TempDirTestCase
 
         $this->newRest($this->http([]), $ledger)->release('job-1');
 
-        self::assertSame(['job-1'], $ledger->jobIds());
+        self::assertSame(['job-1'], self::jobIdsOf($ledger));
     }
 
     /**
@@ -778,7 +779,7 @@ final class RestJobTransportTest extends TempDirTestCase
         ]);
         $this->newRest($http, $ledger)->markIngested('job-1', ['matchesStored' => 0]);
 
-        self::assertSame([], $ledger->jobIds());
+        self::assertSame([], self::jobIdsOf($ledger));
     }
 
     /**
@@ -798,7 +799,7 @@ final class RestJobTransportTest extends TempDirTestCase
         $http = $this->http([]);
         $this->newRest($http, $ledger)->markFailed('job-1', FailureCategory::IngestFailed);
 
-        self::assertSame([], $ledger->jobIds());
+        self::assertSame([], self::jobIdsOf($ledger));
         self::assertCount(0, $http->sent);
     }
 

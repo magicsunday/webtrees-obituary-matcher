@@ -44,8 +44,10 @@ use function touch;
 #[UsesClass(JobId::class)]
 final class RestPendingLedgerTest extends TempDirTestCase
 {
+    use ProjectsLedgerJobIds;
+
     /**
-     * A recorded entry is listed by entries()/jobIds() with its narrowed fields and is removed again.
+     * A recorded entry is listed by entries() with its narrowed fields and is removed again.
      *
      * @return void
      */
@@ -62,12 +64,12 @@ final class RestPendingLedgerTest extends TempDirTestCase
         self::assertSame(7, $entries[0]['treeId']);
         self::assertSame(['I1', 'I2'], $entries[0]['requestedPersonIds']);
         self::assertSame('2024-05-21T08:29:55Z', $entries[0]['submittedAt']);
-        self::assertSame(['job-1'], $ledger->jobIds());
+        self::assertSame(['job-1'], self::jobIdsOf($ledger));
 
         $ledger->remove('job-1');
 
         self::assertSame([], iterator_to_array($ledger->entries()));
-        self::assertSame([], $ledger->jobIds());
+        self::assertSame([], self::jobIdsOf($ledger));
     }
 
     /**
@@ -97,7 +99,7 @@ final class RestPendingLedgerTest extends TempDirTestCase
 
     /**
      * A claimed-but-unfinalised entry is still in flight: it has left the pending root for the claimed
-     * subdirectory, yet entries()/jobIds()/openJobCount() still report it (the union), so the enqueue
+     * subdirectory, yet entries()/openJobCount() still report it (the union), so the enqueue
      * producer keeps deduping against it.
      *
      * @return void
@@ -116,7 +118,7 @@ final class RestPendingLedgerTest extends TempDirTestCase
         self::assertCount(1, $entries);
         self::assertSame('job-1', $entries[0]['jobId']);
         self::assertSame(['I1', 'I2'], $entries[0]['requestedPersonIds']);
-        self::assertSame(['job-1'], $ledger->jobIds());
+        self::assertSame(['job-1'], self::jobIdsOf($ledger));
         self::assertSame(1, $ledger->openJobCount());
     }
 
@@ -219,7 +221,7 @@ final class RestPendingLedgerTest extends TempDirTestCase
 
         self::assertFalse(is_file($root . '/claimed/job-1.json'));
         self::assertSame([], iterator_to_array($ledger->entries()));
-        self::assertSame([], $ledger->jobIds());
+        self::assertSame([], self::jobIdsOf($ledger));
         self::assertSame(0, $ledger->openJobCount());
     }
 
@@ -274,7 +276,7 @@ final class RestPendingLedgerTest extends TempDirTestCase
     }
 
     /**
-     * A malformed entry still strands a remote job, so it MUST count as open (unlike entries()/jobIds()).
+     * A malformed entry still strands a remote job, so it MUST count as open (unlike entries()).
      *
      * @return void
      */
@@ -325,7 +327,7 @@ final class RestPendingLedgerTest extends TempDirTestCase
 
         $ledger->remove('nope');
 
-        self::assertSame([], $ledger->jobIds());
+        self::assertSame([], self::jobIdsOf($ledger));
     }
 
     /**
@@ -341,7 +343,7 @@ final class RestPendingLedgerTest extends TempDirTestCase
 
         $ledger->remove('../evil');
 
-        self::assertSame([], $ledger->jobIds());
+        self::assertSame([], self::jobIdsOf($ledger));
     }
 
     /**
@@ -358,7 +360,7 @@ final class RestPendingLedgerTest extends TempDirTestCase
         $ledger = new RestPendingLedger($this->tmp . '/rest-pending');
 
         self::assertSame([], iterator_to_array($ledger->entries()));
-        self::assertSame([], $ledger->jobIds());
+        self::assertSame([], self::jobIdsOf($ledger));
     }
 
     /**
@@ -386,7 +388,7 @@ final class RestPendingLedgerTest extends TempDirTestCase
 
         self::assertCount(1, $entries);
         self::assertSame('good-job', $entries[0]['jobId']);
-        self::assertSame(['good-job'], $ledger->jobIds());
+        self::assertSame(['good-job'], self::jobIdsOf($ledger));
     }
 
     /**
@@ -417,7 +419,7 @@ final class RestPendingLedgerTest extends TempDirTestCase
 
         self::assertCount(1, $entries);
         self::assertSame('good-job', $entries[0]['jobId']);
-        self::assertSame(['good-job'], $ledger->jobIds());
+        self::assertSame(['good-job'], self::jobIdsOf($ledger));
     }
 
     /**
@@ -443,7 +445,7 @@ final class RestPendingLedgerTest extends TempDirTestCase
         }
 
         self::assertSame([], iterator_to_array($ledger->entries()));
-        self::assertSame([], $ledger->jobIds());
+        self::assertSame([], self::jobIdsOf($ledger));
     }
 
     /**
@@ -481,12 +483,12 @@ final class RestPendingLedgerTest extends TempDirTestCase
         }
 
         self::assertSame([], iterator_to_array($ledger->entries()));
-        self::assertSame([], $ledger->jobIds());
+        self::assertSame([], self::jobIdsOf($ledger));
     }
 
     /**
      * Every distinct field-shape failure in narrow() rejects the malformed entry (it is absent from
-     * entries()/jobIds()) while a valid sibling entry still surfaces, so one structurally invalid file
+     * entries()) while a valid sibling entry still surfaces, so one structurally invalid file
      * can never poison the scan.
      *
      * @param string $malformedJson The raw JSON bytes of the structurally invalid entry.
@@ -510,7 +512,7 @@ final class RestPendingLedgerTest extends TempDirTestCase
 
         self::assertCount(1, $entries);
         self::assertSame('good-job', $entries[0]['jobId']);
-        self::assertSame(['good-job'], $ledger->jobIds());
+        self::assertSame(['good-job'], self::jobIdsOf($ledger));
     }
 
     /**
