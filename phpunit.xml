@@ -29,6 +29,14 @@
         <testsuite name="integration">
             <directory>tests/Integration</directory>
         </testsuite>
+        <!--
+            The interop suite is DELIBERATELY separate: it is NOT part of `composer ci:test` and NOT wired
+            into required CI (it drives a real, availability-gated finder over HTTP). Run it explicitly
+            with `composer ci:test:php:interop`. See the README (Development section).
+        -->
+        <testsuite name="interop">
+            <directory>tests/Interop</directory>
+        </testsuite>
     </testsuites>
 
     <source ignoreIndirectDeprecations="true" restrictNotices="true" restrictWarnings="true">
