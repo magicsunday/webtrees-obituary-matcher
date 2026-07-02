@@ -52,6 +52,95 @@ final class UrlNormalizerTest extends TestCase
     }
 
     /**
+     * The byte-for-byte pinned algorithm (issue #67): the residual query is sorted with the explicit
+     * SORT_STRING bytewise order (repeated keys preserved), and both the path and each query pair are
+     * percent-normalised per RFC 3986 §6.2.2 — escape hex is upper-cased, an escaped unreserved byte is
+     * decoded, every other escape is kept encoded, and a literal `+` is kept (never folded to a space).
+     *
+     * @return array<string, array{0:string, 1:string}>
+     */
+    public static function deterministicVectors(): array
+    {
+        return [
+            // Query params sort by full bytes, ascending.
+            'query sorts bytewise ascending' => ['https://example.test/a?b=2&a=1', 'https://example.test/a?a=1&b=2'],
+            // A shorter pair sorts before its own longer prefix-extension, and a repeated key is kept.
+            'repeated key + prefix order' => ['https://example.test/a?b=2&a=10&a=1', 'https://example.test/a?a=1&a=10&b=2'],
+            // An escaped reserved byte (encoded slash) is kept encoded, only its hex case is normalised.
+            'reserved escape hex upper-cased' => ['https://example.test/a?x=%2fy', 'https://example.test/a?x=%2Fy'],
+            // An escaped unreserved byte in the query is decoded.
+            'unreserved query escape decoded' => ['https://example.test/a?x=%7Ez', 'https://example.test/a?x=~z'],
+            // An escaped unreserved byte in the path is decoded (and hex-case-insensitively so).
+            'unreserved path escape decoded' => ['https://example.test/%41%62', 'https://example.test/Ab'],
+            // An encoded space stays encoded (it is a reserved-context byte, kept as %20).
+            'encoded space stays encoded' => ['https://example.test/a?x=%20y', 'https://example.test/a?x=%20y'],
+            // A literal '+' is a distinct query byte, NOT folded to a space.
+            'literal plus kept verbatim' => ['https://example.test/a?x=a+b', 'https://example.test/a?x=a+b'],
+            // An encoded slash in the path is kept encoded (distinct from a literal '/'), hex upper-cased.
+            'encoded path slash kept, hex upper' => ['https://example.test/a%2fb', 'https://example.test/a%2Fb'],
+            // A percent-encoded tracking name ("%75tm_source" = "utm_source") is decoded and THEN stripped
+            // on the same pass, so the algorithm stays idempotent (the sibling idempotence test re-runs it).
+            'encoded tracking name stripped' => ['https://example.test/a?%75tm_source=x&id=1', 'https://example.test/a?id=1'],
+            // Decoding an unreserved escape can materialise a dot-segment; it is kept verbatim (no collapse).
+            'materialised dot-segment not collapsed' => ['https://example.test/a/%2E%2E/b', 'https://example.test/a/../b'],
+            // Bare-name pairs sort in unsigned-byte order ("1"<"2"<"A"<"a"), ruling out numeric/locale/case sorts.
+            'bare names sort by unsigned byte' => ['https://example.test/a?a&2&10&A', 'https://example.test/a?10&2&A&a'],
+            // Empty pairs (a "&&" run / trailing "&") are dropped; a bare "a" stays distinct from "a=".
+            'empty pairs dropped, a vs a= distinct' => ['https://example.test/a?b&&a=&a&', 'https://example.test/a?a&a=&b'],
+            // A malformed escape (bad hex, one digit, a bare %) is left byte-for-byte unchanged.
+            'malformed escape left verbatim' => ['https://example.test/a?x=%GG%1%', 'https://example.test/a?x=%GG%1%'],
+            // An encoded '=' (%3D) is reserved, so it stays encoded and is NOT the name/value separator:
+            // the name is "a%3Db", the value "c" (only the hex case is normalised).
+            'encoded equals is not a separator' => ['https://example.test/a?a%3db=c', 'https://example.test/a?a%3Db=c'],
+        ];
+    }
+
+    /**
+     * Every deterministic-algorithm vector normalises to its exact documented byte form, pinning the
+     * sort order and the percent-encoding rules a clean-room finder must reproduce.
+     */
+    #[Test]
+    #[DataProvider('deterministicVectors')]
+    public function normalisesToTheDocumentedByteForm(string $url, string $expected): void
+    {
+        self::assertSame($expected, UrlNormalizer::normalizeForIdentity($url));
+    }
+
+    /**
+     * A literal `+` and an encoded space `%20` are DISTINCT query bytes and must NOT collapse onto one
+     * identity key: the generic URI query treats `+` as a literal, so a finder that means "space" must
+     * emit `%20`.
+     */
+    #[Test]
+    public function aLiteralPlusDoesNotCollapseWithAnEncodedSpace(): void
+    {
+        self::assertNotSame(
+            UrlNormalizer::normalizeForIdentity('https://example.test/a?x=a+b'),
+            UrlNormalizer::normalizeForIdentity('https://example.test/a?x=a%20b'),
+        );
+    }
+
+    /**
+     * The normalisation is idempotent: normalising an already-normalised key yields the same bytes, so a
+     * value that has passed through the algorithm once is a fixed point (a decoded unreserved byte is
+     * never a `%`, and an already-upper-cased escape re-emits unchanged, so no second pass can change it).
+     *
+     * @param string $url       The raw input URL.
+     * @param string $_expected The documented normalised form (asserted by the sibling vector test).
+     *
+     * @return void
+     */
+    #[Test]
+    #[DataProvider('deterministicVectors')]
+    public function normalisationIsIdempotent(string $url, string $_expected): void
+    {
+        $once  = UrlNormalizer::normalizeForIdentity($url);
+        $twice = UrlNormalizer::normalizeForIdentity($once);
+
+        self::assertSame($once, $twice);
+    }
+
+    /**
      * A scheme+host URL without a path (no trailing slash) collapses onto the root slash, so the
      * bare-host and trailing-slash forms of the same root resource share one identity key. Only the
      * root case collapses: a non-root path keeps its distinct trailing-slash variant.
