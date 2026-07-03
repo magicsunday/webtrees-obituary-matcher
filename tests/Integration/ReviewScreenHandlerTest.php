@@ -170,15 +170,19 @@ final class ReviewScreenHandlerTest extends IntegrationTestCase
         // through the real handler→template path. @I1@ additionally carries a spouse (@I3@), a child
         // (@I4@) and a parent (@I5@) so the family-graph panel test exercises the real
         // Individual::spouseFamilies()/childFamilies() traversal; the panel only renders when a seeded
-        // payload carries notice relatives, so this family is inert for the other render tests.
+        // payload carries notice relatives, so this family is inert for the other render tests. A SECOND
+        // spouse family @F3@ for the same couple (@I1@+@I3@) — the duplicate-FAM merge artifact — lets
+        // the panel test prove the XREF de-duplication in treeFamily() (Karla must appear once, not
+        // twice).
         $this->tree = $this->importFixtureTree(
-            "0 @I1@ INDI\n1 NAME Otto /Vorbild/\n1 SEX M\n1 BIRT\n2 DATE 4 SEP 1901\n2 PLAC Berlin\n1 DEAT\n2 DATE 25 JAN 1932\n1 FAMS @F1@\n1 FAMC @F2@\n"
+            "0 @I1@ INDI\n1 NAME Otto /Vorbild/\n1 SEX M\n1 BIRT\n2 DATE 4 SEP 1901\n2 PLAC Berlin\n1 DEAT\n2 DATE 25 JAN 1932\n1 FAMS @F1@\n1 FAMS @F3@\n1 FAMC @F2@\n"
             . "0 @I2@ INDI\n1 NAME Emma /Ortlos/\n1 SEX F\n1 BIRT\n2 PLAC Hamburg\n"
-            . "0 @I3@ INDI\n1 NAME Karla /Vorbild/\n1 SEX F\n1 FAMS @F1@\n"
+            . "0 @I3@ INDI\n1 NAME Karla /Vorbild/\n1 SEX F\n1 FAMS @F1@\n1 FAMS @F3@\n"
             . "0 @I4@ INDI\n1 NAME Hans /Vorbild/\n1 SEX M\n1 FAMC @F1@\n"
             . "0 @I5@ INDI\n1 NAME Wilhelm /Vorbild/\n1 SEX M\n1 FAMS @F2@\n"
             . "0 @F1@ FAM\n1 HUSB @I1@\n1 WIFE @I3@\n1 CHIL @I4@\n"
             . "0 @F2@ FAM\n1 HUSB @I5@\n1 CHIL @I1@\n"
+            . "0 @F3@ FAM\n1 HUSB @I1@\n1 WIFE @I3@\n"
         );
 
         $this->dir = $this->makeFlatStoreDir('om-review-');
@@ -435,7 +439,10 @@ final class ReviewScreenHandlerTest extends IntegrationTestCase
         self::assertIsInt($treeEnd);
         $treeColumn = substr($body, $treeStart, $treeEnd - $treeStart);
         self::assertStringNotContainsString('Otto Vorbild', $treeColumn);
+        // Exactly the three distinct relatives — the spouse Karla reached through BOTH @F1@ and the
+        // duplicate @F3@ is de-duplicated to a single row (4 would mean the dedup broke).
         self::assertSame(3, substr_count($treeColumn, 'om-relative-name'));
+        self::assertSame(1, substr_count($treeColumn, 'Karla Vorbild'));
 
         // The family names come from the live Individual::fullName() (HTML), stripped to plain text in
         // the DTO — no escaped name markup leaks into the rendered body.

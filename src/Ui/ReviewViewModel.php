@@ -21,6 +21,7 @@ use function is_array;
 use function is_float;
 use function is_int;
 use function is_string;
+use function trim;
 
 /**
  * A read-only, view-ready projection of a {@see StoredMatch} for the review screen. It exposes the
@@ -338,6 +339,10 @@ final readonly class ReviewViewModel
                 continue;
             }
 
+            // Trim before the emptiness check so a whitespace-only name (which passes `!== ''`) is
+            // dropped rather than rendering a blank panel item.
+            $name = trim($name);
+
             if ($name === '') {
                 continue;
             }
@@ -347,7 +352,7 @@ final readonly class ReviewViewModel
 
             $projected[] = [
                 'name'          => $name,
-                'relationGuess' => is_string($relationGuess) ? $relationGuess : '',
+                'relationGuess' => is_string($relationGuess) ? trim($relationGuess) : '',
                 'confidence'    => (is_int($confidence) || is_float($confidence)) ? (float) $confidence : 0.0,
             ];
         }

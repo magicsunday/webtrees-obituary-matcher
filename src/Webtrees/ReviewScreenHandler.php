@@ -501,8 +501,9 @@ class ReviewScreenHandler implements RequestHandlerInterface
      * (a member the current user may not see is omitted entirely — never a partial leak) and its display
      * name is stripped of webtrees' HTML markup so the escaping template renders plain text, exactly as
      * the head person's name is. A missing relation simply yields no members; it is never a conflict.
-     * The reviewed individual is excluded from every relation loop, so a self-referential/cyclic family
-     * record never lists the person as their own spouse, child or parent.
+     * The reviewed individual is excluded and every XREF is de-duplicated, so a self-referential/cyclic
+     * record never lists the person as their own relative and a relative reachable through more than one
+     * family record (a duplicate FAM for the same couple) is listed once, under its first relation.
      *
      * @param Individual $individual The individual under review.
      *
@@ -512,22 +513,29 @@ class ReviewScreenHandler implements RequestHandlerInterface
     {
         $members = [];
 
+        // Track the XREFs already added so a relative reachable through more than one family record
+        // (a duplicate FAM for the same couple, or a person linked to several of the person's families)
+        // is listed once, under the first relation encountered, rather than as a duplicated row.
+        $seen = [$individual->xref() => true];
+
         foreach ($individual->spouseFamilies() as $family) {
             foreach ($family->spouses() as $spouse) {
                 if (
-                    ($spouse->xref() !== $individual->xref())
+                    !isset($seen[$spouse->xref()])
                     && $spouse->canShow()
                 ) {
-                    $members[] = new TreeFamilyMember(strip_tags($spouse->fullName()), 'spouse');
+                    $seen[$spouse->xref()] = true;
+                    $members[]             = new TreeFamilyMember(strip_tags($spouse->fullName()), 'spouse');
                 }
             }
 
             foreach ($family->children() as $child) {
                 if (
-                    ($child->xref() !== $individual->xref())
+                    !isset($seen[$child->xref()])
                     && $child->canShow()
                 ) {
-                    $members[] = new TreeFamilyMember(strip_tags($child->fullName()), 'child');
+                    $seen[$child->xref()] = true;
+                    $members[]            = new TreeFamilyMember(strip_tags($child->fullName()), 'child');
                 }
             }
         }
@@ -536,10 +544,11 @@ class ReviewScreenHandler implements RequestHandlerInterface
             foreach ([$family->husband(), $family->wife()] as $parent) {
                 if (
                     ($parent instanceof Individual)
-                    && ($parent->xref() !== $individual->xref())
+                    && !isset($seen[$parent->xref()])
                     && $parent->canShow()
                 ) {
-                    $members[] = new TreeFamilyMember(strip_tags($parent->fullName()), 'parent');
+                    $seen[$parent->xref()] = true;
+                    $members[]             = new TreeFamilyMember(strip_tags($parent->fullName()), 'parent');
                 }
             }
         }

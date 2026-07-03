@@ -486,11 +486,14 @@ final class ReviewViewModelTest extends TestCase
                 'not-an-array',
                 ['name' => 123, 'relationGuess' => 'spouse', 'confidence' => 0.9],
                 ['name' => '', 'relationGuess' => 'child', 'confidence' => 0.9],
-                ['name' => 'Lone Name', 'relationGuess' => 5, 'confidence' => 'x'],
+                ['name' => '   ', 'relationGuess' => 'child', 'confidence' => 0.9],
+                ['name' => '  Lone Name  ', 'relationGuess' => 5, 'confidence' => 'x'],
             ]]),
             $this->person()
         );
 
+        // The whitespace-only name is dropped (it would render a blank panel item); the surviving name
+        // is trimmed, the typewrong relation guess collapses to '' and the typewrong confidence to 0.0.
         self::assertSame(['Lone Name'], array_column($vm->noticeRelatives, 'name'));
         self::assertSame([''], array_column($vm->noticeRelatives, 'relationGuess'));
         self::assertSame([true], array_column($vm->noticeRelatives, 'uncertain'));
