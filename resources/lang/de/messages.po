@@ -225,7 +225,7 @@ msgstr ""
 
 #: resources/views/review.phtml:126 resources/views/review.phtml:139
 msgid "Matched"
-msgstr "Übereinstimmung"
+msgstr "Zugeordnet"
 
 #: resources/views/worklist.phtml:81
 msgid "Maximum age"
@@ -242,7 +242,7 @@ msgstr "Name"
 
 #: resources/views/review.phtml:133
 msgid "Named in the notice"
-msgstr "In der Anzeige genannt"
+msgstr "In der Traueranzeige genannt"
 
 #: resources/views/review.phtml:174
 msgid "Next best candidate"
@@ -317,7 +317,7 @@ msgstr "Offene Finder-Aufträge"
 
 #: resources/views/review.phtml:56
 msgid "Other relative"
-msgstr "Weitere Angehörige"
+msgstr "Sonstige Verwandtschaft"
 
 #: resources/views/worklist.phtml:222
 #, php-format
