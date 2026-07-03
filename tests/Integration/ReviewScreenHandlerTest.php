@@ -164,10 +164,18 @@ final class ReviewScreenHandlerTest extends IntegrationTestCase
         // (a `<span class="date">…</span>`) — the very markup the plain-text TreePersonView DTO must
         // not leak through the escaping template. A second individual @I2@ carries a birth PLACE but NO
         // birth date, so the render test can exercise the place-only branch (a date-less birth event)
-        // through the real handler→template path.
+        // through the real handler→template path. @I1@ additionally carries a spouse (@I3@), a child
+        // (@I4@) and a parent (@I5@) so the family-graph panel test exercises the real
+        // Individual::spouseFamilies()/childFamilies() traversal; the panel only renders when a seeded
+        // payload carries notice relatives, so this family is inert for the other render tests.
         $this->tree = $this->importFixtureTree(
-            "0 @I1@ INDI\n1 NAME Otto /Vorbild/\n1 SEX M\n1 BIRT\n2 DATE 4 SEP 1901\n2 PLAC Berlin\n1 DEAT\n2 DATE 25 JAN 1932\n"
+            "0 @I1@ INDI\n1 NAME Otto /Vorbild/\n1 SEX M\n1 BIRT\n2 DATE 4 SEP 1901\n2 PLAC Berlin\n1 DEAT\n2 DATE 25 JAN 1932\n1 FAMS @F1@\n1 FAMC @F2@\n"
             . "0 @I2@ INDI\n1 NAME Emma /Ortlos/\n1 SEX F\n1 BIRT\n2 PLAC Hamburg\n"
+            . "0 @I3@ INDI\n1 NAME Karla /Vorbild/\n1 SEX F\n1 FAMS @F1@\n"
+            . "0 @I4@ INDI\n1 NAME Hans /Vorbild/\n1 SEX M\n1 FAMC @F1@\n"
+            . "0 @I5@ INDI\n1 NAME Wilhelm /Vorbild/\n1 SEX M\n1 FAMS @F2@\n"
+            . "0 @F1@ FAM\n1 HUSB @I1@\n1 WIFE @I3@\n1 CHIL @I4@\n"
+            . "0 @F2@ FAM\n1 HUSB @I5@\n1 CHIL @I1@\n"
         );
 
         $this->dir = $this->makeFlatStoreDir('om-review-');
@@ -373,6 +381,46 @@ final class ReviewScreenHandlerTest extends IntegrationTestCase
         self::assertStringContainsString('relative matches spouse', $body);
         self::assertStringContainsString('age matches the implied birth window', $body);
         self::assertStringContainsString('cemetery names a known place', $body);
+    }
+
+    /**
+     * GET renders the family-graph panel (#98): the tree person's real core family (spouse, child,
+     * parent, read live from the individual) opposite the notice's relatives, with the corresponding
+     * names flagged Matched on both sides and a low-confidence relative marked uncertain. A tree member
+     * with no notice counterpart is shown neutrally (never a conflict), and the plain-text family names
+     * must not leak webtrees name markup.
+     *
+     * @return void
+     */
+    #[Test]
+    public function getRendersTheFamilyGraphPanel(): void
+    {
+        $key     = $this->seedPendingMatchWithNoticeRelatives('I1');
+        $request = $this->managerGetRequest(ReviewScreenHandler::ROUTE_NAME, ['xref' => 'I1', 'key' => $key]);
+
+        $body = (string) $this->handler()->handle($request)->getBody();
+
+        // The panel and its two columns render.
+        self::assertStringContainsString('class="om-family-graph"', $body);
+        self::assertStringContainsString('In the tree', $body);
+        self::assertStringContainsString('Named in the notice', $body);
+
+        // The live tree family (spouse / child / parent) is projected with its relation labels.
+        self::assertStringContainsString('Karla Vorbild', $body);
+        self::assertStringContainsString('Hans Vorbild', $body);
+        self::assertStringContainsString('Wilhelm Vorbild', $body);
+        self::assertStringContainsString('Spouse', $body);
+        self::assertStringContainsString('Parent', $body);
+
+        // The corresponding spouse is flagged Matched on both sides; the low-confidence, unmatched
+        // notice relative is shown uncertain.
+        self::assertStringContainsString('Matched', $body);
+        self::assertStringContainsString('Petra Fremd', $body);
+        self::assertStringContainsString('uncertain', $body);
+
+        // The family names come from the live Individual::fullName() (HTML), stripped to plain text in
+        // the DTO — no escaped name markup leaks into the rendered body.
+        self::assertStringNotContainsString('&lt;span', $body);
     }
 
     /**
@@ -2094,6 +2142,29 @@ final class ReviewScreenHandlerTest extends IntegrationTestCase
             'relatives' => ['score' => 20, 'max' => 35, 'reasons' => ['relative matches spouse']],
             'age'       => ['score' => 15, 'max' => 20, 'reasons' => ['age matches the implied birth window']],
             'cemetery'  => ['score' => 10, 'max' => 10, 'reasons' => ['cemetery names a known place']],
+        ];
+
+        $this->store()->upsertPending(new StoredMatch($xref, $obituaryUrl, MatchStatus::Pending, $payload));
+
+        return StoredMatchKey::fromUrl($obituaryUrl);
+    }
+
+    /**
+     * Seeds a pending row whose payload carries two notice relatives: the spouse Karla Vorbild (matching
+     * the fixture spouse @I3@, high confidence) and Petra Fremd (matching nobody, low confidence → shown
+     * uncertain). Used to render the family-graph panel against the fixture person's real family.
+     *
+     * @param string $xref The candidate identifier.
+     *
+     * @return string The canonical row key.
+     */
+    private function seedPendingMatchWithNoticeRelatives(string $xref): string
+    {
+        $obituaryUrl                = 'https://trauer.example/' . $xref;
+        $payload                    = ClassifiedMatch::emptyArray($xref, $obituaryUrl);
+        $payload['noticeRelatives'] = [
+            ['name' => 'Karla Vorbild', 'relationGuess' => 'spouse', 'confidence' => 0.9],
+            ['name' => 'Petra Fremd', 'relationGuess' => 'child', 'confidence' => 0.3],
         ];
 
         $this->store()->upsertPending(new StoredMatch($xref, $obituaryUrl, MatchStatus::Pending, $payload));

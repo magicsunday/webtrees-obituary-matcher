@@ -17,11 +17,15 @@ use MagicSunday\ObituaryMatcher\Matching\MatchStatus;
 use MagicSunday\ObituaryMatcher\Matching\StoredMatch;
 use MagicSunday\ObituaryMatcher\Support\ConfirmDecision;
 use MagicSunday\ObituaryMatcher\Support\ConfirmGate;
+use MagicSunday\ObituaryMatcher\Support\FamilyNameMatch;
 use MagicSunday\ObituaryMatcher\Support\GedcomDateConverter;
 use MagicSunday\ObituaryMatcher\Ui\BandKey;
+use MagicSunday\ObituaryMatcher\Ui\FamilyMemberView;
+use MagicSunday\ObituaryMatcher\Ui\NoticeRelativeView;
 use MagicSunday\ObituaryMatcher\Ui\ObituaryDateFormatter;
 use MagicSunday\ObituaryMatcher\Ui\ReviewViewModel;
 use MagicSunday\ObituaryMatcher\Ui\SourceLink;
+use MagicSunday\ObituaryMatcher\Ui\TreeFamilyMember;
 use MagicSunday\ObituaryMatcher\Ui\TreePersonView;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\Test;
@@ -51,6 +55,10 @@ use function array_column;
 #[UsesClass(ConfirmDecision::class)]
 #[UsesClass(ConfirmGate::class)]
 #[UsesClass(GedcomDateConverter::class)]
+#[UsesClass(TreeFamilyMember::class)]
+#[UsesClass(FamilyMemberView::class)]
+#[UsesClass(NoticeRelativeView::class)]
+#[UsesClass(FamilyNameMatch::class)]
 final class ReviewViewModelTest extends TestCase
 {
     /**
@@ -79,8 +87,9 @@ final class ReviewViewModelTest extends TestCase
                 'plausibility' => ['score' => 10, 'max' => 10, 'reasons' => ['plausible age']],
                 'conflicts'    => ['score' => 0, 'reasons' => []],
             ],
-            'runnerUp' => null,
-            'review'   => null,
+            'noticeRelatives' => [],
+            'runnerUp'        => null,
+            'review'          => null,
         ];
 
         /** @var ClassifiedMatchArray $merged */
@@ -402,5 +411,93 @@ final class ReviewViewModelTest extends TestCase
         // hard conflict wins
         $conflict = ReviewViewModel::fromStoredMatch($this->match(['hardConflict' => true]), $this->person());
         self::assertSame('hard_conflict', $conflict->confirmDisabledReason);
+    }
+
+    /**
+     * The family-graph panel pairs the tree person's core family against the notice relatives, setting a
+     * matched flag on BOTH sides (a tree member is matched when a notice relative loosely corresponds,
+     * and vice versa). An unmatched member/relative is neutral, never a conflict (#98).
+     *
+     * @return void
+     */
+    #[Test]
+    public function projectsFamilyGraphWithMatchedFlagsBothDirections(): void
+    {
+        $person = new TreePersonView('I1', 'Maria Mustermann', null, null, null, [
+            new TreeFamilyMember('Karl Mustermann', 'spouse'),
+            new TreeFamilyMember('Otto Mustermann', 'child'),
+        ]);
+
+        $vm = ReviewViewModel::fromStoredMatch(
+            $this->match(['noticeRelatives' => [
+                ['name' => 'Karl Mustermann', 'relationGuess' => 'spouse', 'confidence' => 0.9],
+                ['name' => 'Erika Beispiel', 'relationGuess' => 'child', 'confidence' => 0.8],
+            ]]),
+            $person
+        );
+
+        // Tree side: the spouse is matched by the notice's Karl; the child has no notice relative.
+        self::assertSame(['Karl Mustermann', 'Otto Mustermann'], array_column($vm->familyMembers, 'name'));
+        self::assertSame(['spouse', 'child'], array_column($vm->familyMembers, 'relationKey'));
+        self::assertSame([true, false], array_column($vm->familyMembers, 'matched'));
+
+        // Notice side: Karl is matched by the tree spouse; Erika corresponds to nobody.
+        self::assertSame(['Karl Mustermann', 'Erika Beispiel'], array_column($vm->noticeRelatives, 'name'));
+        self::assertSame(['spouse', 'child'], array_column($vm->noticeRelatives, 'relationGuess'));
+        self::assertSame([true, false], array_column($vm->noticeRelatives, 'matched'));
+        self::assertSame([false, false], array_column($vm->noticeRelatives, 'uncertain'));
+    }
+
+    /**
+     * A notice relative whose extraction confidence is below the display threshold is flagged uncertain;
+     * one at or above the threshold is not (#98).
+     *
+     * @return void
+     */
+    #[Test]
+    public function marksLowConfidenceNoticeRelativeAsUncertain(): void
+    {
+        $vm = ReviewViewModel::fromStoredMatch(
+            $this->match(['noticeRelatives' => [
+                ['name' => 'Anna Beispiel', 'relationGuess' => 'child', 'confidence' => 0.49],
+                ['name' => 'Bert Beispiel', 'relationGuess' => 'child', 'confidence' => 0.5],
+            ]]),
+            $this->person()
+        );
+
+        self::assertSame([true, false], array_column($vm->noticeRelatives, 'uncertain'));
+    }
+
+    /**
+     * The notice relatives come from the untrusted payload, so each entry is narrowed defensively: a
+     * non-array entry or one with a non-string / empty name is dropped, a typewrong relation guess
+     * collapses to the empty string, and a typewrong confidence collapses to zero (thus uncertain). A
+     * non-array `noticeRelatives` value yields an empty list (#98).
+     *
+     * @return void
+     */
+    #[Test]
+    public function narrowsMalformedNoticeRelativesDefensively(): void
+    {
+        $vm = ReviewViewModel::fromStoredMatch(
+            $this->match(['noticeRelatives' => [
+                'not-an-array',
+                ['name' => 123, 'relationGuess' => 'spouse', 'confidence' => 0.9],
+                ['name' => '', 'relationGuess' => 'child', 'confidence' => 0.9],
+                ['name' => 'Lone Name', 'relationGuess' => 5, 'confidence' => 'x'],
+            ]]),
+            $this->person()
+        );
+
+        self::assertSame(['Lone Name'], array_column($vm->noticeRelatives, 'name'));
+        self::assertSame([''], array_column($vm->noticeRelatives, 'relationGuess'));
+        self::assertSame([true], array_column($vm->noticeRelatives, 'uncertain'));
+
+        $notArray = ReviewViewModel::fromStoredMatch(
+            $this->match(['noticeRelatives' => 'nope']),
+            $this->person()
+        );
+
+        self::assertSame([], $notArray->noticeRelatives);
     }
 }

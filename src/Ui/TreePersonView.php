@@ -25,11 +25,13 @@ final readonly class TreePersonView
     /**
      * Constructor.
      *
-     * @param string      $xref       The individual's XREF.
-     * @param string      $name       The individual's primary display name.
-     * @param string|null $birthDate  The formatted birth date, or null when absent.
-     * @param string|null $birthPlace The birth place, or null when absent.
-     * @param string|null $deathDate  The formatted death date, or null when absent.
+     * @param string                 $xref          The individual's XREF.
+     * @param string                 $name          The individual's primary display name.
+     * @param string|null            $birthDate     The formatted birth date, or null when absent.
+     * @param string|null            $birthPlace    The birth place, or null when absent.
+     * @param string|null            $deathDate     The formatted death date, or null when absent.
+     * @param list<TreeFamilyMember> $familyMembers The person's visible core family (spouses, children,
+     *                                              parents) for the family-graph panel; empty by default.
      */
     public function __construct(
         public string $xref,
@@ -37,6 +39,7 @@ final readonly class TreePersonView
         public ?string $birthDate,
         public ?string $birthPlace,
         public ?string $deathDate,
+        public array $familyMembers = [],
     ) {
     }
 }
