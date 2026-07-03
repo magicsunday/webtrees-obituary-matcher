@@ -75,16 +75,17 @@ final class WorklistPresenterTest extends TestCase
         ?string $personName = null,
     ): array {
         $match = [
-            'personId'       => $id,
-            'obituaryUrl'    => 'https://obituary.example/' . $id,
-            'score'          => $score,
-            'hardConflict'   => $hardConflict,
-            'signals'        => [],
-            'extractedFacts' => $deathDate !== null ? ['deathDate' => $deathDate] : [],
-            'classification' => 'strong',
-            'ambiguous'      => $ambiguous,
-            'runnerUp'       => null,
-            'review'         => null,
+            'personId'        => $id,
+            'obituaryUrl'     => 'https://obituary.example/' . $id,
+            'score'           => $score,
+            'hardConflict'    => $hardConflict,
+            'signals'         => [],
+            'extractedFacts'  => $deathDate !== null ? ['deathDate' => $deathDate] : [],
+            'noticeRelatives' => [],
+            'classification'  => 'strong',
+            'ambiguous'       => $ambiguous,
+            'runnerUp'        => null,
+            'review'          => null,
         ];
 
         return [

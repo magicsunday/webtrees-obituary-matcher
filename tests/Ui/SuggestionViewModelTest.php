@@ -69,16 +69,17 @@ final class SuggestionViewModelTest extends TestCase
     private function payload(string $classification = 'strong', int $score = 97, ?string $death = '2023-09-04', string $url = 'https://trauer.example/anzeige'): array
     {
         return [
-            'personId'       => 'I1',
-            'obituaryUrl'    => $url,
-            'score'          => $score,
-            'hardConflict'   => false,
-            'signals'        => [],
-            'extractedFacts' => $death === null ? [] : ['deathDate' => $death],
-            'classification' => $classification,
-            'ambiguous'      => false,
-            'runnerUp'       => null,
-            'review'         => null,
+            'personId'        => 'I1',
+            'obituaryUrl'     => $url,
+            'score'           => $score,
+            'hardConflict'    => false,
+            'signals'         => [],
+            'extractedFacts'  => $death === null ? [] : ['deathDate' => $death],
+            'noticeRelatives' => [],
+            'classification'  => $classification,
+            'ambiguous'       => false,
+            'runnerUp'        => null,
+            'review'          => null,
         ];
     }
 

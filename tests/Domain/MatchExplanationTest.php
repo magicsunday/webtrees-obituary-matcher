@@ -18,6 +18,7 @@ use MagicSunday\ObituaryMatcher\Domain\ConflictReason;
 use MagicSunday\ObituaryMatcher\Domain\ConflictResult;
 use MagicSunday\ObituaryMatcher\Domain\ConflictSeverity;
 use MagicSunday\ObituaryMatcher\Domain\MatchExplanation;
+use MagicSunday\ObituaryMatcher\Domain\NoticeRelative;
 use MagicSunday\ObituaryMatcher\Domain\RunnerUp;
 use MagicSunday\ObituaryMatcher\Domain\SignalScore;
 use PHPUnit\Framework\Attributes\CoversClass;
@@ -36,6 +37,7 @@ use PHPUnit\Framework\TestCase;
 #[CoversClass(ClassifiedMatch::class)]
 #[CoversClass(RunnerUp::class)]
 #[UsesClass(SignalScore::class)]
+#[UsesClass(NoticeRelative::class)]
 #[UsesClass(ConflictResult::class)]
 #[UsesClass(ConflictReason::class)]
 #[UsesClass(ConflictSeverity::class)]
@@ -92,6 +94,48 @@ final class MatchExplanationTest extends TestCase
         self::assertSame('2023-09-04', $array['extractedFacts']['deathDate']);
 
         self::assertArrayNotHasKey('classification', $array);
+    }
+
+    /**
+     * Verifies that the pair array projects the notice relatives carried on the explanation, each as a
+     * flat {name, relationGuess, confidence} entry in source order, so the review screen can render the
+     * family-graph panel from the persisted payload (#98).
+     */
+    #[Test]
+    public function pairArrayProjectsNoticeRelatives(): void
+    {
+        $explanation = new MatchExplanation(
+            'I1',
+            'https://example.test/z',
+            50,
+            [
+                'name' => new SignalScore(45, 45, ['exact']),
+            ],
+            new ConflictResult(0, []),
+            [],
+            [
+                new NoticeRelative('Karl Mustermann', 'spouse', 0.9),
+                new NoticeRelative('Anna Mustermann', 'child', 0.4),
+            ],
+        );
+
+        self::assertSame(
+            [
+                ['name' => 'Karl Mustermann', 'relationGuess' => 'spouse', 'confidence' => 0.9],
+                ['name' => 'Anna Mustermann', 'relationGuess' => 'child', 'confidence' => 0.4],
+            ],
+            $explanation->toArray()['noticeRelatives'],
+        );
+    }
+
+    /**
+     * Verifies that an explanation without relatives projects an empty notice-relatives list, so the
+     * Phase-1 engine (which carries none) serialises the key as an empty list rather than omitting it.
+     */
+    #[Test]
+    public function pairArrayDefaultsNoticeRelativesToEmptyList(): void
+    {
+        self::assertSame([], $this->explanation()->toArray()['noticeRelatives']);
     }
 
     /**

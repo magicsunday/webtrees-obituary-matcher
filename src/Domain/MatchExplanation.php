@@ -23,12 +23,15 @@ final readonly class MatchExplanation
     /**
      * Constructor.
      *
-     * @param string                    $personId       Candidate identifier.
-     * @param string                    $obituaryUrl    Source URL.
-     * @param int                       $total          Clamped 0..100 total score.
-     * @param array<string,SignalScore> $signals        The positive signals, keyed by name.
-     * @param ConflictResult            $conflicts      The negative evidence.
-     * @param array<string,string>      $extractedFacts Facts to harvest (e.g. deathDate).
+     * @param string                    $personId        Candidate identifier.
+     * @param string                    $obituaryUrl     Source URL.
+     * @param int                       $total           Clamped 0..100 total score.
+     * @param array<string,SignalScore> $signals         The positive signals, keyed by name.
+     * @param ConflictResult            $conflicts       The negative evidence.
+     * @param array<string,string>      $extractedFacts  Facts to harvest (e.g. deathDate).
+     * @param list<NoticeRelative>      $noticeRelatives The relatives named in the notice, in source order,
+     *                                                   persisted for the review screen's family-graph panel
+     *                                                   (defaults to none for the Phase-1 engine).
      */
     public function __construct(
         public string $personId,
@@ -37,6 +40,7 @@ final readonly class MatchExplanation
         public array $signals,
         public ConflictResult $conflicts,
         public array $extractedFacts,
+        public array $noticeRelatives = [],
     ) {
     }
 
@@ -49,7 +53,8 @@ final readonly class MatchExplanation
      *     score: int,
      *     hardConflict: bool,
      *     signals: array<string, array{score: int, max: int, reasons: list<string>}|array{score: int, reasons: list<array{field: string, treeValue: string, obituaryValue: string, severity: string}>}>,
-     *     extractedFacts: array<string, string>
+     *     extractedFacts: array<string, string>,
+     *     noticeRelatives: list<array{name: string, relationGuess: string, confidence: float}>
      * }
      */
     public function toArray(): array
@@ -80,13 +85,24 @@ final readonly class MatchExplanation
             'reasons' => $conflictReasons,
         ];
 
+        $noticeRelatives = [];
+
+        foreach ($this->noticeRelatives as $relative) {
+            $noticeRelatives[] = [
+                'name'          => $relative->name,
+                'relationGuess' => $relative->relationGuess,
+                'confidence'    => $relative->confidence,
+            ];
+        }
+
         return [
-            'personId'       => $this->personId,
-            'obituaryUrl'    => $this->obituaryUrl,
-            'score'          => $this->total,
-            'hardConflict'   => $this->conflicts->hasHardConflict(),
-            'signals'        => $signals,
-            'extractedFacts' => $this->extractedFacts,
+            'personId'        => $this->personId,
+            'obituaryUrl'     => $this->obituaryUrl,
+            'score'           => $this->total,
+            'hardConflict'    => $this->conflicts->hasHardConflict(),
+            'signals'         => $signals,
+            'extractedFacts'  => $this->extractedFacts,
+            'noticeRelatives' => $noticeRelatives,
         ];
     }
 }
