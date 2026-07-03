@@ -55,7 +55,7 @@ msgstr[0] ""
 msgstr[1] ""
 msgstr[2] ""
 
-#: resources/views/review.phtml:178
+#: resources/views/review.phtml:226
 msgid "A hard conflict prevents confirming. Review it manually."
 msgstr ""
 
@@ -71,7 +71,7 @@ msgstr ""
 msgid "Advertised schema versions"
 msgstr ""
 
-#: resources/views/review.phtml:37 resources/views/review.phtml:54
+#: resources/views/review.phtml:37 resources/views/review.phtml:65
 msgid "Age"
 msgstr ""
 
@@ -79,7 +79,7 @@ msgstr ""
 msgid "All"
 msgstr ""
 
-#: resources/views/review.phtml:74 resources/views/tab.phtml:45
+#: resources/views/review.phtml:85 resources/views/tab.phtml:45
 #: resources/views/worklist.phtml:50
 msgid "Ambiguous"
 msgstr ""
@@ -88,11 +88,11 @@ msgstr ""
 msgid "Birth"
 msgstr ""
 
-#: resources/views/review.phtml:52
+#: resources/views/review.phtml:63
 msgid "Birth date"
 msgstr ""
 
-#: resources/views/review.phtml:81 resources/views/review.phtml:128
+#: resources/views/review.phtml:92 resources/views/review.phtml:176
 msgid "Born"
 msgstr ""
 
@@ -104,12 +104,16 @@ msgstr ""
 msgid "Cemetery"
 msgstr ""
 
+#: resources/views/review.phtml:52
+msgid "Child"
+msgstr ""
+
 #: src/Webtrees/EnqueuePersonHandler.php:110
 #: src/Webtrees/ObituaryControlPanelHandler.php:450
 msgid "Configure the finder connection first."
 msgstr ""
 
-#: resources/views/review.phtml:173 resources/views/review.phtml:183
+#: resources/views/review.phtml:221 resources/views/review.phtml:231
 msgid "Confirm as source"
 msgstr ""
 
@@ -126,7 +130,7 @@ msgstr[2] ""
 msgid "Confirmed"
 msgstr ""
 
-#: resources/views/review.phtml:112 resources/views/worklist.phtml:49
+#: resources/views/review.phtml:160 resources/views/worklist.phtml:49
 msgid "Conflicts"
 msgstr ""
 
@@ -142,7 +146,7 @@ msgstr ""
 msgid "Date of death"
 msgstr ""
 
-#: resources/views/review.phtml:53
+#: resources/views/review.phtml:64
 msgid "Death date"
 msgstr ""
 
@@ -153,12 +157,16 @@ msgstr ""
 msgid "Death notices"
 msgstr ""
 
-#: resources/views/review.phtml:82
+#: resources/views/review.phtml:93
 msgid "Died"
 msgstr ""
 
-#: resources/views/review.phtml:90
+#: resources/views/review.phtml:101
 msgid "Extracted death date"
+msgstr ""
+
+#: resources/views/review.phtml:114
+msgid "Family"
 msgstr ""
 
 #: resources/views/control-panel.phtml:87
@@ -182,14 +190,22 @@ msgstr ""
 msgid "Finder version"
 msgstr ""
 
+#: resources/views/review.phtml:55
+msgid "Grandchild"
+msgstr ""
+
 #: resources/views/control-panel.phtml:82
 #, php-format
 msgid "HTTP status: %s"
 msgstr ""
 
-#: resources/views/review.phtml:61 resources/views/review.phtml:73
+#: resources/views/review.phtml:72 resources/views/review.phtml:84
 #: resources/views/tab.phtml:44
 msgid "Hard conflict"
+msgstr ""
+
+#: resources/views/review.phtml:117
+msgid "In the tree"
 msgstr ""
 
 #: resources/views/worklist.phtml:86
@@ -210,6 +226,10 @@ msgid ""
 "dates."
 msgstr ""
 
+#: resources/views/review.phtml:126 resources/views/review.phtml:139
+msgid "Matched"
+msgstr ""
+
 #: resources/views/worklist.phtml:81
 msgid "Maximum age"
 msgstr ""
@@ -223,7 +243,11 @@ msgstr ""
 msgid "Name"
 msgstr ""
 
-#: resources/views/review.phtml:126
+#: resources/views/review.phtml:133
+msgid "Named in the notice"
+msgstr ""
+
+#: resources/views/review.phtml:174
 msgid "Next best candidate"
 msgstr ""
 
@@ -231,8 +255,12 @@ msgstr ""
 msgid "No candidates matched the current settings; nothing was queued."
 msgstr ""
 
-#: resources/views/review.phtml:180
+#: resources/views/review.phtml:228
 msgid "No exact (day-level) death date was extracted."
+msgstr ""
+
+#: resources/views/review.phtml:119
+msgid "No family is recorded in the tree."
 msgstr ""
 
 #: resources/views/control-panel.phtml:158
@@ -260,7 +288,7 @@ msgstr ""
 msgid "No trees are available."
 msgstr ""
 
-#: resources/views/review.phtml:63
+#: resources/views/review.phtml:74
 msgid "Note"
 msgstr ""
 
@@ -268,7 +296,7 @@ msgstr ""
 msgid "Notice fields"
 msgstr ""
 
-#: resources/views/review.phtml:86
+#: resources/views/review.phtml:97
 msgid "Obituary"
 msgstr ""
 
@@ -288,6 +316,10 @@ msgstr ""
 msgid "Open finder jobs"
 msgstr ""
 
+#: resources/views/review.phtml:56
+msgid "Other relative"
+msgstr ""
+
 #: resources/views/worklist.phtml:222
 #, php-format
 msgid "Page %1$s of %2$s"
@@ -295,6 +327,10 @@ msgstr ""
 
 #: resources/views/worklist.phtml:211
 msgid "Pagination"
+msgstr ""
+
+#: resources/views/review.phtml:53
+msgid "Parent"
 msgstr ""
 
 #: resources/views/review.phtml:26 resources/views/tab.phtml:32
@@ -340,7 +376,7 @@ msgstr ""
 msgid "Regions"
 msgstr ""
 
-#: resources/views/review.phtml:158
+#: resources/views/review.phtml:206
 msgid "Reject"
 msgstr ""
 
@@ -360,11 +396,11 @@ msgstr ""
 msgid "Remove token"
 msgstr ""
 
-#: resources/views/review.phtml:152 resources/views/worklist.phtml:201
+#: resources/views/review.phtml:200 resources/views/worklist.phtml:201
 msgid "Revert"
 msgstr ""
 
-#: resources/views/review.phtml:152 resources/views/worklist.phtml:201
+#: resources/views/review.phtml:200 resources/views/worklist.phtml:201
 #, php-format
 msgid "Revert match for %s"
 msgstr ""
@@ -380,7 +416,7 @@ msgstr ""
 msgid "Review"
 msgstr ""
 
-#: resources/views/review.phtml:67 src/Webtrees/ReviewScreenHandler.php:503
+#: resources/views/review.phtml:78 src/Webtrees/ReviewScreenHandler.php:551
 msgid "Review match"
 msgstr ""
 
@@ -428,7 +464,11 @@ msgstr ""
 msgid "Settings saved."
 msgstr ""
 
-#: resources/views/review.phtml:62
+#: resources/views/review.phtml:54
+msgid "Sibling"
+msgstr ""
+
+#: resources/views/review.phtml:73
 msgid "Soft conflict"
 msgstr ""
 
@@ -438,6 +478,10 @@ msgstr ""
 
 #: resources/views/worklist.phtml:160
 msgid "Source"
+msgstr ""
+
+#: resources/views/review.phtml:51
+msgid "Spouse"
 msgstr ""
 
 #: resources/views/control-panel.phtml:150
@@ -467,11 +511,11 @@ msgid ""
 "results."
 msgstr ""
 
-#: src/Webtrees/ReviewScreenHandler.php:351
+#: src/Webtrees/ReviewScreenHandler.php:352
 msgid "The death fact was written but could not be recorded; please review it."
 msgstr ""
 
-#: src/Webtrees/ReviewScreenHandler.php:332
+#: src/Webtrees/ReviewScreenHandler.php:333
 msgid "The death notice could not be written; please try again."
 msgstr ""
 
@@ -499,36 +543,36 @@ msgid "The finder storage location is unavailable."
 msgstr ""
 
 #: src/Webtrees/ObituaryWorklistHandler.php:295 src/Webtrees/RevertFlash.php:68
-#: src/Webtrees/ReviewScreenHandler.php:410
+#: src/Webtrees/ReviewScreenHandler.php:411
 msgid "The match could not be reverted."
 msgstr ""
 
-#: src/Webtrees/ReviewScreenHandler.php:362
+#: src/Webtrees/ReviewScreenHandler.php:363
 msgid "The match was confirmed and the death date was written."
 msgstr ""
 
-#: src/Webtrees/ReviewScreenHandler.php:210
+#: src/Webtrees/ReviewScreenHandler.php:211
 msgid "The match was marked uncertain."
 msgstr ""
 
-#: src/Webtrees/ReviewScreenHandler.php:204
+#: src/Webtrees/ReviewScreenHandler.php:205
 msgid "The match was rejected."
 msgstr ""
 
-#: src/Webtrees/ReviewScreenHandler.php:324
+#: src/Webtrees/ReviewScreenHandler.php:325
 msgid "The obituary did not carry writable data."
 msgstr ""
 
-#: resources/views/review.phtml:179
+#: resources/views/review.phtml:227
 msgid "This individual already has a death date."
 msgstr ""
 
-#: src/Webtrees/ReviewScreenHandler.php:316
+#: src/Webtrees/ReviewScreenHandler.php:317
 msgid "This individual already has a death date; nothing was written."
 msgstr ""
 
-#: src/Webtrees/ReviewScreenHandler.php:295
-#: src/Webtrees/ReviewScreenHandler.php:305
+#: src/Webtrees/ReviewScreenHandler.php:296
+#: src/Webtrees/ReviewScreenHandler.php:306
 msgid "This match can no longer be confirmed."
 msgstr ""
 
@@ -536,10 +580,10 @@ msgstr ""
 msgid "This match cannot be reverted."
 msgstr ""
 
-#: src/Webtrees/ReviewScreenHandler.php:180
-#: src/Webtrees/ReviewScreenHandler.php:226
-#: src/Webtrees/ReviewScreenHandler.php:344
-#: src/Webtrees/ReviewScreenHandler.php:357
+#: src/Webtrees/ReviewScreenHandler.php:181
+#: src/Webtrees/ReviewScreenHandler.php:227
+#: src/Webtrees/ReviewScreenHandler.php:345
+#: src/Webtrees/ReviewScreenHandler.php:358
 msgid "This match was already finalised by someone else."
 msgstr ""
 
@@ -548,11 +592,11 @@ msgstr ""
 msgid "Total: %d"
 msgstr ""
 
-#: resources/views/review.phtml:79
+#: resources/views/review.phtml:90
 msgid "Tree person"
 msgstr ""
 
-#: resources/views/review.phtml:27 resources/views/review.phtml:165
+#: resources/views/review.phtml:27 resources/views/review.phtml:213
 #: resources/views/tab.phtml:33 resources/views/worklist.phtml:34
 #: resources/views/worklist.phtml:44
 msgid "Uncertain"
@@ -563,7 +607,7 @@ msgstr ""
 msgid "Unknown tree."
 msgstr ""
 
-#: resources/views/review.phtml:138
+#: resources/views/review.phtml:186
 msgid "View source"
 msgstr ""
 
@@ -572,7 +616,7 @@ msgstr ""
 msgid "Weak match"
 msgstr ""
 
-#: resources/views/review.phtml:102
+#: resources/views/review.phtml:150
 msgid "Why this score"
 msgstr ""
 
@@ -582,4 +626,8 @@ msgstr ""
 
 #: resources/views/worklist.phtml:216 resources/views/worklist.phtml:218
 msgid "previous"
+msgstr ""
+
+#: resources/views/review.phtml:140
+msgid "uncertain"
 msgstr ""
