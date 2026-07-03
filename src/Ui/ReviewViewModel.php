@@ -17,7 +17,6 @@ use MagicSunday\ObituaryMatcher\Support\ConfirmGate;
 use MagicSunday\ObituaryMatcher\Support\FamilyNameMatch;
 
 use function array_column;
-use function array_map;
 use function is_array;
 use function is_float;
 use function is_int;
@@ -394,7 +393,7 @@ final readonly class ReviewViewModel
      */
     private static function projectNoticeRelatives(array $relatives, array $members): array
     {
-        $memberNames = array_map(static fn (TreeFamilyMember $member): string => $member->name, $members);
+        $memberNames = array_column($members, 'name');
 
         $projected = [];
 

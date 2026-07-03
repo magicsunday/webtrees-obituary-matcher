@@ -413,10 +413,13 @@ final class ReviewScreenHandlerTest extends IntegrationTestCase
         self::assertStringContainsString('Parent', $body);
 
         // The corresponding spouse is flagged Matched on both sides; the low-confidence, unmatched
-        // notice relative is shown uncertain.
-        self::assertStringContainsString('Matched', $body);
+        // notice relative is shown uncertain. Assert the panel-only marker CLASSES (om-matched /
+        // om-relative-uncertain), not the bare words — "Matched"/"uncertain" also appear elsewhere in
+        // the page chrome (the Uncertain action button carries value="uncertain"), so a bare-word
+        // assertion would pass even if the panel branch never fired.
+        self::assertStringContainsString('om-matched', $body);
         self::assertStringContainsString('Petra Fremd', $body);
-        self::assertStringContainsString('uncertain', $body);
+        self::assertStringContainsString('om-relative-uncertain', $body);
 
         // The family names come from the live Individual::fullName() (HTML), stripped to plain text in
         // the DTO — no escaped name markup leaks into the rendered body.

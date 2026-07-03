@@ -32,6 +32,12 @@ use const PREG_SPLIT_NO_EMPTY;
  * free Ui may not reach. The panel therefore uses this looser, order-independent token overlap purely
  * to mark which names visibly correspond; the "why this score" breakdown carries the scored signal.
  *
+ * Because it cannot identify the surname token without the Parsing layer, the ≥2-shared-tokens rule
+ * can over-match two people who share two given names but have different surnames (e.g. "Anna Maria
+ * Schmidt" ↔ "Anna Maria Müller"). That deliberate false-positive is acceptable for a display hint —
+ * the authoritative relatives match is the scored signal, not this badge — and it also lets a
+ * maiden-vs-married surname change still highlight the same person.
+ *
  * @author  Rico Sonntag <mail@ricosonntag.de>
  * @license https://opensource.org/licenses/GPL-3.0 GNU General Public License v3.0
  * @link    https://github.com/magicsunday/webtrees-obituary-matcher/

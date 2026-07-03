@@ -501,6 +501,8 @@ class ReviewScreenHandler implements RequestHandlerInterface
      * (a member the current user may not see is omitted entirely — never a partial leak) and its display
      * name is stripped of webtrees' HTML markup so the escaping template renders plain text, exactly as
      * the head person's name is. A missing relation simply yields no members; it is never a conflict.
+     * The reviewed individual is excluded from every relation loop, so a self-referential/cyclic family
+     * record never lists the person as their own spouse, child or parent.
      *
      * @param Individual $individual The individual under review.
      *
@@ -521,7 +523,10 @@ class ReviewScreenHandler implements RequestHandlerInterface
             }
 
             foreach ($family->children() as $child) {
-                if ($child->canShow()) {
+                if (
+                    ($child->xref() !== $individual->xref())
+                    && $child->canShow()
+                ) {
                     $members[] = new TreeFamilyMember(strip_tags($child->fullName()), 'child');
                 }
             }
@@ -531,6 +536,7 @@ class ReviewScreenHandler implements RequestHandlerInterface
             foreach ([$family->husband(), $family->wife()] as $parent) {
                 if (
                     ($parent instanceof Individual)
+                    && ($parent->xref() !== $individual->xref())
                     && $parent->canShow()
                 ) {
                     $members[] = new TreeFamilyMember(strip_tags($parent->fullName()), 'parent');
