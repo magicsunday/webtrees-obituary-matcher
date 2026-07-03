@@ -16,6 +16,8 @@ use MagicSunday\ObituaryMatcher\Matching\StoredMatch;
 use MagicSunday\ObituaryMatcher\Support\ConfirmGate;
 use MagicSunday\ObituaryMatcher\Support\FamilyNameMatch;
 
+use function array_column;
+use function array_map;
 use function is_array;
 use function is_float;
 use function is_int;
@@ -365,20 +367,16 @@ final readonly class ReviewViewModel
      */
     private static function projectFamilyMembers(array $members, array $relatives): array
     {
+        $relativeNames = array_column($relatives, 'name');
+
         $projected = [];
 
         foreach ($members as $member) {
-            $matched = false;
-
-            foreach ($relatives as $relative) {
-                if (FamilyNameMatch::matches($member->name, $relative['name'])) {
-                    $matched = true;
-
-                    break;
-                }
-            }
-
-            $projected[] = new FamilyMemberView($member->name, $member->relationKey, $matched);
+            $projected[] = new FamilyMemberView(
+                $member->name,
+                $member->relationKey,
+                FamilyNameMatch::matchesAny($member->name, $relativeNames),
+            );
         }
 
         return $projected;
@@ -396,24 +394,16 @@ final readonly class ReviewViewModel
      */
     private static function projectNoticeRelatives(array $relatives, array $members): array
     {
+        $memberNames = array_map(static fn (TreeFamilyMember $member): string => $member->name, $members);
+
         $projected = [];
 
         foreach ($relatives as $relative) {
-            $matched = false;
-
-            foreach ($members as $member) {
-                if (FamilyNameMatch::matches($member->name, $relative['name'])) {
-                    $matched = true;
-
-                    break;
-                }
-            }
-
             $projected[] = new NoticeRelativeView(
                 $relative['name'],
                 $relative['relationGuess'],
                 $relative['confidence'] < self::CONFIDENCE_UNCERTAIN_BELOW,
-                $matched,
+                FamilyNameMatch::matchesAny($relative['name'], $memberNames),
             );
         }
 

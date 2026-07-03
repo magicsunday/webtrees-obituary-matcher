@@ -51,6 +51,26 @@ final class FamilyNameMatch
     }
 
     /**
+     * Returns whether the given name loosely matches ANY of the candidate names — the "is this side's
+     * name present on the other side" predicate the family-graph panel needs on both directions.
+     *
+     * @param string       $name       The plain display name to test.
+     * @param list<string> $candidates The plain display names to test against.
+     *
+     * @return bool Whether any candidate loosely matches the name.
+     */
+    public static function matchesAny(string $name, array $candidates): bool
+    {
+        foreach ($candidates as $candidate) {
+            if (self::matches($name, $candidate)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
      * Returns whether the tree member's name and the notice relative's name loosely correspond.
      *
      * @param string $treeName   The tree family member's plain display name.

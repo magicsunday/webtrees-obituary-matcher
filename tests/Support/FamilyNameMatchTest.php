@@ -45,6 +45,7 @@ final class FamilyNameMatchTest extends TestCase
             'surname only is not enough'       => ['Mustermann', 'Karl Mustermann', false],
             'same given different surname'     => ['Karl Mustermann', 'Karl Schmidt', false],
             'single token equal (mononym)'     => ['Mustermann', 'Mustermann', true],
+            'single token different (mononym)' => ['Mustermann', 'Schmidt', false],
             'completely different'             => ['Karl Mustermann', 'Anna Schmidt', false],
             'empty tree name'                  => ['', 'Karl Mustermann', false],
             'empty notice name'                => ['Karl Mustermann', '', false],
@@ -60,5 +61,19 @@ final class FamilyNameMatchTest extends TestCase
     public function matchesTreeAndNoticeNamesLoosely(string $treeName, string $noticeName, bool $expected): void
     {
         self::assertSame($expected, FamilyNameMatch::matches($treeName, $noticeName));
+    }
+
+    /**
+     * matchesAny returns true when any candidate loosely matches, false for an empty candidate list or
+     * when none matches.
+     */
+    #[Test]
+    public function matchesAnyReturnsTrueOnTheFirstLooseMatch(): void
+    {
+        $candidates = ['Anna Schmidt', 'Karl Mustermann', 'Otto Beispiel'];
+
+        self::assertTrue(FamilyNameMatch::matchesAny('Karl Mustermann', $candidates));
+        self::assertFalse(FamilyNameMatch::matchesAny('Petra Fremd', $candidates));
+        self::assertFalse(FamilyNameMatch::matchesAny('Karl Mustermann', []));
     }
 }

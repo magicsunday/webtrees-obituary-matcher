@@ -19,6 +19,7 @@ use MagicSunday\ObituaryMatcher\Support\ConfirmDecision;
 use MagicSunday\ObituaryMatcher\Support\ConfirmGate;
 use MagicSunday\ObituaryMatcher\Support\FamilyNameMatch;
 use MagicSunday\ObituaryMatcher\Support\GedcomDateConverter;
+use MagicSunday\ObituaryMatcher\Support\Normalizer;
 use MagicSunday\ObituaryMatcher\Ui\BandKey;
 use MagicSunday\ObituaryMatcher\Ui\FamilyMemberView;
 use MagicSunday\ObituaryMatcher\Ui\NoticeRelativeView;
@@ -59,6 +60,7 @@ use function array_column;
 #[UsesClass(FamilyMemberView::class)]
 #[UsesClass(NoticeRelativeView::class)]
 #[UsesClass(FamilyNameMatch::class)]
+#[UsesClass(Normalizer::class)]
 final class ReviewViewModelTest extends TestCase
 {
     /**
