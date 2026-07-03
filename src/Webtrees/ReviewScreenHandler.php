@@ -34,6 +34,7 @@ use MagicSunday\ObituaryMatcher\Support\ConfirmGate;
 use MagicSunday\ObituaryMatcher\Support\MalformedDeathDateException;
 use MagicSunday\ObituaryMatcher\Ui\PayloadReader;
 use MagicSunday\ObituaryMatcher\Ui\ReviewViewModel;
+use MagicSunday\ObituaryMatcher\Ui\TreeFamilyMember;
 use MagicSunday\ObituaryMatcher\Ui\TreePersonView;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
@@ -490,7 +491,69 @@ class ReviewScreenHandler implements RequestHandlerInterface
             $birthDate->isOK() ? strip_tags($birthDate->display()) : null,
             $birthPlace === '' ? null : $birthPlace,
             $deathDate->isOK() ? strip_tags($deathDate->display()) : null,
+            $this->treeFamily($individual),
         );
+    }
+
+    /**
+     * Builds the webtrees-free core family (spouses, children, parents) of the tree person for the
+     * review screen's family-graph panel. Each member is privacy-gated with {@see Individual::canShow()}
+     * (a member the current user may not see is omitted entirely — never a partial leak) and its display
+     * name is stripped of webtrees' HTML markup so the escaping template renders plain text, exactly as
+     * the head person's name is. A missing relation simply yields no members; it is never a conflict.
+     * The reviewed individual is excluded and every XREF is de-duplicated, so a self-referential/cyclic
+     * record never lists the person as their own relative and a relative reachable through more than one
+     * family record (a duplicate FAM for the same couple) is listed once, under its first relation.
+     *
+     * @param Individual $individual The individual under review.
+     *
+     * @return list<TreeFamilyMember> The visible core family members, spouses then children then parents.
+     */
+    private function treeFamily(Individual $individual): array
+    {
+        $members = [];
+
+        // Track the XREFs already added so a relative reachable through more than one family record
+        // (a duplicate FAM for the same couple, or a person linked to several of the person's families)
+        // is listed once, under the first relation encountered, rather than as a duplicated row.
+        $seen = [$individual->xref() => true];
+
+        foreach ($individual->spouseFamilies() as $family) {
+            foreach ($family->spouses() as $spouse) {
+                if (
+                    !isset($seen[$spouse->xref()])
+                    && $spouse->canShow()
+                ) {
+                    $seen[$spouse->xref()] = true;
+                    $members[]             = new TreeFamilyMember(strip_tags($spouse->fullName()), 'spouse');
+                }
+            }
+
+            foreach ($family->children() as $child) {
+                if (
+                    !isset($seen[$child->xref()])
+                    && $child->canShow()
+                ) {
+                    $seen[$child->xref()] = true;
+                    $members[]            = new TreeFamilyMember(strip_tags($child->fullName()), 'child');
+                }
+            }
+        }
+
+        foreach ($individual->childFamilies() as $family) {
+            foreach ([$family->husband(), $family->wife()] as $parent) {
+                if (
+                    ($parent instanceof Individual)
+                    && !isset($seen[$parent->xref()])
+                    && $parent->canShow()
+                ) {
+                    $seen[$parent->xref()] = true;
+                    $members[]             = new TreeFamilyMember(strip_tags($parent->fullName()), 'parent');
+                }
+            }
+        }
+
+        return $members;
     }
 
     /**

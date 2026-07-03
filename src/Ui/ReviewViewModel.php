@@ -14,10 +14,15 @@ namespace MagicSunday\ObituaryMatcher\Ui;
 use MagicSunday\ObituaryMatcher\Domain\ClassifiedMatch;
 use MagicSunday\ObituaryMatcher\Matching\StoredMatch;
 use MagicSunday\ObituaryMatcher\Support\ConfirmGate;
+use MagicSunday\ObituaryMatcher\Support\FamilyNameMatch;
 
+use function array_column;
 use function is_array;
+use function is_float;
 use function is_int;
 use function is_string;
+use function mb_strtolower;
+use function trim;
 
 /**
  * A read-only, view-ready projection of a {@see StoredMatch} for the review screen. It exposes the
@@ -46,6 +51,12 @@ final readonly class ReviewViewModel
     private const array DISPLAYED_SIGNALS = ['name', 'birth', 'place', 'plausibility', 'relatives', 'age', 'cemetery'];
 
     /**
+     * The confidence below which a notice relative's extraction is flagged "uncertain" in the family-graph
+     * panel. A relative at or above this threshold is shown as a confident extraction (#98).
+     */
+    private const float CONFIDENCE_UNCERTAIN_BELOW = 0.5;
+
+    /**
      * Constructor.
      *
      * @param TreePersonView                                                                                             $person                The live tree-person projection.
@@ -63,6 +74,8 @@ final readonly class ReviewViewModel
      * @param array{name: string, birthYear: int|null, birthPlace: string|null, score: int, classification: string}|null $runnerUp              The runner-up summary, or null.
      * @param bool                                                                                                       $canConfirm            Whether the match may be confirmed and written back.
      * @param string|null                                                                                                $confirmDisabledReason The highest-priority reason key when confirm is disabled, else null.
+     * @param list<FamilyMemberView>                                                                                     $familyMembers         The tree person's core family, each flagged matched against the notice.
+     * @param list<NoticeRelativeView>                                                                                   $noticeRelatives       The notice's relatives, each flagged matched/uncertain for the panel.
      */
     public function __construct(
         public TreePersonView $person,
@@ -80,6 +93,8 @@ final readonly class ReviewViewModel
         public ?array $runnerUp,
         public bool $canConfirm,
         public ?string $confirmDisabledReason,
+        public array $familyMembers,
+        public array $noticeRelatives,
     ) {
     }
 
@@ -126,6 +141,11 @@ final readonly class ReviewViewModel
         // untranslated `disposition: cremation` row (it is present only for a cremation notice).
         unset($extractedFacts['deathDate'], $extractedFacts['disposition']);
 
+        // The notice relatives come from the same untrusted payload; narrow them once, then pair them
+        // against the live tree family (from the DTO, never the payload) to flag which names correspond
+        // on both sides for the family-graph panel.
+        $rawRelatives = self::projectRawRelatives(PayloadReader::read($payload, 'noticeRelatives'));
+
         return new self(
             $person,
             $score,
@@ -142,6 +162,8 @@ final readonly class ReviewViewModel
             self::projectRunnerUp(PayloadReader::read($payload, 'runnerUp')),
             $confirm->canConfirm,
             $confirm->reasonKey,
+            self::projectFamilyMembers($person->familyMembers, $rawRelatives),
+            self::projectNoticeRelatives($rawRelatives, $person->familyMembers),
         );
     }
 
@@ -287,5 +309,112 @@ final readonly class ReviewViewModel
             'score'          => $runnerUp['score'],
             'classification' => $runnerUp['classification'],
         ];
+    }
+
+    /**
+     * Narrows the untrusted notice-relatives payload to a list of {name, relationGuess, confidence}
+     * entries: a non-array value or a non-array entry is dropped, an entry needs a non-empty string
+     * name to survive, a typewrong relation guess collapses to the empty string, and a typewrong
+     * confidence collapses to zero.
+     *
+     * @param mixed $relatives The raw notice-relatives value, if any.
+     *
+     * @return list<array{name: string, relationGuess: string, confidence: float}> The narrowed relatives.
+     */
+    private static function projectRawRelatives(mixed $relatives): array
+    {
+        if (!is_array($relatives)) {
+            return [];
+        }
+
+        $projected = [];
+
+        foreach ($relatives as $relative) {
+            if (!is_array($relative)) {
+                continue;
+            }
+
+            $name = $relative['name'] ?? null;
+
+            if (!is_string($name)) {
+                continue;
+            }
+
+            // Trim before the emptiness check so a whitespace-only name (which passes `!== ''`) is
+            // dropped rather than rendering a blank panel item.
+            $name = trim($name);
+
+            if ($name === '') {
+                continue;
+            }
+
+            $relationGuess = $relative['relationGuess'] ?? null;
+            $confidence    = $relative['confidence'] ?? null;
+
+            $projected[] = [
+                'name' => $name,
+                // Lowercase + trim the relation guess so the panel's label map (keyed by the lowercase
+                // relation names) resolves regardless of the finder's casing/padding ("Spouse" → the
+                // "spouse" label), falling back to the normalised raw string for an unknown relation.
+                'relationGuess' => is_string($relationGuess) ? mb_strtolower(trim($relationGuess), 'UTF-8') : '',
+                'confidence'    => (is_int($confidence) || is_float($confidence)) ? (float) $confidence : 0.0,
+            ];
+        }
+
+        return $projected;
+    }
+
+    /**
+     * Projects the tree person's core family into view members, flagging each as matched when a notice
+     * relative loosely corresponds to it. An unmatched member is neutral, never a conflict.
+     *
+     * @param list<TreeFamilyMember>                                              $members   The tree family members.
+     * @param list<array{name: string, relationGuess: string, confidence: float}> $relatives The narrowed notice relatives.
+     *
+     * @return list<FamilyMemberView> The view-ready family members.
+     */
+    private static function projectFamilyMembers(array $members, array $relatives): array
+    {
+        $relativeNames = array_column($relatives, 'name');
+
+        $projected = [];
+
+        foreach ($members as $member) {
+            $projected[] = new FamilyMemberView(
+                $member->name,
+                $member->relationKey,
+                FamilyNameMatch::matchesAny($member->name, $relativeNames),
+            );
+        }
+
+        return $projected;
+    }
+
+    /**
+     * Projects the narrowed notice relatives into view relatives, flagging each as matched when a tree
+     * family member loosely corresponds to it and as uncertain when its confidence is below the display
+     * threshold.
+     *
+     * @param list<array{name: string, relationGuess: string, confidence: float}> $relatives The narrowed notice relatives.
+     * @param list<TreeFamilyMember>                                              $members   The tree family members.
+     *
+     * @return list<NoticeRelativeView> The view-ready notice relatives.
+     */
+    private static function projectNoticeRelatives(array $relatives, array $members): array
+    {
+        $memberNames = array_column($members, 'name');
+
+        $projected = [];
+
+        foreach ($relatives as $relative) {
+            $projected[] = new NoticeRelativeView(
+                $relative['name'],
+                $relative['relationGuess'],
+                $relative['confidence'] < self::CONFIDENCE_UNCERTAIN_BELOW,
+                FamilyNameMatch::matchesAny($relative['name'], $memberNames),
+            );
+        }
+
+        return $projected;
     }
 }

@@ -19,11 +19,13 @@
                     "relatives": [
                         {
                             "name": "Erika Mustermann",
-                            "relation": "spouse"
+                            "relationGuess": "spouse",
+                            "confidence": 0.9
                         },
                         {
                             "name": "Hans Mustermann",
-                            "relation": "child"
+                            "relationGuess": "child",
+                            "confidence": 0.8
                         }
                     ],
                     "url": "https://obituary.example/notices/max-mustermann-12345",

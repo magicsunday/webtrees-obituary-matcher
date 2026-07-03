@@ -45,6 +45,17 @@ $factLabels = [
     'cemetery' => I18N::translate('Cemetery'),
 ];
 
+// Labels for the family-graph relation keys/guesses (tree relations and the finder's relationGuess). An
+// unknown value falls back to the raw string so a novel finder label still renders rather than vanishing.
+$relationLabels = [
+    'spouse'     => I18N::translate('Spouse'),
+    'child'      => I18N::translate('Child'),
+    'parent'     => I18N::translate('Parent'),
+    'sibling'    => I18N::translate('Sibling'),
+    'grandchild' => I18N::translate('Grandchild'),
+    'other'      => I18N::translate('Other relative'),
+];
+
 // Labels for the conflict field names ConflictDetector emits ('birth date', 'death date', 'age'). An
 // unknown field falls back to the raw value so a new conflict still renders (untranslated) rather
 // than showing nothing.
@@ -97,6 +108,43 @@ $severityLabels = [
             </p>
         </section>
     </div>
+
+    <?php if ($vm->noticeRelatives !== []) : ?>
+        <section class="om-family-graph">
+            <h3><?= e(I18N::translate('Family')) ?></h3>
+            <div class="om-family-split">
+                <div class="om-family-tree">
+                    <h4><?= e(I18N::translate('In the tree')) ?></h4>
+                    <?php if ($vm->familyMembers === []) : ?>
+                        <p class="om-empty"><?= e(I18N::translate('No family is recorded in the tree.')) ?></p>
+                    <?php else : ?>
+                        <ul class="om-relatives">
+                            <?php foreach ($vm->familyMembers as $member) : ?>
+                                <li class="om-relative<?= $member->matched ? ' om-matched' : '' ?>">
+                                    <span class="om-relative-name"><?= e($member->name) ?></span>
+                                    <span class="om-relative-relation"><?= e($relationLabels[$member->relationKey] ?? $member->relationKey) ?></span>
+                                    <?php if ($member->matched) : ?><span class="om-relative-flag"><span aria-hidden="true">✓</span> <?= e(I18N::translate('Matched')) ?></span><?php endif ?>
+                                </li>
+                            <?php endforeach ?>
+                        </ul>
+                    <?php endif ?>
+                </div>
+                <div class="om-family-notice">
+                    <h4><?= e(I18N::translate('Named in the notice')) ?></h4>
+                    <ul class="om-relatives">
+                        <?php foreach ($vm->noticeRelatives as $relative) : ?>
+                            <li class="om-relative<?= $relative->matched ? ' om-matched' : '' ?>">
+                                <span class="om-relative-name"><?= e($relative->name) ?></span>
+                                <?php if ($relative->relationGuess !== '') : ?><span class="om-relative-relation"><?= e($relationLabels[$relative->relationGuess] ?? $relative->relationGuess) ?></span><?php endif ?>
+                                <?php if ($relative->matched) : ?><span class="om-relative-flag"><span aria-hidden="true">✓</span> <?= e(I18N::translate('Matched')) ?></span><?php endif ?>
+                                <?php if ($relative->uncertain) : ?><span class="om-relative-uncertain"><span aria-hidden="true">?</span> <?= e(I18N::translate('uncertain')) ?></span><?php endif ?>
+                            </li>
+                        <?php endforeach ?>
+                    </ul>
+                </div>
+            </div>
+        </section>
+    <?php endif ?>
 
     <section class="om-why">
         <h3><?= e(I18N::translate('Why this score')) ?></h3>

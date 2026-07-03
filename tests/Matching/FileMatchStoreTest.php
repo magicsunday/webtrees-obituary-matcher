@@ -902,16 +902,17 @@ final class FileMatchStoreTest extends TempDirTestCase
     private static function terminalSeedRow(string $url, MatchStatus $status): StoredMatch
     {
         return new StoredMatch('I1', $url, $status, [
-            'personId'       => 'I1',
-            'obituaryUrl'    => $url,
-            'score'          => 80,
-            'hardConflict'   => false,
-            'signals'        => [],
-            'extractedFacts' => [],
-            'classification' => 'probable',
-            'ambiguous'      => false,
-            'runnerUp'       => null,
-            'review'         => null,
+            'personId'        => 'I1',
+            'obituaryUrl'     => $url,
+            'score'           => 80,
+            'hardConflict'    => false,
+            'signals'         => [],
+            'extractedFacts'  => [],
+            'noticeRelatives' => [],
+            'classification'  => 'probable',
+            'ambiguous'       => false,
+            'runnerUp'        => null,
+            'review'          => null,
         ]);
     }
 
@@ -1106,16 +1107,17 @@ final class FileMatchStoreTest extends TempDirTestCase
     private function pendingMatch(string $personId, string $obituaryUrl): StoredMatch
     {
         return new StoredMatch($personId, $obituaryUrl, MatchStatus::Pending, [
-            'personId'       => $personId,
-            'obituaryUrl'    => $obituaryUrl,
-            'score'          => 80,
-            'hardConflict'   => false,
-            'signals'        => [],
-            'extractedFacts' => [],
-            'classification' => 'probable',
-            'ambiguous'      => false,
-            'runnerUp'       => null,
-            'review'         => null,
+            'personId'        => $personId,
+            'obituaryUrl'     => $obituaryUrl,
+            'score'           => 80,
+            'hardConflict'    => false,
+            'signals'         => [],
+            'extractedFacts'  => [],
+            'noticeRelatives' => [],
+            'classification'  => 'probable',
+            'ambiguous'       => false,
+            'runnerUp'        => null,
+            'review'          => null,
         ]);
     }
 

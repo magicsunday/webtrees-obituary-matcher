@@ -371,6 +371,11 @@ final class ContractSchemaTest extends TestCase
                 self::ID_PREFIX . 'job-response.schema.json',
                 'enum',
             ],
+            'relative without confidence → required' => [
+                'relative-missing-confidence.response.json',
+                self::ID_PREFIX . 'job-response.schema.json',
+                'required',
+            ],
             'calendar-invalid date → format' => [
                 'bad-date.response.json',
                 self::ID_PREFIX . 'job-response.schema.json',

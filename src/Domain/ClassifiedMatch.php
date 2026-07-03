@@ -21,6 +21,7 @@ namespace MagicSunday\ObituaryMatcher\Domain;
  *     hardConflict: bool,
  *     signals: array<string, array{score: int, max: int, reasons: list<string>}|array{score: int, reasons: list<array{field: string, treeValue: string, obituaryValue: string, severity: string}>}>,
  *     extractedFacts: array<string, string>,
+ *     noticeRelatives: list<array{name: string, relationGuess: string, confidence: float}>,
  *     classification: string,
  *     ambiguous: bool,
  *     runnerUp: array{personId: string, score: int, classification: string, name: string, birthYear: int|null, birthPlace: string|null}|null,
@@ -80,16 +81,17 @@ final readonly class ClassifiedMatch
     public static function emptyArray(string $personId, string $obituaryUrl): array
     {
         return [
-            'personId'       => $personId,
-            'obituaryUrl'    => $obituaryUrl,
-            'score'          => 0,
-            'hardConflict'   => false,
-            'signals'        => [],
-            'extractedFacts' => [],
-            'classification' => '',
-            'ambiguous'      => false,
-            'runnerUp'       => null,
-            'review'         => null,
+            'personId'        => $personId,
+            'obituaryUrl'     => $obituaryUrl,
+            'score'           => 0,
+            'hardConflict'    => false,
+            'signals'         => [],
+            'extractedFacts'  => [],
+            'noticeRelatives' => [],
+            'classification'  => '',
+            'ambiguous'       => false,
+            'runnerUp'        => null,
+            'review'          => null,
         ];
     }
 }

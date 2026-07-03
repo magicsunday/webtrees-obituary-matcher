@@ -242,7 +242,9 @@
             "type": "object",
             "additionalProperties": false,
             "required": [
-                "name"
+                "name",
+                "relationGuess",
+                "confidence"
             ],
             "properties": {
                 "name": {
@@ -251,21 +253,17 @@
                     "minLength": 1,
                     "maxLength": 200
                 },
-                "relation": {
-                    "description": "Relationship to the deceased if the finder could infer it; null/absent otherwise.",
-                    "type": [
-                        "string",
-                        "null"
-                    ],
-                    "enum": [
-                        "spouse",
-                        "child",
-                        "parent",
-                        "sibling",
-                        "grandchild",
-                        "other",
-                        null
-                    ]
+                "relationGuess": {
+                    "description": "Best-effort relationship label the finder inferred (e.g. \"spouse\", \"child\", \"parent\", \"sibling\", \"grandchild\", \"other\"). Free text — the matcher treats an unknown label as no relation rather than rejecting it.",
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 64
+                },
+                "confidence": {
+                    "description": "The finder's confidence in this relative extraction, 0..1. The matcher scales the relative signal by it and marks a low-confidence relative as \"uncertain\" in the review screen.",
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 1
                 }
             }
         },

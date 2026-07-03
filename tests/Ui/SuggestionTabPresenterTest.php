@@ -185,16 +185,17 @@ final class SuggestionTabPresenterTest extends TestCase
     private function row(string $xref, MatchStatus $status): StoredMatch
     {
         return new StoredMatch($xref, 'https://trauer.example/a', $status, [
-            'personId'       => $xref,
-            'obituaryUrl'    => 'https://trauer.example/a',
-            'score'          => 80,
-            'hardConflict'   => false,
-            'signals'        => [],
-            'extractedFacts' => [],
-            'classification' => 'probable',
-            'ambiguous'      => false,
-            'runnerUp'       => null,
-            'review'         => null,
+            'personId'        => $xref,
+            'obituaryUrl'     => 'https://trauer.example/a',
+            'score'           => 80,
+            'hardConflict'    => false,
+            'signals'         => [],
+            'extractedFacts'  => [],
+            'noticeRelatives' => [],
+            'classification'  => 'probable',
+            'ambiguous'       => false,
+            'runnerUp'        => null,
+            'review'          => null,
         ]);
     }
 

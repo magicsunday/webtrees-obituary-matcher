@@ -109,6 +109,24 @@ final class EnrichedMatchEngineTest extends TestCase
     }
 
     /**
+     * The enriched engine carries the notice's relatives onto the explanation (independently of the
+     * relatives score) so the persisted payload can feed the review screen's family-graph panel (#98).
+     */
+    #[Test]
+    public function enrichedProfilePersistsTheNoticeRelatives(): void
+    {
+        $explanation = (new EnrichedMatchEngine())->score(
+            $this->workedExampleCandidate(),
+            $this->workedExampleNotice(),
+        );
+
+        self::assertSame(
+            [['name' => 'Karl Mustermann', 'relationGuess' => 'spouse', 'confidence' => 1.0]],
+            $explanation->toArray()['noticeRelatives'],
+        );
+    }
+
+    /**
      * Driven with the list-level profile, the enriched signals are capped at 0 (fully gated).
      */
     #[Test]
