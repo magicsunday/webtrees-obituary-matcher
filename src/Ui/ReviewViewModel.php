@@ -21,6 +21,7 @@ use function is_array;
 use function is_float;
 use function is_int;
 use function is_string;
+use function mb_strtolower;
 use function trim;
 
 /**
@@ -351,8 +352,11 @@ final readonly class ReviewViewModel
             $confidence    = $relative['confidence'] ?? null;
 
             $projected[] = [
-                'name'          => $name,
-                'relationGuess' => is_string($relationGuess) ? trim($relationGuess) : '',
+                'name' => $name,
+                // Lowercase + trim the relation guess so the panel's label map (keyed by the lowercase
+                // relation names) resolves regardless of the finder's casing/padding ("Spouse" → the
+                // "spouse" label), falling back to the normalised raw string for an unknown relation.
+                'relationGuess' => is_string($relationGuess) ? mb_strtolower(trim($relationGuess), 'UTF-8') : '',
                 'confidence'    => (is_int($confidence) || is_float($confidence)) ? (float) $confidence : 0.0,
             ];
         }

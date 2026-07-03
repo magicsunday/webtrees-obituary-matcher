@@ -67,8 +67,12 @@ final class FamilyNameMatch
      */
     public static function matchesAny(string $name, array $candidates): bool
     {
+        // Tokenise the probe name ONCE, then compare its token set against each candidate's — so a
+        // matchesAny over N candidates tokenises $name a single time instead of once per candidate.
+        $nameTokens = self::tokens($name);
+
         foreach ($candidates as $candidate) {
-            if (self::matches($name, $candidate)) {
+            if (self::tokensMatch($nameTokens, self::tokens($candidate))) {
                 return true;
             }
         }
@@ -86,9 +90,20 @@ final class FamilyNameMatch
      */
     public static function matches(string $treeName, string $noticeName): bool
     {
-        $treeTokens   = self::tokens($treeName);
-        $noticeTokens = self::tokens($noticeName);
+        return self::tokensMatch(self::tokens($treeName), self::tokens($noticeName));
+    }
 
+    /**
+     * Returns whether two already-tokenised names loosely correspond: they share at least two tokens
+     * (typically a given name plus the surname), or both collapse to the same single token.
+     *
+     * @param list<string> $treeTokens   The first name's distinct normalised tokens.
+     * @param list<string> $noticeTokens The second name's distinct normalised tokens.
+     *
+     * @return bool Whether the two token sets loosely match.
+     */
+    private static function tokensMatch(array $treeTokens, array $noticeTokens): bool
+    {
         if (
             ($treeTokens === [])
             || ($noticeTokens === [])

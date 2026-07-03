@@ -451,6 +451,25 @@ final class ReviewViewModelTest extends TestCase
     }
 
     /**
+     * The relation guess is lowercased and trimmed so the panel's label map (keyed by the lowercase
+     * relation names) resolves regardless of the finder's casing or padding (#98).
+     *
+     * @return void
+     */
+    #[Test]
+    public function normalisesTheRelationGuessCasingAndPadding(): void
+    {
+        $vm = ReviewViewModel::fromStoredMatch(
+            $this->match(['noticeRelatives' => [
+                ['name' => 'Anna Beispiel', 'relationGuess' => '  Spouse  ', 'confidence' => 0.9],
+            ]]),
+            $this->person()
+        );
+
+        self::assertSame(['spouse'], array_column($vm->noticeRelatives, 'relationGuess'));
+    }
+
+    /**
      * A notice relative whose extraction confidence is below the display threshold is flagged uncertain;
      * one at or above the threshold is not (#98).
      *
