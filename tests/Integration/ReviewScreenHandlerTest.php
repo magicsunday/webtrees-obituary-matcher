@@ -71,6 +71,9 @@ use Throwable;
 
 use function iterator_to_array;
 use function str_repeat;
+use function strpos;
+use function substr;
+use function substr_count;
 use function view;
 
 /**
@@ -420,6 +423,19 @@ final class ReviewScreenHandlerTest extends IntegrationTestCase
         self::assertStringContainsString('om-matched', $body);
         self::assertStringContainsString('Petra Fremd', $body);
         self::assertStringContainsString('om-relative-uncertain', $body);
+
+        // The reviewed individual must NOT list itself as its own spouse: Family::spouses() returns
+        // BOTH partners, so the deceased is always in its own spouse family — the self-exclusion in
+        // treeFamily() is load-bearing, not defensive. Slice out the tree-family column (the head
+        // person's own name legitimately appears in the om-tree-person block, so a whole-body check
+        // would false-fail) and assert it carries exactly the three real relatives and not Otto.
+        $treeStart = strpos($body, 'om-family-tree');
+        $treeEnd   = strpos($body, 'om-family-notice');
+        self::assertIsInt($treeStart);
+        self::assertIsInt($treeEnd);
+        $treeColumn = substr($body, $treeStart, $treeEnd - $treeStart);
+        self::assertStringNotContainsString('Otto Vorbild', $treeColumn);
+        self::assertSame(3, substr_count($treeColumn, 'om-relative-name'));
 
         // The family names come from the live Individual::fullName() (HTML), stripped to plain text in
         // the DTO — no escaped name markup leaks into the rendered body.
