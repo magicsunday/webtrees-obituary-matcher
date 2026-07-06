@@ -31,6 +31,8 @@ use Fisharebest\Webtrees\View;
 use GuzzleHttp\Psr7\HttpFactory;
 use GuzzleHttp\Psr7\Response;
 use LogicException;
+use MagicSunday\ObituaryMatcher\Domain\BandThreshold;
+use MagicSunday\ObituaryMatcher\Domain\ScoreWeights;
 use MagicSunday\ObituaryMatcher\Queue\CapabilitiesProbeResult;
 use MagicSunday\ObituaryMatcher\Queue\CappedJsonBodyReader;
 use MagicSunday\ObituaryMatcher\Queue\FinderCapabilities;
@@ -97,6 +99,8 @@ use const JSON_THROW_ON_ERROR;
 #[CoversClass(ObituaryControlPanelHandler::class)]
 #[UsesClass(ControlPanelPresenter::class)]
 #[UsesClass(ControlPanelView::class)]
+#[UsesClass(ScoreWeights::class)]
+#[UsesClass(BandThreshold::class)]
 #[UsesClass(FinderConnection::class)]
 #[UsesClass(FinderConnectionView::class)]
 #[UsesClass(ProbeReadoutView::class)]
@@ -223,6 +227,97 @@ final class ObituaryControlPanelHandlerTest extends AbstractEnqueueTestCase
 
         self::assertSame('80', $this->module->getPreference('min_age'));
         self::assertSame('25', $this->module->getPreference('limit'));
+    }
+
+    /**
+     * A valid save-weights persists ALL six caps under their preference keys.
+     *
+     * @return void
+     */
+    #[Test]
+    public function saveWeightsValidPersistsAllSixCaps(): void
+    {
+        $this->handler()->handle($this->panelPost([
+            'action'                 => 'save-weights',
+            'score_max_name'         => '40',
+            'score_max_birth'        => '20',
+            'score_max_place'        => '12',
+            'score_max_plausibility' => '8',
+            'score_max_penalty'      => '44',
+            'score_ambiguity_gap'    => '6',
+        ]));
+
+        self::assertSame('40', $this->module->getPreference('score_max_name'));
+        self::assertSame('20', $this->module->getPreference('score_max_birth'));
+        self::assertSame('12', $this->module->getPreference('score_max_place'));
+        self::assertSame('8', $this->module->getPreference('score_max_plausibility'));
+        self::assertSame('44', $this->module->getPreference('score_max_penalty'));
+        self::assertSame('6', $this->module->getPreference('score_ambiguity_gap'));
+    }
+
+    /**
+     * save-weights is all-or-nothing: one out-of-range cap (penalty 500 over the 100 ceiling) persists
+     * NONE, leaving every pre-set cap untouched — matching the min_age/limit both-or-neither discipline.
+     *
+     * @return void
+     */
+    #[Test]
+    public function saveWeightsWithOneInvalidCapPersistsNone(): void
+    {
+        $this->module->setPreference('score_max_name', '35');
+        $this->module->setPreference('score_max_penalty', '50');
+
+        $this->handler()->handle($this->panelPost([
+            'action'                 => 'save-weights',
+            'score_max_name'         => '40',
+            'score_max_birth'        => '20',
+            'score_max_place'        => '12',
+            'score_max_plausibility' => '8',
+            'score_max_penalty'      => '500',
+            'score_ambiguity_gap'    => '6',
+        ]));
+
+        self::assertSame('35', $this->module->getPreference('score_max_name'));
+        self::assertSame('50', $this->module->getPreference('score_max_penalty'));
+    }
+
+    /**
+     * reset-weights writes every editable cap back to its enriched-profile default.
+     *
+     * @return void
+     */
+    #[Test]
+    public function resetWeightsRestoresEveryCapToItsDefault(): void
+    {
+        $this->module->setPreference('score_max_name', '10');
+        $this->module->setPreference('score_ambiguity_gap', '1');
+
+        $this->handler()->handle($this->panelPost(['action' => 'reset-weights']));
+
+        self::assertSame(
+            (string) ScoreWeights::FIELDS['maxName']['default'],
+            $this->module->getPreference('score_max_name'),
+        );
+        self::assertSame(
+            (string) ScoreWeights::FIELDS['ambiguityGap']['default'],
+            $this->module->getPreference('score_ambiguity_gap'),
+        );
+    }
+
+    /**
+     * A GET render surfaces the persisted weights and the read-only band thresholds.
+     *
+     * @return void
+     */
+    #[Test]
+    public function getRenderShowsWeightsAndReadOnlyBandThresholds(): void
+    {
+        $this->module->setPreference('score_max_name', '42');
+
+        $html = (string) $this->handler()->handle($this->panelRequest(RequestMethodInterface::METHOD_GET))->getBody();
+
+        self::assertStringContainsString('value="42"', $html);
+        self::assertStringContainsString((string) BandThreshold::STRONG, $html);
     }
 
     /**

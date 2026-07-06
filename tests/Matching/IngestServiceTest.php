@@ -35,6 +35,7 @@ use MagicSunday\ObituaryMatcher\Domain\ScoreConfig;
 use MagicSunday\ObituaryMatcher\Domain\SignalScore;
 use MagicSunday\ObituaryMatcher\Matching\FileMatchStore;
 use MagicSunday\ObituaryMatcher\Matching\IngestService;
+use MagicSunday\ObituaryMatcher\Matching\IngestServiceFactory;
 use MagicSunday\ObituaryMatcher\Matching\MatchStatus;
 use MagicSunday\ObituaryMatcher\Matching\StoredMatch;
 use MagicSunday\ObituaryMatcher\Parsing\ObituaryDateParser;
@@ -78,6 +79,7 @@ use const JSON_THROW_ON_ERROR;
  */
 /* jscpd:ignore-start - the UsesClass coverage block converges with the worked-example test's by necessity */
 #[CoversClass(IngestService::class)]
+#[UsesClass(IngestServiceFactory::class)]
 #[UsesClass(Band::class)]
 #[UsesClass(Classification::class)]
 #[UsesClass(ClassifiedMatch::class)]
@@ -166,6 +168,35 @@ final class IngestServiceTest extends TempDirTestCase
         self::assertSame('Waldfriedhof Musterstadt', $match->match['extractedFacts']['cemetery']);
         self::assertSame('2024-03-20', $match->match['extractedFacts']['funeralDate']);
         self::assertSame('https://example.test/traueranzeige/erika', $match->obituaryUrl);
+    }
+
+    /**
+     * The scoring configuration handed to {@see IngestServiceFactory::create()} actually reaches the
+     * engine: wiring the SAME Erika notice + candidate through a factory-built service with the enriched
+     * defaults versus one whose name cap is zeroed yields a genuinely different score — the name signal
+     * drops to 0 and the total falls. This pins the config-threading a bare construction smoke cannot:
+     * a factory that ignored its argument (hardcoded {@see ScoreConfig::enriched()}) would score both
+     * runs identically and fail here.
+     */
+    #[Test]
+    public function theFactoryThreadsItsScoreConfigIntoTheScoringEngine(): void
+    {
+        $notices    = $this->notices('response-valid.json', ['I1']);
+        $candidates = ['I1' => $this->candidateMatchingErika()];
+
+        $defaultStore = new FileMatchStore($this->tmp . '/store-default');
+        IngestServiceFactory::create()->ingest($notices, $candidates, $defaultStore);
+
+        $zeroNameStore = new FileMatchStore($this->tmp . '/store-zero-name');
+        IngestServiceFactory::create(ScoreConfig::enrichedWith(0, 25, 10, 10, 50, 10))
+            ->ingest($notices, $candidates, $zeroNameStore);
+
+        $default  = $defaultStore->allPending()[0];
+        $zeroName = $zeroNameStore->allPending()[0];
+
+        self::assertGreaterThan(0, $default->match['signals']['name']['score']);
+        self::assertSame(0, $zeroName->match['signals']['name']['score']);
+        self::assertGreaterThan($zeroName->match['score'], $default->match['score']);
     }
 
     /**

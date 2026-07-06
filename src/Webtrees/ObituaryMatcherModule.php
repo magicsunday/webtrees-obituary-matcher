@@ -30,6 +30,8 @@ use Fisharebest\Webtrees\Registry;
 use Fisharebest\Webtrees\Tree;
 use Fisharebest\Webtrees\View;
 use InvalidArgumentException;
+use MagicSunday\ObituaryMatcher\Domain\ScoreConfig;
+use MagicSunday\ObituaryMatcher\Domain\ScoreWeights;
 use MagicSunday\ObituaryMatcher\Ui\SuggestionTabPresenter;
 use Override;
 
@@ -213,6 +215,30 @@ class ObituaryMatcherModule extends AbstractModule implements ModuleConfigInterf
     public function getConfigLink(): string
     {
         return route(ObituaryControlPanelHandler::ROUTE_NAME);
+    }
+
+    /**
+     * The persisted, admin-editable scoring weights, read leniently from this module's preferences. An
+     * install that never touched them yields {@see ScoreWeights::defaults()} (the enriched profile).
+     *
+     * @return ScoreWeights The resolved scoring weights.
+     */
+    public function scoreWeights(): ScoreWeights
+    {
+        return ScoreWeights::fromReader(
+            fn (string $key, string $default): string => $this->getPreference($key, $default),
+        );
+    }
+
+    /**
+     * The scoring configuration the live ingest runs with: the persisted editable weights projected onto
+     * the enriched profile. Handed to {@see DrainServiceFactory} so a drain scores with the admin's caps.
+     *
+     * @return ScoreConfig The scoring configuration.
+     */
+    public function scoreConfig(): ScoreConfig
+    {
+        return $this->scoreWeights()->toScoreConfig();
     }
 
     /**

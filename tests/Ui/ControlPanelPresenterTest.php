@@ -11,6 +11,7 @@ declare(strict_types=1);
 
 namespace MagicSunday\ObituaryMatcher\Test\Ui;
 
+use MagicSunday\ObituaryMatcher\Domain\ScoreWeights;
 use MagicSunday\ObituaryMatcher\Ui\ControlPanelPresenter;
 use MagicSunday\ObituaryMatcher\Ui\ControlPanelView;
 use MagicSunday\ObituaryMatcher\Ui\FinderConnectionView;
@@ -30,6 +31,7 @@ use PHPUnit\Framework\TestCase;
 #[CoversClass(ControlPanelPresenter::class)]
 #[UsesClass(ControlPanelView::class)]
 #[UsesClass(FinderConnectionView::class)]
+#[UsesClass(ScoreWeights::class)]
 final class ControlPanelPresenterTest extends TestCase
 {
     /**
@@ -40,6 +42,26 @@ final class ControlPanelPresenterTest extends TestCase
     private static function finder(): FinderConnectionView
     {
         return new FinderConnectionView('', false, null);
+    }
+
+    /**
+     * The default scoring weights, passed through every presenter call below.
+     *
+     * @return ScoreWeights The default weights.
+     */
+    private static function weights(): ScoreWeights
+    {
+        return ScoreWeights::defaults();
+    }
+
+    /**
+     * The fixed band thresholds, passed through every presenter call below.
+     *
+     * @return array{strong: int, probable: int, possible: int, weak: int} The band thresholds.
+     */
+    private static function bands(): array
+    {
+        return ['strong' => 85, 'probable' => 70, 'possible' => 55, 'weak' => 40];
     }
 
     /**
@@ -56,12 +78,31 @@ final class ControlPanelPresenterTest extends TestCase
             [['id' => 1, 'name' => 'Demo'], ['id' => 2, 'name' => 'Test']],
             4,
             self::finder(),
+            self::weights(),
+            self::bands(),
         );
 
         self::assertSame(80, $view->minAge);
         self::assertSame(25, $view->limit);
         self::assertCount(2, $view->trees);
         self::assertSame(4, $view->openJobCount);
+    }
+
+    /**
+     * The scoring weights and the read-only band thresholds project through verbatim into the view.
+     *
+     * @return void
+     */
+    #[Test]
+    public function buildProjectsScoringWeightsAndBandThresholds(): void
+    {
+        $weights = new ScoreWeights(41, 22, 13, 9, 47, 7);
+        $view    = (new ControlPanelPresenter())->build(90, 50, [], 0, self::finder(), $weights, self::bands());
+
+        self::assertSame(41, $view->weights->maxName);
+        self::assertSame(7, $view->weights->ambiguityGap);
+        self::assertSame(85, $view->bandThresholds['strong']);
+        self::assertSame(40, $view->bandThresholds['weak']);
     }
 
     /**
@@ -72,7 +113,7 @@ final class ControlPanelPresenterTest extends TestCase
     #[Test]
     public function buildWithNoOpenJobsYieldsZeroCount(): void
     {
-        $view = (new ControlPanelPresenter())->build(90, 50, [], 0, self::finder());
+        $view = (new ControlPanelPresenter())->build(90, 50, [], 0, self::finder(), self::weights(), self::bands());
 
         self::assertSame(0, $view->openJobCount);
         self::assertSame(90, $view->minAge);
@@ -88,7 +129,7 @@ final class ControlPanelPresenterTest extends TestCase
     public function buildCarriesTheFinderConnectionView(): void
     {
         $finder = new FinderConnectionView('http://finder:8080', true, null);
-        $view   = (new ControlPanelPresenter())->build(90, 50, [], 0, $finder);
+        $view   = (new ControlPanelPresenter())->build(90, 50, [], 0, $finder, self::weights(), self::bands());
 
         self::assertSame('http://finder:8080', $view->finder->baseUrl);
         self::assertTrue($view->finder->tokenIsSet);

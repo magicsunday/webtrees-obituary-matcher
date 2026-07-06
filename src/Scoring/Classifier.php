@@ -12,6 +12,7 @@ declare(strict_types=1);
 namespace MagicSunday\ObituaryMatcher\Scoring;
 
 use MagicSunday\ObituaryMatcher\Domain\Band;
+use MagicSunday\ObituaryMatcher\Domain\BandThreshold;
 use MagicSunday\ObituaryMatcher\Domain\Classification;
 use MagicSunday\ObituaryMatcher\Domain\MatchExplanation;
 use MagicSunday\ObituaryMatcher\Domain\ScoreConfig;
@@ -28,25 +29,8 @@ use function sprintf;
  */
 final readonly class Classifier
 {
-    /**
-     * Lowest total for the Strong band.
-     */
-    private const int THRESHOLD_STRONG = 85;
-
-    /**
-     * Lowest total for the Probable band.
-     */
-    private const int THRESHOLD_PROBABLE = 70;
-
-    /**
-     * Lowest total for the Possible band.
-     */
-    private const int THRESHOLD_POSSIBLE = 55;
-
-    /**
-     * Lowest total for the Weak band.
-     */
-    private const int THRESHOLD_WEAK = 40;
+    // The band thresholds are the fixed Domain constants {@see BandThreshold}, shared with the read-only
+    // control-panel presentation so the Webtrees adapter never reaches into this Scoring layer for them.
 
     /**
      * Constructor.
@@ -91,7 +75,7 @@ final readonly class Classifier
         // within the gap: a possible-band pair (e.g. 60 vs 58) genuinely fits two people equally,
         // while a weak/none best stays unflagged so low-confidence noise is not surfaced.
         if (
-            ($best->total >= self::THRESHOLD_POSSIBLE)
+            ($best->total >= BandThreshold::POSSIBLE)
             && ($second !== null)
             && (($best->total - $second) < $this->config->ambiguityGap)
         ) {
@@ -112,11 +96,11 @@ final readonly class Classifier
     private function band(int $score): Band
     {
         return match (true) {
-            $score >= self::THRESHOLD_STRONG   => Band::Strong,
-            $score >= self::THRESHOLD_PROBABLE => Band::Probable,
-            $score >= self::THRESHOLD_POSSIBLE => Band::Possible,
-            $score >= self::THRESHOLD_WEAK     => Band::Weak,
-            default                            => Band::None,
+            $score >= BandThreshold::STRONG   => Band::Strong,
+            $score >= BandThreshold::PROBABLE => Band::Probable,
+            $score >= BandThreshold::POSSIBLE => Band::Possible,
+            $score >= BandThreshold::WEAK     => Band::Weak,
+            default                           => Band::None,
         };
     }
 

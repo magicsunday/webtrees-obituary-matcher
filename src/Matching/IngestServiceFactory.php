@@ -11,6 +11,7 @@ declare(strict_types=1);
 
 namespace MagicSunday\ObituaryMatcher\Matching;
 
+use MagicSunday\ObituaryMatcher\Domain\ScoreConfig;
 use MagicSunday\ObituaryMatcher\Scoring\Classifier;
 use MagicSunday\ObituaryMatcher\Scoring\EnrichedMatchEngine;
 
@@ -38,10 +39,21 @@ final class IngestServiceFactory
      * Matching boundary. The ingest is transport-agnostic and is handed already-validated notices by the
      * caller, so it no longer reads the response itself and needs no queue paths.
      *
+     * The SAME scoring configuration drives both the engine (per-signal caps) and the classifier
+     * (ambiguity gap), so the admin-editable weights stay coherent across the whole scoring pass. A null
+     * config defaults to the enriched profile, preserving the pre-setting behaviour.
+     *
+     * @param ScoreConfig|null $scoreConfig The scoring configuration, defaulting to the enriched profile.
+     *
      * @return IngestService The wired ingest apex.
      */
-    public static function create(): IngestService
+    public static function create(?ScoreConfig $scoreConfig = null): IngestService
     {
-        return new IngestService(new EnrichedMatchEngine(), new Classifier());
+        $scoreConfig ??= ScoreConfig::enriched();
+
+        return new IngestService(
+            new EnrichedMatchEngine($scoreConfig),
+            new Classifier($scoreConfig),
+        );
     }
 }

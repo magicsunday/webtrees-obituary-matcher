@@ -87,4 +87,45 @@ final readonly class ScoreConfig
             maxCemetery: 10,
         );
     }
+
+    /**
+     * The enriched profile with the six admin-editable base caps overridden. Every non-editable
+     * enriched value — the plausibility window and the relatives/age/cemetery caps — is carried over
+     * from {@see self::enriched()} unchanged, so an operator retunes the base weights without ever
+     * disturbing the enrichment caps. Passing the enriched profile's own base caps reproduces it
+     * verbatim, which is what keeps the editable-weight DEFAULTS from changing live scoring.
+     *
+     * @param int $maxName         Maximum points for a name signal.
+     * @param int $maxBirth        Maximum points for a birth-date signal.
+     * @param int $maxPlace        Maximum points for a place signal.
+     * @param int $maxPlausibility Maximum points for a plausibility signal.
+     * @param int $maxPenalty      Maximum conflict penalty that can be applied.
+     * @param int $ambiguityGap    Score gap below which a match is considered ambiguous.
+     *
+     * @return self The enriched profile carrying the overridden base caps.
+     */
+    public static function enrichedWith(
+        int $maxName,
+        int $maxBirth,
+        int $maxPlace,
+        int $maxPlausibility,
+        int $maxPenalty,
+        int $ambiguityGap,
+    ): self {
+        $enriched = self::enriched();
+
+        return new self(
+            maxName: $maxName,
+            maxBirth: $maxBirth,
+            maxPlace: $maxPlace,
+            maxPlausibility: $maxPlausibility,
+            maxPenalty: $maxPenalty,
+            ambiguityGap: $ambiguityGap,
+            minPlausibleAge: $enriched->minPlausibleAge,
+            maxPlausibleAge: $enriched->maxPlausibleAge,
+            maxRelatives: $enriched->maxRelatives,
+            maxAge: $enriched->maxAge,
+            maxCemetery: $enriched->maxCemetery,
+        );
+    }
 }

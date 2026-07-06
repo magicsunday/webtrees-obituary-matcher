@@ -14,11 +14,15 @@ namespace MagicSunday\ObituaryMatcher\Test\Integration;
 use Aura\Router\Route;
 use Aura\Router\RouterContainer;
 use Fig\Http\Message\RequestMethodInterface;
+use Fisharebest\Webtrees\DB;
 use Fisharebest\Webtrees\Registry;
+use MagicSunday\ObituaryMatcher\Domain\ScoreConfig;
+use MagicSunday\ObituaryMatcher\Domain\ScoreWeights;
 use MagicSunday\ObituaryMatcher\Webtrees\ObituaryControlPanelHandler;
 use MagicSunday\ObituaryMatcher\Webtrees\ObituaryMatcherModule;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\Test;
+use PHPUnit\Framework\Attributes\UsesClass;
 use Psr\Http\Message\ServerRequestFactoryInterface;
 use Psr\Http\Message\ServerRequestInterface;
 
@@ -35,6 +39,8 @@ use Psr\Http\Message\ServerRequestInterface;
  * @link    https://github.com/magicsunday/webtrees-obituary-matcher/
  */
 #[CoversClass(ObituaryMatcherModule::class)]
+#[UsesClass(ScoreWeights::class)]
+#[UsesClass(ScoreConfig::class)]
 final class ObituaryMatcherModuleConfigTest extends IntegrationTestCase
 {
     /**
@@ -50,6 +56,35 @@ final class ObituaryMatcherModuleConfigTest extends IntegrationTestCase
         $this->bindRequest();
 
         self::assertStringContainsString('obituary-matcher', (new ObituaryMatcherModule())->getConfigLink());
+    }
+
+    /**
+     * The module reads the persisted editable weights and projects them onto the enriched profile: an
+     * edited cap is read back and overrides its base cap, while the non-editable enrichment caps and any
+     * untouched base cap keep their enriched defaults. This is the config the live drain scores with.
+     *
+     * @return void
+     */
+    #[Test]
+    public function scoreConfigProjectsThePersistedWeightsOntoTheEnrichedProfile(): void
+    {
+        $module = new ObituaryMatcherModule();
+        $module->setName('obituary-matcher-weights-test');
+        DB::table('module')->insert([
+            'module_name' => $module->name(),
+            'status'      => 'enabled',
+        ]);
+
+        $module->setPreference('score_max_name', '40');
+
+        self::assertSame(40, $module->scoreWeights()->maxName);
+
+        $config = $module->scoreConfig();
+        self::assertSame(40, $config->maxName);
+        self::assertSame(25, $config->maxBirth);
+        self::assertSame(35, $config->maxRelatives);
+        self::assertSame(20, $config->maxAge);
+        self::assertSame(10, $config->maxCemetery);
     }
 
     /**
