@@ -147,8 +147,15 @@ final readonly class IngestService
 
         // A failed portal is surfaced as a non-fatal warning so the drain records that this person's
         // silence there is NOT a confirmed miss (a genuine miss needs every portal `ok`). This keeps the
-        // matcher from later treating an outage as "nothing found".
+        // matcher from later treating an outage as "nothing found". Only persons we actually scored this
+        // run (a held candidate) get the warning: for a person with no held candidate (now private or
+        // deleted) no miss is being determined, so a "not a confirmed miss" note would be noise — that
+        // person is already surfaced by the no-held-candidate warning above when it carries notices.
         foreach ($coverage as $personId => $portals) {
+            if (!array_key_exists($personId, $candidatesById)) {
+                continue;
+            }
+
             foreach ($portals as $portal) {
                 if ($portal->status === CoverageStatus::Failed) {
                     $warnings[] = sprintf(

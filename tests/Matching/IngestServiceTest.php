@@ -233,6 +233,25 @@ final class IngestServiceTest extends TempDirTestCase
     }
 
     /**
+     * A `failed` portal for a person with NO held candidate this run (now private or deleted) produces
+     * no warning: no miss is being determined for that person, so the "not a confirmed miss" note would
+     * be noise rather than signal.
+     */
+    #[Test]
+    public function ingestDoesNotWarnAboutAFailedPortalForAPersonWithoutAHeldCandidate(): void
+    {
+        $coverage = [
+            'I1' => [new PortalCoverage('freiepresse', CoverageStatus::Failed, null, 'timeout')],
+        ];
+        $store = new FileMatchStore($this->tmp . '/store');
+
+        // No held candidate and no notices for I1 → nothing is scored, so the failed portal is silent.
+        $result = $this->newService()->ingest([], $coverage, [], $store);
+
+        self::assertSame([], $result->warnings);
+    }
+
+    /**
      * A notice belonging to a person who no longer has a held candidate is not dropped silently: it
      * stores nothing and surfaces a non-fatal warning, so a caller (the drain) can record why a
      * read notice produced no suggestion.
