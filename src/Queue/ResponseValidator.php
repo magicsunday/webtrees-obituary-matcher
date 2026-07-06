@@ -31,10 +31,10 @@ use function is_array;
 use function is_float;
 use function is_int;
 use function is_string;
+use function mb_strlen;
 use function parse_url;
 use function preg_match;
 use function sprintf;
-use function strlen;
 use function strtolower;
 use function substr;
 use function trim;
@@ -99,8 +99,9 @@ final readonly class ResponseValidator
     public const int SCHEMA_VERSION = 1;
 
     /**
-     * @var int The contract's maximum length for a per-portal coverage message; a longer untrusted
-     *          message is rejected at this boundary rather than trusting the finder to honour it.
+     * @var int The contract's maximum length (in characters/Unicode code points, matching JSON-Schema
+     *          maxLength semantics — hence the mb_strlen check) for a per-portal coverage message; a
+     *          longer untrusted message is rejected here rather than trusting the finder to honour it.
      */
     private const int COVERAGE_MESSAGE_MAX_LENGTH = 1_000;
 
@@ -455,7 +456,7 @@ final readonly class ResponseValidator
 
             if (
                 ($message !== null)
-                && (strlen($message) > self::COVERAGE_MESSAGE_MAX_LENGTH)
+                && (mb_strlen($message) > self::COVERAGE_MESSAGE_MAX_LENGTH)
             ) {
                 throw new ResponseValidationException('Response coverage message exceeds the maximum length.');
             }

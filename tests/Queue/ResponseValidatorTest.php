@@ -243,6 +243,31 @@ final class ResponseValidatorTest extends TestCase
     }
 
     /**
+     * The message limit is character-based (the contract's maxLength is Unicode code points): a message
+     * of 1000 two-byte characters (2000 bytes) is within the limit and accepted — a byte-based check
+     * would wrongly reject this contract-valid message.
+     *
+     * @return void
+     */
+    #[Test]
+    public function acceptsAMultibyteCoverageMessageWithinTheCharacterLimit(): void
+    {
+        $message = str_repeat('ä', 1_000);
+        $payload = $this->payloadWithResults([
+            'I1' => [
+                'notices'  => [],
+                'coverage' => [
+                    ['portal' => 'trauer_anzeigen', 'status' => 'failed', 'message' => $message],
+                ],
+            ],
+        ]);
+
+        $coverage = (new ResponseValidator())->validate($payload, 'job-1', ['I1'])->coverage;
+
+        self::assertSame($message, $coverage['I1'][0]->message);
+    }
+
+    /**
      * A payload whose jobId does not match the requested job is rejected.
      */
     #[Test]
