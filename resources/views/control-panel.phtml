@@ -14,6 +14,7 @@
 declare(strict_types=1);
 
 use Fisharebest\Webtrees\I18N;
+use MagicSunday\ObituaryMatcher\Domain\ScoreWeights;
 use MagicSunday\ObituaryMatcher\Ui\ControlPanelView;
 use MagicSunday\ObituaryMatcher\Webtrees\ObituaryControlPanelHandler;
 
@@ -44,6 +45,52 @@ $statusLabels = [
 
     <button type="submit"><?= e(I18N::translate('Save')) ?></button>
 </form>
+
+<h2><?= e(I18N::translate('Scoring weights')) ?></h2>
+
+<p><?= e(I18N::translate('The maximum points each signal may contribute to a match score. Higher values weight a signal more heavily.')) ?></p>
+
+<form method="post" action="<?= e(route(ObituaryControlPanelHandler::ROUTE_NAME)) ?>">
+    <?= csrf_field() ?>
+    <input type="hidden" name="action" value="save-weights">
+
+    <label for="score_max_name"><?= e(I18N::translate('Name weight')) ?></label>
+    <input type="number" id="score_max_name" name="score_max_name" value="<?= e((string) $view->weights->maxName) ?>" min="<?= e((string) ScoreWeights::FIELDS['maxName']['min']) ?>" max="<?= e((string) ScoreWeights::FIELDS['maxName']['max']) ?>">
+
+    <label for="score_max_birth"><?= e(I18N::translate('Birth-date weight')) ?></label>
+    <input type="number" id="score_max_birth" name="score_max_birth" value="<?= e((string) $view->weights->maxBirth) ?>" min="<?= e((string) ScoreWeights::FIELDS['maxBirth']['min']) ?>" max="<?= e((string) ScoreWeights::FIELDS['maxBirth']['max']) ?>">
+
+    <label for="score_max_place"><?= e(I18N::translate('Place weight')) ?></label>
+    <input type="number" id="score_max_place" name="score_max_place" value="<?= e((string) $view->weights->maxPlace) ?>" min="<?= e((string) ScoreWeights::FIELDS['maxPlace']['min']) ?>" max="<?= e((string) ScoreWeights::FIELDS['maxPlace']['max']) ?>">
+
+    <label for="score_max_plausibility"><?= e(I18N::translate('Plausibility weight')) ?></label>
+    <input type="number" id="score_max_plausibility" name="score_max_plausibility" value="<?= e((string) $view->weights->maxPlausibility) ?>" min="<?= e((string) ScoreWeights::FIELDS['maxPlausibility']['min']) ?>" max="<?= e((string) ScoreWeights::FIELDS['maxPlausibility']['max']) ?>">
+
+    <label for="score_max_penalty"><?= e(I18N::translate('Conflict-penalty cap')) ?></label>
+    <input type="number" id="score_max_penalty" name="score_max_penalty" value="<?= e((string) $view->weights->maxPenalty) ?>" min="<?= e((string) ScoreWeights::FIELDS['maxPenalty']['min']) ?>" max="<?= e((string) ScoreWeights::FIELDS['maxPenalty']['max']) ?>">
+
+    <label for="score_ambiguity_gap"><?= e(I18N::translate('Ambiguity gap')) ?></label>
+    <input type="number" id="score_ambiguity_gap" name="score_ambiguity_gap" value="<?= e((string) $view->weights->ambiguityGap) ?>" min="<?= e((string) ScoreWeights::FIELDS['ambiguityGap']['min']) ?>" max="<?= e((string) ScoreWeights::FIELDS['ambiguityGap']['max']) ?>">
+
+    <button type="submit"><?= e(I18N::translate('Save')) ?></button>
+</form>
+
+<form method="post" action="<?= e(route(ObituaryControlPanelHandler::ROUTE_NAME)) ?>">
+    <?= csrf_field() ?>
+    <input type="hidden" name="action" value="reset-weights">
+    <button type="submit"><?= e(I18N::translate('Restore defaults')) ?></button>
+</form>
+
+<h3><?= e(I18N::translate('Band thresholds')) ?></h3>
+
+<p><?= e(I18N::translate('These bands are fixed and shown for reference only. They are not editable.')) ?></p>
+
+<ul>
+    <li><?= e(I18N::translate('Strong')) ?>: <?= e((string) $view->bandThresholds['strong']) ?></li>
+    <li><?= e(I18N::translate('Probable')) ?>: <?= e((string) $view->bandThresholds['probable']) ?></li>
+    <li><?= e(I18N::translate('Possible')) ?>: <?= e((string) $view->bandThresholds['possible']) ?></li>
+    <li><?= e(I18N::translate('Weak')) ?>: <?= e((string) $view->bandThresholds['weak']) ?></li>
+</ul>
 
 <h2><?= e(I18N::translate('Finder connection')) ?></h2>
 

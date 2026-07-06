@@ -62,8 +62,6 @@ final readonly class WebtreesInstallLocator
      *   - `<moduleRoot>/../../..` — the webtrees-as-root-package layout: the module is `composer
      *     require`d into a webtrees source install, landing at `<webtrees>/vendor/magicsunday/<m>`, so
      *     the webtrees install root is three directories up.
-     *
-     * @return string|null
      */
     public function installRoot(): ?string
     {
@@ -94,8 +92,6 @@ final readonly class WebtreesInstallLocator
     /**
      * Returns the absolute path to the located install's `data/config.ini.php`, or null when no install
      * root could be located.
-     *
-     * @return string|null
      */
     public function configFile(): ?string
     {
@@ -107,8 +103,6 @@ final readonly class WebtreesInstallLocator
     /**
      * Returns the absolute path to the located install's `data` directory, or null when no install root
      * could be located.
-     *
-     * @return string|null
      */
     public function dataDir(): ?string
     {
@@ -120,8 +114,6 @@ final readonly class WebtreesInstallLocator
     /**
      * Returns the absolute path to the located install's default REST pending-jobs ledger root
      * (`data/obituary-matcher/rest-pending`), or null when no install root could be located.
-     *
-     * @return string|null
      */
     public function defaultRestPendingRoot(): ?string
     {

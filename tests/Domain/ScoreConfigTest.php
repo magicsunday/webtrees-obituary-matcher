@@ -63,4 +63,42 @@ final class ScoreConfigTest extends TestCase
         self::assertSame(20, $enriched->maxAge);
         self::assertSame(10, $enriched->maxCemetery);
     }
+
+    /**
+     * enrichedWith() takes the six admin-editable caps as overrides while KEEPING every non-editable
+     * enriched value (the plausibility window and the relatives/age/cemetery caps) from the enriched
+     * profile — so an operator can retune the base weights without disturbing the enrichment caps.
+     */
+    #[Test]
+    public function enrichedWithOverridesTheEditableCapsAndKeepsTheEnrichedCaps(): void
+    {
+        $config = ScoreConfig::enrichedWith(40, 28, 12, 8, 44, 6);
+
+        self::assertSame(40, $config->maxName);
+        self::assertSame(28, $config->maxBirth);
+        self::assertSame(12, $config->maxPlace);
+        self::assertSame(8, $config->maxPlausibility);
+        self::assertSame(44, $config->maxPenalty);
+        self::assertSame(6, $config->ambiguityGap);
+
+        $enriched = ScoreConfig::enriched();
+        self::assertSame($enriched->minPlausibleAge, $config->minPlausibleAge);
+        self::assertSame($enriched->maxPlausibleAge, $config->maxPlausibleAge);
+        self::assertSame($enriched->maxRelatives, $config->maxRelatives);
+        self::assertSame($enriched->maxAge, $config->maxAge);
+        self::assertSame($enriched->maxCemetery, $config->maxCemetery);
+    }
+
+    /**
+     * Feeding enrichedWith() the enriched profile's own base caps reproduces the enriched profile
+     * verbatim — the invariant that lets the editable-weight defaults leave live scoring unchanged.
+     */
+    #[Test]
+    public function enrichedWithAtTheEnrichedDefaultsEqualsTheEnrichedProfile(): void
+    {
+        self::assertEquals(
+            ScoreConfig::enriched(),
+            ScoreConfig::enrichedWith(35, 25, 10, 10, 50, 10),
+        );
+    }
 }

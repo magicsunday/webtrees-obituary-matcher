@@ -49,8 +49,6 @@ enum NoticeType: string
      * Maps untrusted input to a case, defaulting to Obituary for an unknown value.
      *
      * @param string $raw Raw notice-type string from an external finder.
-     *
-     * @return self
      */
     public static function fromStringOrDefault(string $raw): self
     {

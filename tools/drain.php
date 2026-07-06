@@ -146,8 +146,9 @@ try {
 }
 
 // Assemble the drain graph over the connection and ledger root resolved above via its composition root
-// (the per-job store is wired inside DrainService).
-$drainService = DrainServiceFactory::create($connection, $restPendingRoot);
+// (the per-job store is wired inside DrainService). The admin-editable scoring weights are read from the
+// module here so the drain scores with the operator's configured caps, not just the enriched defaults.
+$drainService = DrainServiceFactory::create($connection, $restPendingRoot, $module->scoreConfig());
 
 try {
     $summary = $drainService->drain($onlyTreeId, $limit);

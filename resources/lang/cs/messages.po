@@ -23,7 +23,7 @@ msgstr ""
 msgid "%1$s open · %2$s confirmed · %3$s rejected · %4$s uncertain"
 msgstr ""
 
-#: resources/views/control-panel.phtml:162
+#: resources/views/control-panel.phtml:209
 #, php-format
 msgid "%s finder job is awaiting results."
 msgid_plural "%s finder jobs are awaiting results."
@@ -59,15 +59,15 @@ msgstr[2] ""
 msgid "A hard conflict prevents confirming. Review it manually."
 msgstr ""
 
-#: resources/views/control-panel.phtml:61
+#: resources/views/control-panel.phtml:108
 msgid "A token is set."
 msgstr ""
 
-#: resources/views/control-panel.phtml:59
+#: resources/views/control-panel.phtml:106
 msgid "Access token"
 msgstr ""
 
-#: resources/views/control-panel.phtml:95
+#: resources/views/control-panel.phtml:142
 msgid "Advertised schema versions"
 msgstr ""
 
@@ -79,9 +79,17 @@ msgstr ""
 msgid "All"
 msgstr ""
 
+#: resources/views/control-panel.phtml:72
+msgid "Ambiguity gap"
+msgstr ""
+
 #: resources/views/review.phtml:85 resources/views/tab.phtml:45
 #: resources/views/worklist.phtml:50
 msgid "Ambiguous"
+msgstr ""
+
+#: resources/views/control-panel.phtml:84
+msgid "Band thresholds"
 msgstr ""
 
 #: resources/views/review.phtml:33
@@ -92,11 +100,15 @@ msgstr ""
 msgid "Birth date"
 msgstr ""
 
+#: resources/views/control-panel.phtml:60
+msgid "Birth-date weight"
+msgstr ""
+
 #: resources/views/review.phtml:92 resources/views/review.phtml:176
 msgid "Born"
 msgstr ""
 
-#: resources/views/control-panel.phtml:42
+#: resources/views/control-panel.phtml:43
 msgid "Candidates per run"
 msgstr ""
 
@@ -109,7 +121,7 @@ msgid "Child"
 msgstr ""
 
 #: src/Webtrees/EnqueuePersonHandler.php:110
-#: src/Webtrees/ObituaryControlPanelHandler.php:450
+#: src/Webtrees/ObituaryControlPanelHandler.php:513
 msgid "Configure the finder connection first."
 msgstr ""
 
@@ -130,15 +142,19 @@ msgstr[2] ""
 msgid "Confirmed"
 msgstr ""
 
+#: resources/views/control-panel.phtml:69
+msgid "Conflict-penalty cap"
+msgstr ""
+
 #: resources/views/review.phtml:160 resources/views/worklist.phtml:49
 msgid "Conflicts"
 msgstr ""
 
-#: resources/views/control-panel.phtml:76
+#: resources/views/control-panel.phtml:123
 msgid "Connection test result"
 msgstr ""
 
-#: resources/views/control-panel.phtml:106
+#: resources/views/control-panel.phtml:153
 msgid "Country"
 msgstr ""
 
@@ -150,10 +166,10 @@ msgstr ""
 msgid "Death date"
 msgstr ""
 
-#: resources/views/control-panel.phtml:33 resources/views/worklist.phtml:70
-#: src/Webtrees/ObituaryControlPanelHandler.php:541
-#: src/Webtrees/ObituaryMatcherModule.php:235
-#: src/Webtrees/ObituaryMatcherModule.php:251
+#: resources/views/control-panel.phtml:34 resources/views/worklist.phtml:70
+#: src/Webtrees/ObituaryControlPanelHandler.php:606
+#: src/Webtrees/ObituaryMatcherModule.php:261
+#: src/Webtrees/ObituaryMatcherModule.php:277
 msgid "Death notices"
 msgstr ""
 
@@ -169,24 +185,24 @@ msgstr ""
 msgid "Family"
 msgstr ""
 
-#: resources/views/control-panel.phtml:87
+#: resources/views/control-panel.phtml:134
 msgid "Finder ID"
 msgstr ""
 
-#: resources/views/control-panel.phtml:48
-#: resources/views/control-panel.phtml:54
+#: resources/views/control-panel.phtml:95
+#: resources/views/control-panel.phtml:101
 msgid "Finder connection"
 msgstr ""
 
-#: src/Webtrees/ObituaryControlPanelHandler.php:249
+#: src/Webtrees/ObituaryControlPanelHandler.php:312
 msgid "Finder connection could not be saved."
 msgstr ""
 
-#: src/Webtrees/ObituaryControlPanelHandler.php:277
+#: src/Webtrees/ObituaryControlPanelHandler.php:340
 msgid "Finder connection saved."
 msgstr ""
 
-#: resources/views/control-panel.phtml:90
+#: resources/views/control-panel.phtml:137
 msgid "Finder version"
 msgstr ""
 
@@ -194,7 +210,7 @@ msgstr ""
 msgid "Grandchild"
 msgstr ""
 
-#: resources/views/control-panel.phtml:82
+#: resources/views/control-panel.phtml:129
 #, php-format
 msgid "HTTP status: %s"
 msgstr ""
@@ -220,7 +236,7 @@ msgstr ""
 msgid "Match"
 msgstr ""
 
-#: src/Webtrees/ObituaryMatcherModule.php:84
+#: src/Webtrees/ObituaryMatcherModule.php:86
 msgid ""
 "Match individuals against public death notices to suggest missing death "
 "dates."
@@ -234,13 +250,17 @@ msgstr ""
 msgid "Maximum age"
 msgstr ""
 
-#: resources/views/control-panel.phtml:39 resources/views/worklist.phtml:77
+#: resources/views/control-panel.phtml:40 resources/views/worklist.phtml:77
 msgid "Minimum age"
 msgstr ""
 
-#: resources/views/control-panel.phtml:105 resources/views/review.phtml:32
+#: resources/views/control-panel.phtml:152 resources/views/review.phtml:32
 #: resources/views/worklist.phtml:55
 msgid "Name"
+msgstr ""
+
+#: resources/views/control-panel.phtml:57
+msgid "Name weight"
 msgstr ""
 
 #: resources/views/review.phtml:133
@@ -251,7 +271,7 @@ msgstr ""
 msgid "Next best candidate"
 msgstr ""
 
-#: src/Webtrees/ObituaryControlPanelHandler.php:491
+#: src/Webtrees/ObituaryControlPanelHandler.php:554
 msgid "No candidates matched the current settings; nothing was queued."
 msgstr ""
 
@@ -263,7 +283,7 @@ msgstr ""
 msgid "No family is recorded in the tree."
 msgstr ""
 
-#: resources/views/control-panel.phtml:158
+#: resources/views/control-panel.phtml:205
 msgid "No finder jobs are currently open."
 msgstr ""
 
@@ -280,11 +300,11 @@ msgstr ""
 msgid "No obituary matches in this tree yet."
 msgstr ""
 
-#: resources/views/control-panel.phtml:61
+#: resources/views/control-panel.phtml:108
 msgid "No token set."
 msgstr ""
 
-#: resources/views/control-panel.phtml:142
+#: resources/views/control-panel.phtml:189
 msgid "No trees are available."
 msgstr ""
 
@@ -292,7 +312,7 @@ msgstr ""
 msgid "Note"
 msgstr ""
 
-#: resources/views/control-panel.phtml:125
+#: resources/views/control-panel.phtml:172
 msgid "Notice fields"
 msgstr ""
 
@@ -300,7 +320,7 @@ msgstr ""
 msgid "Obituary"
 msgstr ""
 
-#: src/Webtrees/ObituaryMatcherModule.php:73
+#: src/Webtrees/ObituaryMatcherModule.php:75
 msgid "Obituary Matcher"
 msgstr ""
 
@@ -312,7 +332,7 @@ msgstr ""
 msgid "Open"
 msgstr ""
 
-#: resources/views/control-panel.phtml:155
+#: resources/views/control-panel.phtml:202
 msgid "Open finder jobs"
 msgstr ""
 
@@ -342,12 +362,24 @@ msgstr ""
 msgid "Place"
 msgstr ""
 
+#: resources/views/control-panel.phtml:63
+msgid "Place weight"
+msgstr ""
+
 #: resources/views/review.phtml:35
 msgid "Plausibility"
 msgstr ""
 
-#: resources/views/control-panel.phtml:104
+#: resources/views/control-panel.phtml:66
+msgid "Plausibility weight"
+msgstr ""
+
+#: resources/views/control-panel.phtml:151
 msgid "Portal"
+msgstr ""
+
+#: resources/views/control-panel.phtml:91
+msgid "Possible"
 msgstr ""
 
 #: resources/views/review.phtml:20 resources/views/tab.phtml:18
@@ -363,16 +395,20 @@ msgstr ""
 msgid "Preview who would be searched"
 msgstr ""
 
+#: resources/views/control-panel.phtml:90
+msgid "Probable"
+msgstr ""
+
 #: resources/views/review.phtml:19 resources/views/tab.phtml:17
 #: resources/views/worklist.phtml:18
 msgid "Probable match"
 msgstr ""
 
-#: resources/views/control-panel.phtml:56
+#: resources/views/control-panel.phtml:103
 msgid "REST base URL"
 msgstr ""
 
-#: resources/views/control-panel.phtml:107
+#: resources/views/control-panel.phtml:154
 msgid "Regions"
 msgstr ""
 
@@ -392,8 +428,12 @@ msgstr ""
 msgid "Relatives"
 msgstr ""
 
-#: resources/views/control-panel.phtml:65
+#: resources/views/control-panel.phtml:112
 msgid "Remove token"
+msgstr ""
+
+#: resources/views/control-panel.phtml:81
+msgid "Restore defaults"
 msgstr ""
 
 #: resources/views/review.phtml:200 resources/views/worklist.phtml:201
@@ -420,11 +460,12 @@ msgstr ""
 msgid "Review match"
 msgstr ""
 
-#: resources/views/control-panel.phtml:45
+#: resources/views/control-panel.phtml:46
+#: resources/views/control-panel.phtml:75
 msgid "Save"
 msgstr ""
 
-#: resources/views/control-panel.phtml:69
+#: resources/views/control-panel.phtml:116
 msgid "Save finder connection"
 msgstr ""
 
@@ -432,17 +473,21 @@ msgstr ""
 msgid "Score"
 msgstr ""
 
-#: resources/views/control-panel.phtml:139 resources/views/tab.phtml:58
+#: resources/views/control-panel.phtml:49
+msgid "Scoring weights"
+msgstr ""
+
+#: resources/views/control-panel.phtml:186 resources/views/tab.phtml:58
 msgid "Search for death notices"
 msgstr ""
 
 #: src/Webtrees/EnqueuePersonHandler.php:137
-#: src/Webtrees/ObituaryControlPanelHandler.php:482
+#: src/Webtrees/ObituaryControlPanelHandler.php:545
 msgid "Search job could not be queued."
 msgstr ""
 
 #: src/Webtrees/EnqueuePersonHandler.php:143
-#: src/Webtrees/ObituaryControlPanelHandler.php:488
+#: src/Webtrees/ObituaryControlPanelHandler.php:551
 #, php-format
 msgid "Search job queued (%s)."
 msgstr ""
@@ -456,11 +501,13 @@ msgstr ""
 msgid "Select %s for bulk reject"
 msgstr ""
 
-#: src/Webtrees/ObituaryControlPanelHandler.php:211
+#: src/Webtrees/ObituaryControlPanelHandler.php:215
+#: src/Webtrees/ObituaryControlPanelHandler.php:246
 msgid "Settings could not be saved."
 msgstr ""
 
-#: src/Webtrees/ObituaryControlPanelHandler.php:209
+#: src/Webtrees/ObituaryControlPanelHandler.php:213
+#: src/Webtrees/ObituaryControlPanelHandler.php:258
 msgid "Settings saved."
 msgstr ""
 
@@ -484,7 +531,7 @@ msgstr ""
 msgid "Spouse"
 msgstr ""
 
-#: resources/views/control-panel.phtml:150
+#: resources/views/control-panel.phtml:197
 msgid "Start search"
 msgstr ""
 
@@ -492,16 +539,20 @@ msgstr ""
 msgid "Status"
 msgstr ""
 
+#: resources/views/control-panel.phtml:89
+msgid "Strong"
+msgstr ""
+
 #: resources/views/review.phtml:18 resources/views/tab.phtml:16
 #: resources/views/worklist.phtml:17
 msgid "Strong match"
 msgstr ""
 
-#: resources/views/control-panel.phtml:135
+#: resources/views/control-panel.phtml:182
 msgid "Supported features"
 msgstr ""
 
-#: resources/views/control-panel.phtml:68
+#: resources/views/control-panel.phtml:115
 msgid "Test connection"
 msgstr ""
 
@@ -525,20 +576,20 @@ msgid ""
 "run the command-line revert with --force."
 msgstr ""
 
-#: resources/views/control-panel.phtml:29
+#: resources/views/control-panel.phtml:30
 msgid "The finder connection is invalid."
 msgstr ""
 
-#: resources/views/control-panel.phtml:28
+#: resources/views/control-panel.phtml:29
 msgid "The finder could not be reached."
 msgstr ""
 
-#: resources/views/control-panel.phtml:27
+#: resources/views/control-panel.phtml:28
 msgid "The finder is reachable."
 msgstr ""
 
 #: src/Webtrees/EnqueuePersonHandler.php:118
-#: src/Webtrees/ObituaryControlPanelHandler.php:458
+#: src/Webtrees/ObituaryControlPanelHandler.php:521
 msgid "The finder storage location is unavailable."
 msgstr ""
 
@@ -559,8 +610,23 @@ msgstr ""
 msgid "The match was rejected."
 msgstr ""
 
+#: resources/views/control-panel.phtml:51
+msgid ""
+"The maximum points each signal may contribute to a match score. Higher "
+"values weight a signal more heavily."
+msgstr ""
+
 #: src/Webtrees/ReviewScreenHandler.php:325
 msgid "The obituary did not carry writable data."
+msgstr ""
+
+#: src/Webtrees/ObituaryControlPanelHandler.php:275
+msgid "The scoring weights were reset to their defaults."
+msgstr ""
+
+#: resources/views/control-panel.phtml:86
+msgid ""
+"These bands are fixed and shown for reference only. They are not editable."
 msgstr ""
 
 #: resources/views/review.phtml:227
@@ -602,13 +668,17 @@ msgstr ""
 msgid "Uncertain"
 msgstr ""
 
-#: src/Webtrees/ObituaryControlPanelHandler.php:442
-#: src/Webtrees/ObituaryControlPanelHandler.php:475
+#: src/Webtrees/ObituaryControlPanelHandler.php:505
+#: src/Webtrees/ObituaryControlPanelHandler.php:538
 msgid "Unknown tree."
 msgstr ""
 
 #: resources/views/review.phtml:186
 msgid "View source"
+msgstr ""
+
+#: resources/views/control-panel.phtml:92
+msgid "Weak"
 msgstr ""
 
 #: resources/views/review.phtml:21 resources/views/tab.phtml:19

@@ -13,6 +13,7 @@ namespace MagicSunday\ObituaryMatcher\Webtrees;
 
 use Fisharebest\Webtrees\Services\GedcomImportService;
 use Fisharebest\Webtrees\Services\TreeService;
+use MagicSunday\ObituaryMatcher\Domain\ScoreConfig;
 use MagicSunday\ObituaryMatcher\Matching\IngestServiceFactory;
 use MagicSunday\ObituaryMatcher\Support\FinderConnection;
 
@@ -44,14 +45,19 @@ final class DrainServiceFactory
      *
      * @param FinderConnection $connection      The REST finder connection.
      * @param string           $restPendingRoot The REST in-flight ledger root.
+     * @param ScoreConfig|null $scoreConfig     The scoring configuration (admin-editable weights),
+     *                                          defaulting to the enriched profile.
      *
      * @return DrainService The wired drain consumer.
      */
-    public static function create(FinderConnection $connection, string $restPendingRoot): DrainService
-    {
+    public static function create(
+        FinderConnection $connection,
+        string $restPendingRoot,
+        ?ScoreConfig $scoreConfig = null,
+    ): DrainService {
         return new DrainService(
             new CandidateRepository(),
-            IngestServiceFactory::create(),
+            IngestServiceFactory::create($scoreConfig),
             new TreeService(new GedcomImportService()),
             JobTransportFactory::create($connection, $restPendingRoot),
         );

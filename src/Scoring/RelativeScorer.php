@@ -116,8 +116,6 @@ final readonly class RelativeScorer
      * @param PersonName          $needle  The parsed notice-relative name.
      * @param list<RelatedPerson> $family  The candidate's spouses or children.
      * @param array<string,true>  $matched Candidate relative ids already rewarded.
-     *
-     * @return RelatedPerson|null
      */
     private function findMatch(PersonName $needle, array $family, array $matched): ?RelatedPerson
     {

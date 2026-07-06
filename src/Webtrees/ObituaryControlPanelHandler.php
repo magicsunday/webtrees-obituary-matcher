@@ -24,6 +24,8 @@ use Fisharebest\Webtrees\Validator;
 use GuzzleHttp\Client;
 use GuzzleHttp\Psr7\HttpFactory;
 use InvalidArgumentException;
+use MagicSunday\ObituaryMatcher\Domain\BandThreshold;
+use MagicSunday\ObituaryMatcher\Domain\ScoreWeights;
 use MagicSunday\ObituaryMatcher\Queue\CapabilitiesProbeResult;
 use MagicSunday\ObituaryMatcher\Queue\FinderCapabilities;
 use MagicSunday\ObituaryMatcher\Queue\FinderCapabilitiesProbe;
@@ -176,11 +178,13 @@ class ObituaryControlPanelHandler implements RequestHandlerInterface
         $action = Validator::parsedBody($request)->string('action', '');
 
         return match ($action) {
-            'save'        => $this->saveSettings($request),
-            'save-finder' => $this->saveFinder($request),
-            'test'        => $this->testConnection($request),
-            'trigger'     => $this->triggerFinder($request),
-            default       => redirect(route(self::ROUTE_NAME)),
+            'save'          => $this->saveSettings($request),
+            'save-finder'   => $this->saveFinder($request),
+            'save-weights'  => $this->saveWeights($request),
+            'reset-weights' => $this->resetWeights(),
+            'test'          => $this->testConnection($request),
+            'trigger'       => $this->triggerFinder($request),
+            default         => redirect(route(self::ROUTE_NAME)),
         };
     }
 
@@ -210,6 +214,65 @@ class ObituaryControlPanelHandler implements RequestHandlerInterface
         } else {
             FlashMessages::addMessage(I18N::translate('Settings could not be saved.'), 'danger');
         }
+
+        return redirect(route(self::ROUTE_NAME));
+    }
+
+    /**
+     * Strictly persists the six editable scoring caps: EVERY field must parse to a clean integer within
+     * its bounds, or NOTHING is written (no partial save, no coercion) — matching the min_age/limit
+     * both-or-neither discipline. The bounds and preference keys come from {@see ScoreWeights::FIELDS},
+     * the single source shared with the reader. Always PRG-redirects.
+     *
+     * @param ServerRequestInterface $request The incoming POST request.
+     *
+     * @return ResponseInterface The redirect response.
+     */
+    private function saveWeights(ServerRequestInterface $request): ResponseInterface
+    {
+        /** @var array<string, int> $parsed */
+        $parsed = [];
+
+        $body = Validator::parsedBody($request);
+
+        foreach (ScoreWeights::FIELDS as $meta) {
+            $value = $this->parseStrictInt(
+                $body->string($meta['key'], ''),
+                $meta['min'],
+                $meta['max'],
+            );
+
+            if ($value === null) {
+                FlashMessages::addMessage(I18N::translate('Settings could not be saved.'), 'danger');
+
+                return redirect(route(self::ROUTE_NAME));
+            }
+
+            $parsed[$meta['key']] = $value;
+        }
+
+        foreach ($parsed as $key => $value) {
+            $this->module->setPreference($key, (string) $value);
+        }
+
+        FlashMessages::addMessage(I18N::translate('Settings saved.'), 'success');
+
+        return redirect(route(self::ROUTE_NAME));
+    }
+
+    /**
+     * Restores the six editable scoring caps to their enriched-profile defaults by writing each default
+     * back through {@see ScoreWeights::FIELDS}. Always PRG-redirects.
+     *
+     * @return ResponseInterface The redirect response.
+     */
+    private function resetWeights(): ResponseInterface
+    {
+        foreach (ScoreWeights::FIELDS as $meta) {
+            $this->module->setPreference($meta['key'], (string) $meta['default']);
+        }
+
+        FlashMessages::addMessage(I18N::translate('The scoring weights were reset to their defaults.'), 'success');
 
         return redirect(route(self::ROUTE_NAME));
     }
@@ -535,6 +598,8 @@ class ObituaryControlPanelHandler implements RequestHandlerInterface
             $trees,
             $this->openJobCount(),
             $finder,
+            $this->module->scoreWeights(),
+            BandThreshold::all(),
         );
 
         return $this->viewResponse($this->module->name() . '::control-panel', [

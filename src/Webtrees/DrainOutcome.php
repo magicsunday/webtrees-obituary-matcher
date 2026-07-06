@@ -43,8 +43,6 @@ final readonly class DrainOutcome
      * A successfully ingested job that persisted $stored rows.
      *
      * @param int $stored The number of rows the ingest persisted.
-     *
-     * @return self
      */
     public static function ingested(int $stored): self
     {
@@ -53,8 +51,6 @@ final readonly class DrainOutcome
 
     /**
      * A job released as foreign to a tree-scoped drain.
-     *
-     * @return self
      */
     public static function skipped(): self
     {
@@ -63,8 +59,6 @@ final readonly class DrainOutcome
 
     /**
      * A job terminally parked as failed — an unknown tree, or a mid-ingest throw.
-     *
-     * @return self
      */
     public static function failed(): self
     {
