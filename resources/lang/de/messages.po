@@ -6,7 +6,8 @@
 msgid ""
 msgstr ""
 "Project-Id-Version: webtrees-obituary-matcher\n"
-"Report-Msgid-Bugs-To: https://github.com/magicsunday/webtrees-obituary-matcher/issues\n"
+"Report-Msgid-Bugs-To: https://github.com/magicsunday/webtrees-obituary-"
+"matcher/issues\n"
 "POT-Creation-Date: 1970-01-01 00:00+0000\n"
 "PO-Revision-Date: 1970-01-01 00:00+0000\n"
 "Last-Translator: Automatically generated\n"
@@ -235,8 +236,8 @@ msgid ""
 "Match individuals against public death notices to suggest missing death "
 "dates."
 msgstr ""
-"Gleicht Personen mit öffentlichen Traueranzeigen ab, um fehlende Sterbedaten"
-" vorzuschlagen."
+"Gleicht Personen mit öffentlichen Traueranzeigen ab, um fehlende Sterbedaten "
+"vorzuschlagen."
 
 #: resources/views/review.phtml:126 resources/views/review.phtml:139
 msgid "Matched"
@@ -449,8 +450,8 @@ msgid ""
 "revert tool with --force to override."
 msgstr ""
 "Zurücknehmen abgelehnt: Ein geschriebener Eintrag wurde bearbeitet oder "
-"entfernt. Zum Übergehen das Kommandozeilen-Werkzeug zum Zurücknehmen mit "
-"--force verwenden."
+"entfernt. Zum Übergehen das Kommandozeilen-Werkzeug zum Zurücknehmen mit --"
+"force verwenden."
 
 #: resources/views/tab.phtml:50 resources/views/worklist.phtml:162
 #: resources/views/worklist.phtml:193
@@ -566,8 +567,7 @@ msgstr ""
 "oder bereits in Bearbeitung."
 
 #: src/Webtrees/ReviewScreenHandler.php:352
-msgid ""
-"The death fact was written but could not be recorded; please review it."
+msgid "The death fact was written but could not be recorded; please review it."
 msgstr ""
 "Der Sterbeeintrag wurde geschrieben, konnte aber nicht vermerkt werden; "
 "bitte prüfen."
@@ -579,8 +579,8 @@ msgstr ""
 
 #: src/Webtrees/RevertFlash.php:64
 msgid ""
-"The facts were reverted but the match status could not be updated; please "
-"re-run the command-line revert with --force."
+"The facts were reverted but the match status could not be updated; please re-"
+"run the command-line revert with --force."
 msgstr ""
 "Die Einträge wurden zurückgenommen, aber der Treffer-Status konnte nicht "
 "aktualisiert werden; bitte das Kommandozeilen-Zurücknehmen mit --force "
@@ -603,8 +603,8 @@ msgstr "Der Finder ist erreichbar."
 msgid "The finder storage location is unavailable."
 msgstr "Der Speicherort des Finders ist nicht verfügbar."
 
-#: src/Webtrees/ObituaryWorklistHandler.php:295
-#: src/Webtrees/RevertFlash.php:68 src/Webtrees/ReviewScreenHandler.php:411
+#: src/Webtrees/ObituaryWorklistHandler.php:295 src/Webtrees/RevertFlash.php:68
+#: src/Webtrees/ReviewScreenHandler.php:411
 msgid "The match could not be reverted."
 msgstr "Der Treffer konnte nicht zurückgenommen werden."
 
@@ -649,8 +649,7 @@ msgstr "Diese Person hat bereits ein Sterbedatum."
 
 #: src/Webtrees/ReviewScreenHandler.php:317
 msgid "This individual already has a death date; nothing was written."
-msgstr ""
-"Diese Person hat bereits ein Sterbedatum; es wurde nichts geschrieben."
+msgstr "Diese Person hat bereits ein Sterbedatum; es wurde nichts geschrieben."
 
 #: src/Webtrees/ReviewScreenHandler.php:296
 #: src/Webtrees/ReviewScreenHandler.php:306
