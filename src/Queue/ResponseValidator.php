@@ -461,7 +461,7 @@ final readonly class ResponseValidator
                     throw new ResponseValidationException('Response coverage message is not a string.');
                 }
 
-                if (mb_strlen($messageRaw) > self::COVERAGE_MESSAGE_MAX_LENGTH) {
+                if (mb_strlen($messageRaw, 'UTF-8') > self::COVERAGE_MESSAGE_MAX_LENGTH) {
                     throw new ResponseValidationException('Response coverage message exceeds the maximum length.');
                 }
 
