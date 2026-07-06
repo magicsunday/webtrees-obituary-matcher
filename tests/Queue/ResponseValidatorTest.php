@@ -268,6 +268,29 @@ final class ResponseValidatorTest extends TestCase
     }
 
     /**
+     * A present-but-non-string coverage message is rejected, not silently dropped: coverage is decoded
+     * fail-closed (like its portal/status/noticeCount siblings), so a malformed message is a malformed
+     * response.
+     *
+     * @return void
+     */
+    #[Test]
+    public function rejectsANonStringCoverageMessage(): void
+    {
+        $payload = $this->payloadWithResults([
+            'I1' => [
+                'notices'  => [],
+                'coverage' => [
+                    ['portal' => 'trauer_anzeigen', 'status' => 'failed', 'message' => ['not', 'a', 'string']],
+                ],
+            ],
+        ]);
+
+        $this->expectException(ResponseValidationException::class);
+        (new ResponseValidator())->validate($payload, 'job-1', ['I1']);
+    }
+
+    /**
      * A payload whose jobId does not match the requested job is rejected.
      */
     #[Test]

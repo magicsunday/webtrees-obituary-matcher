@@ -448,17 +448,24 @@ final readonly class ResponseValidator
                 $noticeCount = $noticeCountRaw;
             }
 
-            // The optional message reuses the shared optional-string decoder, then the contract's
-            // maxLength is enforced at this untrusted boundary (rather than trusting the producer or
-            // leaning on the 5 MiB body cap) so an eventual operator-facing sink never renders an
-            // unbounded finder-controlled string.
-            $message = $this->optionalString($entry, 'message');
+            // The optional message is decoded fail-closed like the rest of this trust-anchor entry
+            // (unlike the lenient optional-string notice fields): absent is fine, but a PRESENT
+            // non-string is a malformed response and throws rather than being silently dropped, and the
+            // contract's character-based maxLength is enforced here so an eventual operator-facing sink
+            // never renders an unbounded finder-controlled string.
+            $messageRaw = $entry['message'] ?? null;
+            $message    = null;
 
-            if (
-                ($message !== null)
-                && (mb_strlen($message) > self::COVERAGE_MESSAGE_MAX_LENGTH)
-            ) {
-                throw new ResponseValidationException('Response coverage message exceeds the maximum length.');
+            if ($messageRaw !== null) {
+                if (!is_string($messageRaw)) {
+                    throw new ResponseValidationException('Response coverage message is not a string.');
+                }
+
+                if (mb_strlen($messageRaw) > self::COVERAGE_MESSAGE_MAX_LENGTH) {
+                    throw new ResponseValidationException('Response coverage message exceeds the maximum length.');
+                }
+
+                $message = $messageRaw;
             }
 
             $coverage[] = new PortalCoverage($portal, $status, $noticeCount, $message);
