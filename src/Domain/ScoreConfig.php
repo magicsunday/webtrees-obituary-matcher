@@ -56,8 +56,6 @@ final readonly class ScoreConfig
     /**
      * The frozen Phase-1 list-level profile (identical to the default constructor): the enrichment
      * caps are 0 so the base engine never awards enriched points.
-     *
-     * @return self
      */
     public static function listLevel(): self
     {
@@ -68,8 +66,6 @@ final readonly class ScoreConfig
      * The conservative, provisional enriched-detail profile: the base caps are rebalanced to make
      * room for the relatives/age/cemetery signals. These weights are NOT tuned against real data
      * yet — they hold until finder-detail produces detail-page enrichment to evaluate against.
-     *
-     * @return self
      */
     public static function enriched(): self
     {

@@ -62,8 +62,6 @@ final readonly class DateRange
      * @param DateValue     $latest    Upper bound.
      * @param DatePrecision $precision Precision marker.
      * @param string|null   $original  Raw source string, if any.
-     *
-     * @return self
      */
     public static function known(
         DateValue $earliest,
@@ -79,8 +77,6 @@ final readonly class DateRange
      *
      * @param DateValue   $date     The exact day.
      * @param string|null $original Raw source string, if any.
-     *
-     * @return self
      */
     public static function exact(DateValue $date, ?string $original = null): self
     {
@@ -92,8 +88,6 @@ final readonly class DateRange
      *
      * @param int         $year     Four-digit year.
      * @param string|null $original Raw source string, if any.
-     *
-     * @return self
      */
     public static function year(int $year, ?string $original = null): self
     {
@@ -108,8 +102,6 @@ final readonly class DateRange
 
     /**
      * Creates a range representing an absent date.
-     *
-     * @return self
      */
     public static function unknown(): self
     {
@@ -120,8 +112,6 @@ final readonly class DateRange
      * Creates a range representing an unparseable date.
      *
      * @param string $original The unparseable source string.
-     *
-     * @return self
      */
     public static function invalid(string $original): self
     {
