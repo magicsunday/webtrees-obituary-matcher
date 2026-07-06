@@ -12,9 +12,11 @@ declare(strict_types=1);
 namespace MagicSunday\ObituaryMatcher\Matching;
 
 use MagicSunday\ObituaryMatcher\Domain\ClassifiedMatch;
+use MagicSunday\ObituaryMatcher\Domain\CoverageStatus;
 use MagicSunday\ObituaryMatcher\Domain\DeathNoticeRecord;
 use MagicSunday\ObituaryMatcher\Domain\MatchExplanation;
 use MagicSunday\ObituaryMatcher\Domain\PersonCandidate;
+use MagicSunday\ObituaryMatcher\Domain\PortalCoverage;
 use MagicSunday\ObituaryMatcher\Scoring\Classifier;
 use MagicSunday\ObituaryMatcher\Scoring\EnrichedMatchEngine;
 use MagicSunday\ObituaryMatcher\Support\UrlNormalizer;
@@ -62,6 +64,10 @@ final readonly class IngestService
      *                                                               ingest, keyed by person id (the
      *                                                               strict job-ownership boundary was
      *                                                               enforced by the validator).
+     * @param array<string, list<PortalCoverage>>    $coverage       The per-portal coverage, keyed by
+     *                                                               person id. A `failed` portal means the
+     *                                                               person's silence there is NOT a
+     *                                                               confirmed miss, surfaced as a warning.
      * @param array<string, PersonCandidate>         $candidatesById The candidates the module currently
      *                                                               holds, keyed by person id. A requested
      *                                                               person with a notice but no entry here
@@ -76,6 +82,7 @@ final readonly class IngestService
      */
     public function ingest(
         array $notices,
+        array $coverage,
         array $candidatesById,
         MatchStore $store,
     ): IngestResult {
@@ -134,6 +141,21 @@ final readonly class IngestService
                 ) {
                     $seenKeys[$key] = true;
                     ++$stored;
+                }
+            }
+        }
+
+        // A failed portal is surfaced as a non-fatal warning so the drain records that this person's
+        // silence there is NOT a confirmed miss (a genuine miss needs every portal `ok`). This keeps the
+        // matcher from later treating an outage as "nothing found".
+        foreach ($coverage as $personId => $portals) {
+            foreach ($portals as $portal) {
+                if ($portal->status === CoverageStatus::Failed) {
+                    $warnings[] = sprintf(
+                        'Person %s: portal %s failed; its silence is not a confirmed miss.',
+                        $personId,
+                        $portal->portal,
+                    );
                 }
             }
         }

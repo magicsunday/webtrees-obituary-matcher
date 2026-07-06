@@ -254,7 +254,7 @@ final readonly class RestJobTransport implements JobTransport
                 }
 
                 try {
-                    $notices = $this->validator->validate($body, $jobId, $personIds);
+                    $validated = $this->validator->validate($body, $jobId, $personIds);
                 } catch (ResponseValidationException) {
                     $handled = true;
 
@@ -265,7 +265,7 @@ final readonly class RestJobTransport implements JobTransport
 
                 $handled = true;
 
-                yield new CompletedJob($jobId, $treeId, $personIds, $notices);
+                yield new CompletedJob($jobId, $treeId, $personIds, $validated->notices, $validated->coverage);
             } finally {
                 if (!$handled) {
                     // Not handed off to the caller: release the claim so the entry returns to pending.

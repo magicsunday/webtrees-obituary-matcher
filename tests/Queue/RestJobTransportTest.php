@@ -878,7 +878,7 @@ final class RestJobTransportTest extends TempDirTestCase
     #[Test]
     public function theValidatorIgnoresATopLevelStateField(): void
     {
-        $byPerson = (new ResponseValidator())->validate($this->doneBody('job-1', 'I1'), 'job-1', ['I1']);
+        $byPerson = (new ResponseValidator())->validate($this->doneBody('job-1', 'I1'), 'job-1', ['I1'])->notices;
 
         self::assertArrayHasKey('I1', $byPerson);
     }
@@ -955,12 +955,17 @@ final class RestJobTransportTest extends TempDirTestCase
             'state'         => 'done',
             'results'       => [
                 $personId => [
-                    [
-                        'url'        => 'https://obituary.example/n/1',
-                        'fetchedAt'  => '2024-05-21T08:30:00Z',
-                        'noticeType' => 'obituary',
-                        'name'       => 'Max Mustermann',
-                        'source'     => 'obituary-example-de',
+                    'notices' => [
+                        [
+                            'url'        => 'https://obituary.example/n/1',
+                            'fetchedAt'  => '2024-05-21T08:30:00Z',
+                            'noticeType' => 'obituary',
+                            'name'       => 'Max Mustermann',
+                            'source'     => 'obituary-example-de',
+                        ],
+                    ],
+                    'coverage' => [
+                        ['portal' => 'trauer_anzeigen', 'status' => 'ok', 'noticeCount' => 1],
                     ],
                 ],
             ],

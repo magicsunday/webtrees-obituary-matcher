@@ -18,6 +18,7 @@ use MagicSunday\ObituaryMatcher\Domain\ClassifiedMatch;
 use MagicSunday\ObituaryMatcher\Domain\ConflictReason;
 use MagicSunday\ObituaryMatcher\Domain\ConflictResult;
 use MagicSunday\ObituaryMatcher\Domain\ConflictSeverity;
+use MagicSunday\ObituaryMatcher\Domain\CoverageStatus;
 use MagicSunday\ObituaryMatcher\Domain\DatePrecision;
 use MagicSunday\ObituaryMatcher\Domain\DateRange;
 use MagicSunday\ObituaryMatcher\Domain\DateValue;
@@ -30,6 +31,7 @@ use MagicSunday\ObituaryMatcher\Domain\ObituaryRecord;
 use MagicSunday\ObituaryMatcher\Domain\PersonCandidate;
 use MagicSunday\ObituaryMatcher\Domain\PersonName;
 use MagicSunday\ObituaryMatcher\Domain\Place;
+use MagicSunday\ObituaryMatcher\Domain\PortalCoverage;
 use MagicSunday\ObituaryMatcher\Domain\RunnerUp;
 use MagicSunday\ObituaryMatcher\Domain\ScoreConfig;
 use MagicSunday\ObituaryMatcher\Domain\SignalScore;
@@ -80,6 +82,8 @@ use const JSON_THROW_ON_ERROR;
 /* jscpd:ignore-start - the UsesClass coverage block converges with the worked-example test's by necessity */
 #[CoversClass(IngestService::class)]
 #[UsesClass(IngestServiceFactory::class)]
+#[UsesClass(CoverageStatus::class)]
+#[UsesClass(PortalCoverage::class)]
 #[UsesClass(Band::class)]
 #[UsesClass(Classification::class)]
 #[UsesClass(ClassifiedMatch::class)]
@@ -137,7 +141,7 @@ final class IngestServiceTest extends TempDirTestCase
         $store   = new FileMatchStore($this->tmp . '/store');
         $service = $this->newService();
 
-        $result = $service->ingest($notices, ['I1' => $this->candidateMatchingErika()], $store);
+        $result = $service->ingest($notices, [], ['I1' => $this->candidateMatchingErika()], $store);
 
         self::assertSame(1, $result->matchesStored);
 
@@ -185,11 +189,11 @@ final class IngestServiceTest extends TempDirTestCase
         $candidates = ['I1' => $this->candidateMatchingErika()];
 
         $defaultStore = new FileMatchStore($this->tmp . '/store-default');
-        IngestServiceFactory::create()->ingest($notices, $candidates, $defaultStore);
+        IngestServiceFactory::create()->ingest($notices, [], $candidates, $defaultStore);
 
         $zeroNameStore = new FileMatchStore($this->tmp . '/store-zero-name');
         IngestServiceFactory::create(ScoreConfig::enrichedWith(0, 25, 10, 10, 50, 10))
-            ->ingest($notices, $candidates, $zeroNameStore);
+            ->ingest($notices, [], $candidates, $zeroNameStore);
 
         $default  = $defaultStore->allPending()[0];
         $zeroName = $zeroNameStore->allPending()[0];
@@ -197,6 +201,35 @@ final class IngestServiceTest extends TempDirTestCase
         self::assertGreaterThan(0, $default->match['signals']['name']['score']);
         self::assertSame(0, $zeroName->match['signals']['name']['score']);
         self::assertGreaterThan($zeroName->match['score'], $default->match['score']);
+    }
+
+    /**
+     * A `failed` portal is surfaced as a non-fatal warning so the drain records that the person's silence
+     * there is NOT a confirmed miss, while an `ok` portal produces none — only the outage is reported.
+     */
+    #[Test]
+    public function ingestSurfacesAFailedPortalAsANonFatalWarning(): void
+    {
+        $notices  = $this->notices('response-valid.json', ['I1']);
+        $coverage = [
+            'I1' => [
+                new PortalCoverage('trauer_anzeigen', CoverageStatus::Ok, 1, null),
+                new PortalCoverage('freiepresse', CoverageStatus::Failed, null, 'timeout'),
+            ],
+        ];
+        $store = new FileMatchStore($this->tmp . '/store');
+
+        $result = $this->newService()->ingest(
+            $notices,
+            $coverage,
+            ['I1' => $this->candidateMatchingErika()],
+            $store,
+        );
+
+        // Only the failed portal warns (the ok portal and the successfully-stored notice do not).
+        self::assertCount(1, $result->warnings);
+        self::assertStringContainsString('freiepresse', $result->warnings[0]);
+        self::assertStringContainsString('failed', $result->warnings[0]);
     }
 
     /**
@@ -210,7 +243,7 @@ final class IngestServiceTest extends TempDirTestCase
         // The response carries a notice for I1, but no candidate for I1 is held this run.
         $notices = $this->notices('response-valid.json', ['I1']);
         $store   = new FileMatchStore($this->tmp . '/store');
-        $result  = $this->newService()->ingest($notices, [], $store);
+        $result  = $this->newService()->ingest($notices, [], [], $store);
 
         self::assertSame(1, $result->noticesRead);
         self::assertSame(0, $result->candidatesFound);
@@ -237,7 +270,7 @@ final class IngestServiceTest extends TempDirTestCase
         // two I1 notices, one identity
         $notices = $this->notices('response-duplicate-identity.json', ['I1']);
         $store   = new FileMatchStore($this->tmp . '/store');
-        $result  = $this->newService()->ingest($notices, ['I1' => $this->candidateMatchingErika()], $store);
+        $result  = $this->newService()->ingest($notices, [], ['I1' => $this->candidateMatchingErika()], $store);
 
         // Both notices score and both writes succeed (last-write-wins de-dup is correct), but only
         // ONE distinct identity key was persisted, so the count must be 1.
@@ -259,7 +292,7 @@ final class IngestServiceTest extends TempDirTestCase
         // First ingest stores the single pending row and reports it.
         self::assertSame(
             1,
-            $service->ingest($notices, ['I1' => $this->candidateMatchingErika()], $store)->matchesStored
+            $service->ingest($notices, [], ['I1' => $this->candidateMatchingErika()], $store)->matchesStored
         );
 
         // Drive that row terminal via an explicit rejection on the stored obituaryUrl.
@@ -269,7 +302,7 @@ final class IngestServiceTest extends TempDirTestCase
         // report zero — the count is destined for JobTransport::markIngested, so it may not overstate.
         self::assertSame(
             0,
-            $service->ingest($notices, ['I1' => $this->candidateMatchingErika()], $store)->matchesStored
+            $service->ingest($notices, [], ['I1' => $this->candidateMatchingErika()], $store)->matchesStored
         );
 
         // No duplicate pending row was resurrected; the rejected row is still the only one.
@@ -294,7 +327,7 @@ final class IngestServiceTest extends TempDirTestCase
 
         // A candidate IS held for I1, so this is NOT the no-candidate path: the empty list short-
         // circuits before that check, proving the two branches are genuinely distinct.
-        $result = $this->newService()->ingest($notices, ['I1' => $this->candidateMatchingErika()], $store);
+        $result = $this->newService()->ingest($notices, [], ['I1' => $this->candidateMatchingErika()], $store);
 
         // No notice was read, nothing was stored, and the empty-notice person is silent — the warning
         // belongs ONLY to the no-held-candidate path, so a regression that warned here would fail.
@@ -320,6 +353,7 @@ final class IngestServiceTest extends TempDirTestCase
         // Two candidates are held this run (I1 matches the notice; I2 has no notice in the response).
         $result = $this->newService()->ingest(
             $notices,
+            [],
             [
                 'I1' => $this->candidateMatchingErika(),
                 'I2' => $this->unmatchedCandidate(),
@@ -364,7 +398,7 @@ final class IngestServiceTest extends TempDirTestCase
         /** @var array<int|string, mixed> $payload */
         $payload = json_decode($contents, true, flags: JSON_THROW_ON_ERROR);
 
-        return (new ResponseValidator())->validate($payload, 'job-1', $expectedPersonIds);
+        return (new ResponseValidator())->validate($payload, 'job-1', $expectedPersonIds)->notices;
     }
 
     /**

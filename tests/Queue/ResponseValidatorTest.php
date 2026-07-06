@@ -11,6 +11,7 @@ declare(strict_types=1);
 
 namespace MagicSunday\ObituaryMatcher\Test\Queue;
 
+use MagicSunday\ObituaryMatcher\Domain\CoverageStatus;
 use MagicSunday\ObituaryMatcher\Domain\DateRange;
 use MagicSunday\ObituaryMatcher\Domain\DeathNoticeRecord;
 use MagicSunday\ObituaryMatcher\Domain\Disposition;
@@ -18,6 +19,8 @@ use MagicSunday\ObituaryMatcher\Domain\NoticeRelative;
 use MagicSunday\ObituaryMatcher\Domain\NoticeType;
 use MagicSunday\ObituaryMatcher\Domain\PersonName;
 use MagicSunday\ObituaryMatcher\Domain\Place;
+use MagicSunday\ObituaryMatcher\Domain\PortalCoverage;
+use MagicSunday\ObituaryMatcher\Domain\ValidatedResponse;
 use MagicSunday\ObituaryMatcher\Parsing\ObituaryDateParser;
 use MagicSunday\ObituaryMatcher\Queue\ResponseValidationException;
 use MagicSunday\ObituaryMatcher\Queue\ResponseValidator;
@@ -32,6 +35,7 @@ use function file_get_contents;
 use function json_decode;
 use function preg_quote;
 use function reset;
+use function str_repeat;
 
 use const JSON_THROW_ON_ERROR;
 
@@ -51,6 +55,9 @@ use const JSON_THROW_ON_ERROR;
  */
 #[CoversClass(ResponseValidator::class)]
 #[CoversClass(ResponseValidationException::class)]
+#[UsesClass(CoverageStatus::class)]
+#[UsesClass(PortalCoverage::class)]
+#[UsesClass(ValidatedResponse::class)]
 #[UsesClass(DeathNoticeRecord::class)]
 #[UsesClass(Disposition::class)]
 #[UsesClass(NoticeType::class)]
@@ -84,20 +91,49 @@ final class ResponseValidatorTest extends TestCase
     private function payloadWithNotice(array $noticeOverrides = []): array
     {
         $notice = [
+            ...$this->minimalNotice(),
+            ...$noticeOverrides,
+        ];
+
+        return $this->payloadWithResults([
+            'I1' => [
+                'notices'  => [$notice],
+                'coverage' => [
+                    ['portal' => 'trauer_anzeigen', 'status' => 'ok', 'noticeCount' => 1],
+                ],
+            ],
+        ]);
+    }
+
+    /**
+     * A minimal well-formed notice used to compose payloads.
+     *
+     * @return array<string, mixed> The notice.
+     */
+    private function minimalNotice(): array
+    {
+        return [
             'url'        => 'https://obituary.example/n/1',
             'fetchedAt'  => '2024-05-21T08:30:00Z',
             'noticeType' => 'obituary',
             'name'       => 'Max Mustermann',
             'source'     => 'obituary-example-de',
-            ...$noticeOverrides,
         ];
+    }
 
+    /**
+     * Wraps a raw per-person results map into a schema-versioned response payload for job "job-1".
+     *
+     * @param array<string, mixed> $results The per-person results map.
+     *
+     * @return array<string, mixed> The response payload.
+     */
+    private function payloadWithResults(array $results): array
+    {
         return [
             'schemaVersion' => 1,
             'jobId'         => 'job-1',
-            'results'       => [
-                'I1' => [$notice],
-            ],
+            'results'       => $results,
         ];
     }
 
@@ -107,10 +143,103 @@ final class ResponseValidatorTest extends TestCase
     #[Test]
     public function aValidPayloadYieldsNoticeRecordsKeyedByPerson(): void
     {
-        $byPerson = (new ResponseValidator())->validate($this->validPayload(), 'job-1', ['I1']);
+        $byPerson = (new ResponseValidator())->validate($this->validPayload(), 'job-1', ['I1'])->notices;
         self::assertArrayHasKey('I1', $byPerson);
         self::assertCount(1, $byPerson['I1']);
         self::assertSame('https://obituary.example/n/1', $byPerson['I1'][0]->url);
+    }
+
+    /**
+     * The required per-portal coverage is decoded alongside the notices, keyed by person.
+     *
+     * @return void
+     */
+    #[Test]
+    public function decodesThePerPortalCoverage(): void
+    {
+        $coverage = (new ResponseValidator())->validate($this->validPayload(), 'job-1', ['I1'])->coverage;
+
+        self::assertArrayHasKey('I1', $coverage);
+        self::assertCount(1, $coverage['I1']);
+
+        $portal = $coverage['I1'][0];
+        self::assertSame('trauer_anzeigen', $portal->portal);
+        self::assertSame(CoverageStatus::Ok, $portal->status);
+        self::assertSame(1, $portal->noticeCount);
+    }
+
+    /**
+     * The legacy shape — a bare notice list per person — is rejected, so a real finder response (which
+     * wraps notices in a PersonResult object) can never be silently misread as notices.
+     *
+     * @return void
+     */
+    #[Test]
+    public function rejectsABareNoticeListResult(): void
+    {
+        $payload = $this->payloadWithResults(['I1' => [$this->minimalNotice()]]);
+
+        $this->expectException(ResponseValidationException::class);
+        (new ResponseValidator())->validate($payload, 'job-1', ['I1']);
+    }
+
+    /**
+     * A PersonResult missing the required coverage is rejected — coverage is the trust anchor that tells
+     * a genuine miss from a portal outage, so it must never be optional.
+     *
+     * @return void
+     */
+    #[Test]
+    public function rejectsAResultWithoutCoverage(): void
+    {
+        $payload = $this->payloadWithResults(['I1' => ['notices' => [$this->minimalNotice()]]]);
+
+        $this->expectException(ResponseValidationException::class);
+        (new ResponseValidator())->validate($payload, 'job-1', ['I1']);
+    }
+
+    /**
+     * A coverage entry whose status is not one of ok|failed|skipped is rejected rather than defaulting to
+     * a real status.
+     *
+     * @return void
+     */
+    #[Test]
+    public function rejectsAnInvalidCoverageStatus(): void
+    {
+        $payload = $this->payloadWithResults([
+            'I1' => [
+                'notices'  => [],
+                'coverage' => [
+                    ['portal' => 'trauer_anzeigen', 'status' => 'down'],
+                ],
+            ],
+        ]);
+
+        $this->expectException(ResponseValidationException::class);
+        (new ResponseValidator())->validate($payload, 'job-1', ['I1']);
+    }
+
+    /**
+     * A coverage message longer than the contract's maximum is rejected at the untrusted boundary rather
+     * than carried through to an eventual operator-facing sink unbounded.
+     *
+     * @return void
+     */
+    #[Test]
+    public function rejectsAnOverLengthCoverageMessage(): void
+    {
+        $payload = $this->payloadWithResults([
+            'I1' => [
+                'notices'  => [],
+                'coverage' => [
+                    ['portal' => 'trauer_anzeigen', 'status' => 'failed', 'message' => str_repeat('x', 1_001)],
+                ],
+            ],
+        ]);
+
+        $this->expectException(ResponseValidationException::class);
+        (new ResponseValidator())->validate($payload, 'job-1', ['I1']);
     }
 
     /**
@@ -163,7 +292,7 @@ final class ResponseValidatorTest extends TestCase
     public function anEmptyNameNoticeIsDroppedNotRejected(): void
     {
         $payload  = $this->payloadWithNotice(['name' => '   ']);
-        $byPerson = (new ResponseValidator())->validate($payload, 'job-1', ['I1']);
+        $byPerson = (new ResponseValidator())->validate($payload, 'job-1', ['I1'])->notices;
         self::assertSame([], $byPerson['I1']); // dropped, no throw
     }
 
@@ -181,7 +310,7 @@ final class ResponseValidatorTest extends TestCase
             $this->decodeFixture('response-empty-parsedname.json'),
             'job-1',
             ['I1'],
-        );
+        )->notices;
 
         $notice = $byPerson['I1'][0];
         self::assertSame('Mustermann', $notice->parsedName->surname);
@@ -201,7 +330,7 @@ final class ResponseValidatorTest extends TestCase
             $this->decodeFixture('response-numeric-personid.json'),
             'job-1',
             ['123'],
-        );
+        )->notices;
 
         self::assertCount(1, $byPerson, 'exactly the requested numeric person is present');
 
@@ -225,7 +354,7 @@ final class ResponseValidatorTest extends TestCase
             $this->payloadWithNotice(['disposition' => 'cremation']),
             'job-1',
             ['I1'],
-        );
+        )->notices;
 
         $notices = reset($byPerson);
         self::assertNotFalse($notices);
@@ -241,7 +370,7 @@ final class ResponseValidatorTest extends TestCase
     #[Test]
     public function defaultsToBurialWhenTheNoticeHasNoDisposition(): void
     {
-        $byPerson = (new ResponseValidator())->validate($this->validPayload(), 'job-1', ['I1']);
+        $byPerson = (new ResponseValidator())->validate($this->validPayload(), 'job-1', ['I1'])->notices;
 
         $notices = reset($byPerson);
         self::assertNotFalse($notices);
@@ -263,7 +392,7 @@ final class ResponseValidatorTest extends TestCase
             $this->payloadWithNotice(['disposition' => 'crematoin']),
             'job-1',
             ['I1'],
-        );
+        )->notices;
 
         $notices = reset($byPerson);
         self::assertNotFalse($notices);
@@ -282,7 +411,7 @@ final class ResponseValidatorTest extends TestCase
             $this->payloadWithNotice(['disposition' => 42]),
             'job-1',
             ['I1'],
-        );
+        )->notices;
 
         $notices = reset($byPerson);
         self::assertNotFalse($notices);
@@ -319,7 +448,7 @@ final class ResponseValidatorTest extends TestCase
     #[DataProvider('acceptingFetchedAtFixtures')]
     public function anIsoFetchedAtVariantIsAccepted(string $fixture): void
     {
-        $byPerson = (new ResponseValidator())->validate($this->decodeFixture($fixture), 'job-1', ['I1']);
+        $byPerson = (new ResponseValidator())->validate($this->decodeFixture($fixture), 'job-1', ['I1'])->notices;
 
         self::assertCount(1, $byPerson['I1']);
     }
