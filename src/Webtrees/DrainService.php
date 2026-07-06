@@ -163,7 +163,7 @@ class DrainService
         // rename, so it must sit inside the guard too rather than crash the whole drain. The park goes
         // through parkFailed(), which likewise tolerates a park failure for the same reason.
         try {
-            $result = $this->ingest->ingest($job->notices, $candidatesById, $store);
+            $result = $this->ingest->ingest($job->notices, $job->coverage, $candidatesById, $store);
             $this->transport->markIngested(
                 $job->jobId,
                 [

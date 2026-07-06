@@ -1,7 +1,16 @@
 {
-  "jobId": "job-1",
-  "schemaVersion": 1,
-  "results": {
-    "I1": []
-  }
+    "jobId": "job-1",
+    "schemaVersion": 1,
+    "results": {
+        "I1": {
+            "notices": [],
+            "coverage": [
+                {
+                    "portal": "trauer_anzeigen",
+                    "status": "ok",
+                    "noticeCount": 0
+                }
+            ]
+        }
+    }
 }

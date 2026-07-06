@@ -14,7 +14,7 @@ namespace MagicSunday\ObituaryMatcher\Test\Integration;
 use Fisharebest\Webtrees\Services\GedcomImportService;
 use Fisharebest\Webtrees\Services\TreeService;
 use Fisharebest\Webtrees\Tree;
-use MagicSunday\ObituaryMatcher\Domain\DeathNoticeRecord;
+use MagicSunday\ObituaryMatcher\Domain\ValidatedResponse;
 use MagicSunday\ObituaryMatcher\Matching\FileMatchStore;
 use MagicSunday\ObituaryMatcher\Matching\IngestService;
 use MagicSunday\ObituaryMatcher\Matching\IngestServiceFactory;
@@ -205,16 +205,13 @@ abstract class AbstractDrainTestCase extends AbstractStoreTestCase
      */
     protected function completedJob(string $jobId, int $treeId, string $personId, string $noticeName): CompletedJob
     {
-        return new CompletedJob(
+        $validated = $this->validatedResponse(
             $jobId,
-            $treeId,
             [$personId],
-            $this->validatedNotices(
-                $jobId,
-                [$personId],
-                [$personId => [$this->notice($noticeName, 'https://example.test/' . $jobId)]],
-            ),
+            [$personId => [$this->notice($noticeName, 'https://example.test/' . $jobId)]],
         );
+
+        return new CompletedJob($jobId, $treeId, [$personId], $validated->notices, $validated->coverage);
     }
 
     /**
@@ -238,18 +235,21 @@ abstract class AbstractDrainTestCase extends AbstractStoreTestCase
         string $personB,
         string $nameB,
     ): CompletedJob {
+        $validated = $this->validatedResponse(
+            $jobId,
+            [$personA, $personB],
+            [
+                $personA => [$this->notice($nameA, 'https://example.test/' . $jobId . '-a')],
+                $personB => [$this->notice($nameB, 'https://example.test/' . $jobId . '-b')],
+            ],
+        );
+
         return new CompletedJob(
             $jobId,
             $treeId,
             [$personA, $personB],
-            $this->validatedNotices(
-                $jobId,
-                [$personA, $personB],
-                [
-                    $personA => [$this->notice($nameA, 'https://example.test/' . $jobId . '-a')],
-                    $personB => [$this->notice($nameB, 'https://example.test/' . $jobId . '-b')],
-                ],
-            ),
+            $validated->notices,
+            $validated->coverage,
         );
     }
 
@@ -261,15 +261,28 @@ abstract class AbstractDrainTestCase extends AbstractStoreTestCase
      * @param list<string>                              $personIds The requested person ids (the validator's ownership boundary).
      * @param array<string, list<array<string, mixed>>> $results   The raw per-person notice lists.
      *
-     * @return array<string, list<DeathNoticeRecord>> The validated notices keyed by person id.
+     * @return ValidatedResponse The validated notices and per-portal coverage keyed by person id.
      */
-    private function validatedNotices(string $jobId, array $personIds, array $results): array
+    private function validatedResponse(string $jobId, array $personIds, array $results): ValidatedResponse
     {
+        // Wrap each raw notice list into the contract PersonResult { notices, coverage } shape the
+        // validator now requires; synthesise an all-ok coverage so the drain path sees a real response.
+        $wrapped = [];
+
+        foreach ($results as $personId => $notices) {
+            $wrapped[$personId] = [
+                'notices'  => $notices,
+                'coverage' => [
+                    ['portal' => 'trauer_anzeigen', 'status' => 'ok', 'noticeCount' => count($notices)],
+                ],
+            ];
+        }
+
         return (new ResponseValidator())->validate(
             [
                 'schemaVersion' => 1,
                 'jobId'         => $jobId,
-                'results'       => $results,
+                'results'       => $wrapped,
             ],
             $jobId,
             $personIds,

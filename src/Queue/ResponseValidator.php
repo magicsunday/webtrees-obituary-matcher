@@ -13,20 +13,25 @@ namespace MagicSunday\ObituaryMatcher\Queue;
 
 use DateTimeImmutable;
 use Exception;
+use MagicSunday\ObituaryMatcher\Domain\CoverageStatus;
 use MagicSunday\ObituaryMatcher\Domain\DeathNoticeRecord;
 use MagicSunday\ObituaryMatcher\Domain\Disposition;
 use MagicSunday\ObituaryMatcher\Domain\NoticeRelative;
 use MagicSunday\ObituaryMatcher\Domain\NoticeType;
 use MagicSunday\ObituaryMatcher\Domain\PersonName;
 use MagicSunday\ObituaryMatcher\Domain\Place;
+use MagicSunday\ObituaryMatcher\Domain\PortalCoverage;
+use MagicSunday\ObituaryMatcher\Domain\ValidatedResponse;
 use MagicSunday\ObituaryMatcher\Parsing\ObituaryDateParser;
 use MagicSunday\ObituaryMatcher\Support\ObituaryNameParser;
 
+use function array_is_list;
 use function in_array;
 use function is_array;
 use function is_float;
 use function is_int;
 use function is_string;
+use function mb_strlen;
 use function parse_url;
 use function preg_match;
 use function sprintf;
@@ -49,26 +54,36 @@ use const PHP_URL_SCHEME;
  *     {
  *         "jobId": string,                 // must equal the requested job id
  *         "schemaVersion": int,            // must equal self::SCHEMA_VERSION
- *         "results": {                     // map of personId => list of notices
- *             "<personId>": [              // personId must be one of the expected (requested) ids
- *                 {
- *                     "noticeType": string,        // mapped via NoticeType::fromStringOrDefault
- *                     "name": string,              // raw display name
- *                     "birth": string,             // optional, parsed via ObituaryDateParser
- *                     "death": string,             // optional, parsed via ObituaryDateParser
- *                     "place": string,             // optional, non-empty string => Place
- *                     "cemetery": string,          // optional, non-empty string => Place
- *                     "age": int,                  // optional
- *                     "funeralDate": string,       // optional, parsed via ObituaryDateParser
- *                     "disposition": string,       // optional, burial|cremation => Disposition; absent=burial, unknown drops the notice
- *                     "relatives": [               // optional, malformed entries skipped
- *                         {"name": string, "relationGuess": string, "confidence": float}
- *                     ],
- *                     "url": string,               // scheme must be http or https
- *                     "source": string,            // source/portal identifier
- *                     "fetchedAt": string          // required, ISO-8601 parseable
- *                 }
- *             ]
+ *         "results": {                     // map of personId => PersonResult object
+ *             "<personId>": {              // personId must be one of the expected (requested) ids
+ *                 "notices": [             // REQUIRED list (a bare list here — the legacy shape — is rejected)
+ *                     {
+ *                         "noticeType": string,    // mapped via NoticeType::fromStringOrDefault
+ *                         "name": string,          // raw display name
+ *                         "birth": string,         // optional, parsed via ObituaryDateParser
+ *                         "death": string,         // optional, parsed via ObituaryDateParser
+ *                         "place": string,         // optional, non-empty string => Place
+ *                         "cemetery": string,      // optional, non-empty string => Place
+ *                         "age": int,              // optional
+ *                         "funeralDate": string,   // optional, parsed via ObituaryDateParser
+ *                         "disposition": string,   // optional, burial|cremation => Disposition; absent=burial, unknown drops the notice
+ *                         "relatives": [           // optional, malformed entries skipped
+ *                             {"name": string, "relationGuess": string, "confidence": float}
+ *                         ],
+ *                         "url": string,           // scheme must be http or https
+ *                         "source": string,        // source/portal identifier
+ *                         "fetchedAt": string      // required, ISO-8601 parseable
+ *                     }
+ *                 ],
+ *                 "coverage": [            // REQUIRED list; per portal searched for this person
+ *                     {
+ *                         "portal": string,        // required, non-empty portal identifier
+ *                         "status": string,        // required, one of ok|failed|skipped (CoverageStatus)
+ *                         "noticeCount": int,      // optional, >= 0 (meaningful for ok)
+ *                         "message": string        // optional, human-readable note
+ *                     }
+ *                 ]
+ *             }
  *         }
  *     }
  *
@@ -82,6 +97,13 @@ final readonly class ResponseValidator
      * @var int The only response schema version this validator accepts. An unknown version is rejected.
      */
     public const int SCHEMA_VERSION = 1;
+
+    /**
+     * @var int The contract's maximum length (in characters/Unicode code points, matching JSON-Schema
+     *          maxLength semantics — hence the mb_strlen check) for a per-portal coverage message; a
+     *          longer untrusted message is rejected here rather than trusting the finder to honour it.
+     */
+    private const int COVERAGE_MESSAGE_MAX_LENGTH = 1_000;
 
     /**
      * @var list<string> The URL schemes a notice URL is allowed to carry (everything else rejected).
@@ -98,11 +120,11 @@ final readonly class ResponseValidator
      *                                                    this job (the job-ownership boundary; a result
      *                                                    for any other id is rejected).
      *
-     * @return array<string, list<DeathNoticeRecord>> The decoded notices keyed by personId.
+     * @return ValidatedResponse The decoded notices and per-portal coverage, keyed by personId.
      *
      * @throws ResponseValidationException When the payload fails any validation check.
      */
-    public function validate(array $payload, string $jobId, array $expectedPersonIds): array
+    public function validate(array $payload, string $jobId, array $expectedPersonIds): ValidatedResponse
     {
         if (($payload['schemaVersion'] ?? null) !== self::SCHEMA_VERSION) {
             throw new ResponseValidationException('Unknown or missing response schema version.');
@@ -118,9 +140,10 @@ final readonly class ResponseValidator
             throw new ResponseValidationException('Response results is missing or not an object.');
         }
 
-        $byPerson = [];
+        $noticesByPerson  = [];
+        $coverageByPerson = [];
 
-        foreach ($results as $personId => $notices) {
+        foreach ($results as $personId => $result) {
             // json_decode casts a purely-numeric JSON object key (a GEDCOM-legal numeric XREF) to an
             // int, so coerce the key to string once: a JSON key is always int|string and the
             // ownership in_array is the real gate, not a key type check.
@@ -132,13 +155,27 @@ final readonly class ResponseValidator
                 );
             }
 
-            if (!is_array($notices)) {
+            // The contract makes each result a PersonResult object { notices, coverage }; a bare list
+            // (the legacy shape) is rejected here so a real finder response can never be misread.
+            if (
+                !is_array($result)
+                || array_is_list($result)
+            ) {
+                throw new ResponseValidationException('Response result is not a person-result object.');
+            }
+
+            $rawNotices = $result['notices'] ?? null;
+
+            if (
+                !is_array($rawNotices)
+                || !array_is_list($rawNotices)
+            ) {
                 throw new ResponseValidationException('Response notices for a person is not a list.');
             }
 
             $records = [];
 
-            foreach ($notices as $notice) {
+            foreach ($rawNotices as $notice) {
                 if (!is_array($notice)) {
                     throw new ResponseValidationException('Response notice is not an object.');
                 }
@@ -152,10 +189,11 @@ final readonly class ResponseValidator
                 }
             }
 
-            $byPerson[$personIdString] = $records;
+            $noticesByPerson[$personIdString]  = $records;
+            $coverageByPerson[$personIdString] = $this->decodeCoverage($result['coverage'] ?? null);
         }
 
-        return $byPerson;
+        return new ValidatedResponse($noticesByPerson, $coverageByPerson);
     }
 
     /**
@@ -350,6 +388,90 @@ final readonly class ResponseValidator
         }
 
         return ObituaryNameParser::parse($name);
+    }
+
+    /**
+     * Decodes the per-portal coverage list. Unlike the relatives skip, a malformed coverage entry
+     * THROWS: coverage is the trust anchor that tells a genuine miss from a portal outage, so a
+     * silently-dropped entry could later drive a false negative. The `portal` and `status` fields are
+     * required; `noticeCount` (>= 0) and `message` are optional.
+     *
+     * @param mixed $raw The untrusted coverage value.
+     *
+     * @return list<PortalCoverage> The decoded coverage in source order.
+     *
+     * @throws ResponseValidationException When the coverage or any entry is malformed.
+     */
+    private function decodeCoverage(mixed $raw): array
+    {
+        if (
+            !is_array($raw)
+            || !array_is_list($raw)
+        ) {
+            throw new ResponseValidationException('Response coverage for a person is not a list.');
+        }
+
+        $coverage = [];
+
+        foreach ($raw as $entry) {
+            if (!is_array($entry)) {
+                throw new ResponseValidationException('Response coverage entry is not an object.');
+            }
+
+            $portal = $entry['portal'] ?? null;
+
+            if (
+                !is_string($portal)
+                || (trim($portal) === '')
+            ) {
+                throw new ResponseValidationException('Response coverage entry has no portal.');
+            }
+
+            $statusRaw = $entry['status'] ?? null;
+            $status    = is_string($statusRaw) ? CoverageStatus::tryFrom($statusRaw) : null;
+
+            if ($status === null) {
+                throw new ResponseValidationException('Response coverage entry has an invalid status.');
+            }
+
+            $noticeCountRaw = $entry['noticeCount'] ?? null;
+            $noticeCount    = null;
+
+            if ($noticeCountRaw !== null) {
+                if (
+                    !is_int($noticeCountRaw)
+                    || ($noticeCountRaw < 0)
+                ) {
+                    throw new ResponseValidationException('Response coverage noticeCount is invalid.');
+                }
+
+                $noticeCount = $noticeCountRaw;
+            }
+
+            // The optional message is decoded fail-closed like the rest of this trust-anchor entry
+            // (unlike the lenient optional-string notice fields): absent is fine, but a PRESENT
+            // non-string is a malformed response and throws rather than being silently dropped, and the
+            // contract's character-based maxLength is enforced here so an eventual operator-facing sink
+            // never renders an unbounded finder-controlled string.
+            $messageRaw = $entry['message'] ?? null;
+            $message    = null;
+
+            if ($messageRaw !== null) {
+                if (!is_string($messageRaw)) {
+                    throw new ResponseValidationException('Response coverage message is not a string.');
+                }
+
+                if (mb_strlen($messageRaw, 'UTF-8') > self::COVERAGE_MESSAGE_MAX_LENGTH) {
+                    throw new ResponseValidationException('Response coverage message exceeds the maximum length.');
+                }
+
+                $message = $messageRaw;
+            }
+
+            $coverage[] = new PortalCoverage($portal, $status, $noticeCount, $message);
+        }
+
+        return $coverage;
     }
 
     /**

@@ -1,20 +1,29 @@
 {
-  "jobId": "job-1",
-  "schemaVersion": 1,
-  "results": {
-    "I1": [
-      {
-        "noticeType": "obituary",
-        "name": "Erika Mustermann",
-        "parsedName": {
-          "surname": "",
-          "givenNames": []
-        },
-        "death": "12.03.2024",
-        "url": "https://example.test/traueranzeige/erika",
-        "source": "example.test",
-        "fetchedAt": "2024-03-22T10:00:00+00:00"
-      }
-    ]
-  }
+    "jobId": "job-1",
+    "schemaVersion": 1,
+    "results": {
+        "I1": {
+            "notices": [
+                {
+                    "noticeType": "obituary",
+                    "name": "Erika Mustermann",
+                    "parsedName": {
+                        "surname": "",
+                        "givenNames": []
+                    },
+                    "death": "12.03.2024",
+                    "url": "https://example.test/traueranzeige/erika",
+                    "source": "example.test",
+                    "fetchedAt": "2024-03-22T10:00:00+00:00"
+                }
+            ],
+            "coverage": [
+                {
+                    "portal": "trauer_anzeigen",
+                    "status": "ok",
+                    "noticeCount": 1
+                }
+            ]
+        }
+    }
 }
