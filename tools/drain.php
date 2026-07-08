@@ -40,6 +40,7 @@ declare(strict_types=1);
  */
 
 use MagicSunday\ObituaryMatcher\Webtrees\CliModuleResolver;
+use MagicSunday\ObituaryMatcher\Webtrees\DrainFanOutResult;
 use MagicSunday\ObituaryMatcher\Webtrees\DrainServiceFactory;
 use MagicSunday\ObituaryMatcher\Webtrees\FinderCliConfigurationException;
 use MagicSunday\ObituaryMatcher\Webtrees\HeadlessBootstrap;
@@ -123,7 +124,10 @@ try {
         exit(1);
     }
 
-    [$connection, $restPendingRoot] = RestCliBootstrap::resolve(
+    // §5.2f: resolve EVERY active finder (primary + additional) paired with its isolated ledger root, so
+    // one drain run polls and ingests every configured finder's completed jobs. A single-finder install
+    // yields exactly one pair, identical to before.
+    $finders = RestCliBootstrap::resolveAll(
         $module,
         $restPendingOption,
         dirname(__DIR__),
@@ -145,13 +149,20 @@ try {
     exit(1);
 }
 
-// Assemble the drain graph over the connection and ledger root resolved above via its composition root
-// (the per-job store is wired inside DrainService). The admin-editable scoring weights are read from the
-// module here so the drain scores with the operator's configured caps, not just the enriched defaults.
-$drainService = DrainServiceFactory::create($connection, $restPendingRoot, $module->scoreConfig());
+// Drain every finder's ledger via its own composition root (the per-job store is wired inside
+// DrainService), aggregating the per-finder tallies. The admin-editable scoring weights are read from the
+// module once so the drain scores with the operator's configured caps, not just the enriched defaults. A
+// single-finder install runs the loop exactly once. Cross-finder de-duplication is handled downstream by
+// the per-notice atomic store (last-writer-wins on the canonical URL key), not here.
+$scoreConfig = $module->scoreConfig();
+
+$summaries = [];
 
 try {
-    $summary = $drainService->drain($onlyTreeId, $limit);
+    foreach ($finders as [$connection, $restPendingRoot]) {
+        $summaries[] = DrainServiceFactory::create($connection, $restPendingRoot, $scoreConfig)
+            ->drain($onlyTreeId, $limit);
+    }
 } catch (Throwable $exception) {
     // A DB/I-O fault DURING draining (TreeService::find / CandidateRepository::findByXrefs run webtrees
     // queries OUTSIDE DrainService's inner try) would otherwise escape to PHP's default uncaught-exception
@@ -165,16 +176,18 @@ try {
     exit(1);
 }
 
+$result = DrainFanOutResult::fromSummaries($summaries);
+
 fwrite(
     STDOUT,
     sprintf(
         'ingested=%d skipped=%d failed=%d stored=%d stale=%d',
-        $summary->ingested,
-        $summary->skipped,
-        $summary->failed,
-        $summary->stored,
-        $summary->stale,
+        $result->ingested,
+        $result->skipped,
+        $result->failed,
+        $result->stored,
+        $result->stale,
     ) . PHP_EOL,
 );
 
-exit($summary->failed > 0 ? 1 : 0);
+exit($result->hasFailure() ? 1 : 0);

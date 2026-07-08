@@ -15,9 +15,11 @@ use MagicSunday\ObituaryMatcher\Support\FinderConnection;
 use MagicSunday\ObituaryMatcher\Support\FinderConnectionResolver;
 use MagicSunday\ObituaryMatcher\Support\WebtreesInstallLocator;
 
+use function hash;
 use function is_string;
 use function rtrim;
 use function str_starts_with;
+use function substr;
 
 /**
  * The shared REST bootstrap for the headless CLI adapters. After the config-only cutover the
@@ -46,48 +48,68 @@ final class RestCliBootstrap
     }
 
     /**
-     * Resolves the validated REST finder connection and the in-flight ledger root shared by the enqueue
-     * and drain adapters. The connection is read from the PERSISTED module config through
-     * {@see FinderConnectionResolver::fromConfig()}, under the SAME REST consent gate the admin control
-     * panel enforces: unless `finder_transport === 'rest'` is set and a valid base URL is stored the
-     * connection is null and a misuse is raised. The ledger root is the explicit `--rest-pending` value
-     * or, when absent, the running instance's default resolved through the layout-independent locator
-     * relative to the module root; a default-resolved root that is merely absent is NOT an error (the
-     * ledger creates it on first record). The operator hint never echoes the stored base URL or token.
+     * Resolves EVERY active finder connection (§5.2f) paired with its own isolated in-flight ledger root,
+     * for the multi-finder fan-out: the primary connection plus every active additional finder, read from
+     * the persisted config through {@see FinderConnectionResolver::listFromConfig()} under the same REST
+     * consent gate. A single-finder install yields exactly one pair `[primary, base ledger root]` — the
+     * unchanged single-finder behaviour. Each additional finder gets its OWN ledger sub-root (namespaced
+     * by a hash of its base URL, so it stays stable across reordering) so the finders' in-flight sets never
+     * mix; the primary keeps the unchanged base ledger root, so no existing in-flight job is orphaned.
      *
-     * @param ObituaryMatcherModule $module            The registered module whose saved preferences carry the finder connection.
-     * @param string|null           $restPendingOption The raw `--rest-pending` value (already narrowed to string|null).
-     * @param string                $moduleRoot        The module root directory (the `tools/` parent) the ledger default is resolved from.
+     * @param ObituaryMatcherModule $module            The module the persisted config is read from.
+     * @param string|null           $restPendingOption The raw `--rest-pending` value (already narrowed).
+     * @param string                $moduleRoot        The module root the ledger default is resolved from.
      *
-     * @return array{FinderConnection, string} The validated connection and the resolved ledger root.
+     * @return list<array{FinderConnection, string}> The per-finder connection + isolated ledger-root pairs.
      *
-     * @throws FinderCliConfigurationException When the finder connection is not configured (REST not enabled or no valid
-     *                                         stored base URL), or the ledger root cannot be located.
+     * @throws FinderCliConfigurationException When no finder is configured (REST not enabled or no valid
+     *                                         connection), or the ledger root cannot be located.
      */
-    public static function resolve(
+    public static function resolveAll(
         ObituaryMatcherModule $module,
         ?string $restPendingOption,
         string $moduleRoot,
     ): array {
-        // The connection comes from the persisted control-panel config, NOT from argv: this enforces the
-        // same consent gate the admin UI uses (finder_transport === 'rest' plus a valid base URL) and
-        // keeps the token out of the process arguments. A not-configured/disabled connection is a misuse;
-        // the hint points the operator at the control panel and never echoes the stored credentials.
-        $connection = FinderConnectionResolver::fromConfig(
-            $module->getPreference('finder_transport', ''),
+        $transport = $module->getPreference('finder_transport', '');
+
+        $connections = FinderConnectionResolver::listFromConfig(
+            $transport,
             $module->getPreference('finder_base_url', ''),
             $module->getPreference('finder_token', ''),
+            $module->getPreference('finder_additional', ''),
         );
 
-        if (!$connection instanceof FinderConnection) {
+        if ($connections === []) {
             throw new FinderCliConfigurationException(
                 'The finder connection is not configured or REST is not enabled — open the module control panel, enter the REST base URL and token, and save.',
             );
         }
 
-        $restPendingRoot = self::ledgerRoot($restPendingOption, $moduleRoot);
+        $baseRoot = self::ledgerRoot($restPendingOption, $moduleRoot);
 
-        return [$connection, $restPendingRoot];
+        // Key the ledger root on finder IDENTITY, not list position: the PRIMARY connection keeps the
+        // unchanged base ledger root (so its existing in-flight jobs are never orphaned), and EVERY other
+        // (additional) finder gets an isolated sub-ledger keyed by a hash of its base URL. Resolving the
+        // primary base URL here (rather than assuming index 0 is the primary) keeps the mapping stable
+        // even when the primary is unset — then no finder claims the base root and every additional finder
+        // uses its own hash sub-root, so configuring a primary later cannot strand an additional's jobs.
+        $primaryBaseUrl = FinderConnectionResolver::fromConfig(
+            $transport,
+            $module->getPreference('finder_base_url', ''),
+            $module->getPreference('finder_token', ''),
+        )?->baseUrl();
+
+        $pairs = [];
+
+        foreach ($connections as $connection) {
+            $ledgerRoot = $connection->baseUrl() === $primaryBaseUrl
+                ? $baseRoot
+                : $baseRoot . '/finder-' . substr(hash('sha256', $connection->baseUrl()), 0, 16);
+
+            $pairs[] = [$connection, $ledgerRoot];
+        }
+
+        return $pairs;
     }
 
     /**

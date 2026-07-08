@@ -22,7 +22,9 @@ use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\Attributes\UsesClass;
 
+use function hash;
 use function preg_quote;
+use function substr;
 use function sys_get_temp_dir;
 use function uniqid;
 
@@ -95,7 +97,7 @@ final class RestCliBootstrapTest extends IntegrationTestCase
 
     /**
      * Builds a throwaway absolute ledger root under the system temp dir (the repo convention), unique per
-     * call so parallel workers never collide. resolve() never touches the filesystem for an explicit
+     * call so parallel workers never collide. resolveAll() never touches the filesystem for an explicit
      * root, so the directory need not exist.
      *
      * @return string An absolute, unique ledger-root path.
@@ -103,25 +105,6 @@ final class RestCliBootstrapTest extends IntegrationTestCase
     private function ledgerRoot(): string
     {
         return sys_get_temp_dir() . '/obituary-matcher-' . uniqid('rp-', true);
-    }
-
-    /**
-     * A module carrying a valid persisted REST connection and an explicit ledger root resolves to a REST
-     * connection carrying the stored base URL and token, plus the given ledger root verbatim.
-     *
-     * @return void
-     */
-    #[Test]
-    public function aConfiguredRestModuleResolvesTheConnectionAndExplicitLedgerRoot(): void
-    {
-        $this->configureRest('https://finder.example', 'secret-token');
-        $ledgerRoot = $this->ledgerRoot();
-
-        [$connection, $restPendingRoot] = RestCliBootstrap::resolve($this->module, $ledgerRoot, sys_get_temp_dir());
-
-        self::assertSame('https://finder.example', $connection->baseUrl());
-        self::assertSame('secret-token', $connection->token());
-        self::assertSame($ledgerRoot, $restPendingRoot);
     }
 
     /**
@@ -135,7 +118,7 @@ final class RestCliBootstrapTest extends IntegrationTestCase
     {
         $this->configureRest('https://finder.example');
 
-        [$connection] = RestCliBootstrap::resolve($this->module, $this->ledgerRoot(), sys_get_temp_dir());
+        [$connection] = RestCliBootstrap::resolveAll($this->module, $this->ledgerRoot(), sys_get_temp_dir())[0];
 
         self::assertNull($connection->token());
     }
@@ -152,7 +135,7 @@ final class RestCliBootstrapTest extends IntegrationTestCase
         $this->expectException(FinderCliConfigurationException::class);
         $this->expectExceptionMessageMatches('/' . preg_quote('The finder connection is not configured', '/') . '/');
 
-        RestCliBootstrap::resolve($this->module, $this->ledgerRoot(), sys_get_temp_dir());
+        RestCliBootstrap::resolveAll($this->module, $this->ledgerRoot(), sys_get_temp_dir());
     }
 
     /**
@@ -170,7 +153,7 @@ final class RestCliBootstrapTest extends IntegrationTestCase
         $this->module->setPreference('finder_token', 'retained-secret');
 
         try {
-            RestCliBootstrap::resolve($this->module, $this->ledgerRoot(), sys_get_temp_dir());
+            RestCliBootstrap::resolveAll($this->module, $this->ledgerRoot(), sys_get_temp_dir());
             self::fail('Expected a FinderCliConfigurationException for a legacy file-transport install.');
         } catch (FinderCliConfigurationException $exception) {
             self::assertStringContainsString('The finder connection is not configured', $exception->getMessage());
@@ -191,7 +174,7 @@ final class RestCliBootstrapTest extends IntegrationTestCase
         $this->configureRest('ftp://nope', 'secret-token');
 
         try {
-            RestCliBootstrap::resolve($this->module, $this->ledgerRoot(), sys_get_temp_dir());
+            RestCliBootstrap::resolveAll($this->module, $this->ledgerRoot(), sys_get_temp_dir());
             self::fail('Expected a FinderCliConfigurationException for a stored-but-invalid base URL.');
         } catch (FinderCliConfigurationException $exception) {
             self::assertStringContainsString('The finder connection is not configured', $exception->getMessage());
@@ -213,7 +196,7 @@ final class RestCliBootstrapTest extends IntegrationTestCase
         $this->expectException(FinderCliConfigurationException::class);
         $this->expectExceptionMessageMatches('/' . preg_quote('--rest-pending must be an absolute path', '/') . '/');
 
-        RestCliBootstrap::resolve($this->module, '', sys_get_temp_dir());
+        RestCliBootstrap::resolveAll($this->module, '', sys_get_temp_dir());
     }
 
     /**
@@ -230,7 +213,7 @@ final class RestCliBootstrapTest extends IntegrationTestCase
         $this->expectException(FinderCliConfigurationException::class);
         $this->expectExceptionMessageMatches('/' . preg_quote('--rest-pending must be an absolute path', '/') . '/');
 
-        RestCliBootstrap::resolve($this->module, 'relative/rest-pending', sys_get_temp_dir());
+        RestCliBootstrap::resolveAll($this->module, 'relative/rest-pending', sys_get_temp_dir());
     }
 
     /**
@@ -248,7 +231,7 @@ final class RestCliBootstrapTest extends IntegrationTestCase
         $this->expectException(FinderCliConfigurationException::class);
         $this->expectExceptionMessageMatches('/' . preg_quote('--rest-pending must be an absolute path', '/') . '/');
 
-        RestCliBootstrap::resolve($this->module, '/', sys_get_temp_dir());
+        RestCliBootstrap::resolveAll($this->module, '/', sys_get_temp_dir());
     }
 
     /**
@@ -262,18 +245,18 @@ final class RestCliBootstrapTest extends IntegrationTestCase
     {
         $this->configureRest('https://finder.example');
 
-        [, $restPendingRoot] = RestCliBootstrap::resolve(
+        [, $restPendingRoot] = RestCliBootstrap::resolveAll(
             $this->module,
             '/var/lib/webtrees/rest-pending/',
             sys_get_temp_dir(),
-        );
+        )[0];
 
         self::assertSame('/var/lib/webtrees/rest-pending', $restPendingRoot);
     }
 
     /**
      * When no explicit ledger root is given and the module root does not sit beside a webtrees install,
-     * the default cannot be located, so resolve throws the pass-an-explicit-root hint.
+     * the default cannot be located, so resolveAll throws the pass-an-explicit-root hint.
      *
      * @return void
      */
@@ -286,6 +269,83 @@ final class RestCliBootstrapTest extends IntegrationTestCase
         $this->expectExceptionMessageMatches('/' . preg_quote('Could not locate the running-instance rest-pending dir', '/') . '/');
 
         // sys_get_temp_dir() is not beside a webtrees config, so the locator cannot resolve a default.
-        RestCliBootstrap::resolve($this->module, null, sys_get_temp_dir());
+        RestCliBootstrap::resolveAll($this->module, null, sys_get_temp_dir());
+    }
+
+    /**
+     * §5.2f: a single-finder install resolves through resolveAll() to exactly one pair — the primary
+     * connection on the unchanged base ledger root.
+     *
+     * @return void
+     */
+    #[Test]
+    public function resolveAllYieldsExactlyOnePairForASingleFinder(): void
+    {
+        $this->configureRest('https://finder.example', 'secret-token');
+        $ledgerRoot = $this->ledgerRoot();
+
+        $pairs = RestCliBootstrap::resolveAll($this->module, $ledgerRoot, sys_get_temp_dir());
+
+        self::assertCount(1, $pairs);
+        self::assertSame('https://finder.example', $pairs[0][0]->baseUrl());
+        self::assertSame('secret-token', $pairs[0][0]->token());
+        self::assertSame($ledgerRoot, $pairs[0][1]);
+    }
+
+    /**
+     * §5.2f: an active additional finder resolves as a second pair whose ledger root is an isolated
+     * sub-root (namespaced by the base-URL hash), so the two finders' in-flight sets never mix, while the
+     * primary keeps the unchanged base root.
+     *
+     * @return void
+     */
+    #[Test]
+    public function resolveAllGivesEachAdditionalFinderAnIsolatedLedgerRoot(): void
+    {
+        $this->configureRest('https://primary.example', 'primary-token');
+        $this->module->setPreference(
+            'finder_additional',
+            '[{"baseUrl":"https://extra.example","token":"extra-token","active":true}]',
+        );
+        $ledgerRoot = $this->ledgerRoot();
+
+        $pairs = RestCliBootstrap::resolveAll($this->module, $ledgerRoot, sys_get_temp_dir());
+
+        self::assertCount(2, $pairs);
+        self::assertSame('https://primary.example', $pairs[0][0]->baseUrl());
+        self::assertSame($ledgerRoot, $pairs[0][1]);
+
+        self::assertSame('https://extra.example', $pairs[1][0]->baseUrl());
+        $expectedSubRoot = $ledgerRoot . '/finder-' . substr(hash('sha256', 'https://extra.example'), 0, 16);
+        self::assertSame($expectedSubRoot, $pairs[1][1]);
+        self::assertNotSame($pairs[0][1], $pairs[1][1]);
+    }
+
+    /**
+     * §5.2f: with the primary base URL UNSET but the REST consent marker present and an active additional
+     * finder configured, the additional finder gets its OWN isolated hash sub-root — NEVER the base root.
+     * This guards the identity-keyed (not position-keyed) ledger mapping: configuring a primary later must
+     * not strand the additional finder's in-flight jobs by shifting its ledger.
+     *
+     * @return void
+     */
+    #[Test]
+    public function resolveAllGivesAnAdditionalFinderAHashSubRootEvenWhenThePrimaryIsUnset(): void
+    {
+        $this->module->setPreference('finder_transport', 'rest');
+        $this->module->setPreference('finder_base_url', '');
+        $this->module->setPreference(
+            'finder_additional',
+            '[{"baseUrl":"https://extra.example","active":true}]',
+        );
+        $ledgerRoot = $this->ledgerRoot();
+
+        $pairs = RestCliBootstrap::resolveAll($this->module, $ledgerRoot, sys_get_temp_dir());
+
+        self::assertCount(1, $pairs);
+        self::assertSame('https://extra.example', $pairs[0][0]->baseUrl());
+        $expectedSubRoot = $ledgerRoot . '/finder-' . substr(hash('sha256', 'https://extra.example'), 0, 16);
+        self::assertSame($expectedSubRoot, $pairs[0][1]);
+        self::assertNotSame($ledgerRoot, $pairs[0][1]);
     }
 }

@@ -13,7 +13,7 @@ declare(strict_types=1);
  * Headless CLI adapter that enqueues ONE bounded finder job for a single tree's death-date-missing
  * candidates. It is a THIN composition root: it boots the request-less webtrees runtime
  * ({@see HeadlessBootstrap}), logs in the system principal so every candidate is visible, wires the
- * REST producer object graph and hands the single enqueue decision to {@see EnqueueService::enqueue()}.
+ * REST producer object graph and hands the single enqueue decision to {@see \MagicSunday\ObituaryMatcher\Webtrees\EnqueueService::enqueue()}.
  * All domain logic lives in the injected services; this file only parses options, assembles the graph,
  * prints the one-line tally and maps the outcome to an exit code.
  *
@@ -44,7 +44,7 @@ declare(strict_types=1);
 
 use Fisharebest\Webtrees\I18N;
 use MagicSunday\ObituaryMatcher\Webtrees\CliModuleResolver;
-use MagicSunday\ObituaryMatcher\Webtrees\EnqueueService;
+use MagicSunday\ObituaryMatcher\Webtrees\EnqueueFanOutResult;
 use MagicSunday\ObituaryMatcher\Webtrees\EnqueueServiceFactory;
 use MagicSunday\ObituaryMatcher\Webtrees\FinderCliConfigurationException;
 use MagicSunday\ObituaryMatcher\Webtrees\HeadlessBootstrap;
@@ -135,7 +135,10 @@ try {
         exit(1);
     }
 
-    [$connection, $restPendingRoot] = RestCliBootstrap::resolve(
+    // §5.2f: resolve EVERY active finder (primary + additional) paired with its isolated ledger root, so
+    // one enqueue run fans the job out to all configured finders. A single-finder install yields exactly
+    // one pair, identical to before.
+    $finders = RestCliBootstrap::resolveAll(
         $module,
         $restPendingOption,
         dirname(__DIR__),
@@ -161,14 +164,18 @@ try {
 // configured language tag.
 $locale = I18N::languageTag();
 
-// Assemble the producer object graph over the connection and ledger root resolved above. The reference
-// year defaults to null (the current year) — it is a service-only seam with no CLI flag.
-$enqueueService = EnqueueServiceFactory::create($connection, $restPendingRoot);
+// Assemble a producer per finder over its own ledger root and enqueue against each, collecting the
+// per-finder summaries for aggregation. The reference year defaults to null (the current year) — a
+// service-only seam with no CLI flag. A single-finder install runs the loop exactly once.
+$summaries = [];
 
 try {
-    $summary = $enqueueService->enqueue($treeId, $limit, $minAge, $locale);
+    foreach ($finders as [$connection, $restPendingRoot]) {
+        $summaries[] = EnqueueServiceFactory::create($connection, $restPendingRoot)
+            ->enqueue($treeId, $limit, $minAge, $locale);
+    }
 } catch (DomainException) {
-    // An unknown/vanished tree id: a fixed error + non-zero exit (the tree binding is required).
+    // An unknown/vanished tree id (the same tree for every finder): a fixed error + non-zero exit.
     fwrite(STDERR, sprintf('Unknown tree id: %d', $treeId) . PHP_EOL);
 
     exit(1);
@@ -186,14 +193,16 @@ try {
     exit(1);
 }
 
+$result = EnqueueFanOutResult::fromSummaries($summaries);
+
 fwrite(
     STDOUT,
     sprintf(
         'enqueued=%s candidates=%d skipped_inflight=%d excluded_hosts=%d tree=%d',
-        $summary->jobId ?? 'none',
-        $summary->candidates,
-        $summary->skippedInflight,
-        $summary->excludedHosts,
+        $result->jobIds === [] ? 'none' : implode(',', $result->jobIds),
+        $result->candidates,
+        $result->skippedInflight,
+        $result->excludedHosts,
         $treeId,
     ) . PHP_EOL,
 );
