@@ -11,8 +11,10 @@ declare(strict_types=1);
 
 namespace MagicSunday\ObituaryMatcher\Test\Integration;
 
+use DateTimeImmutable;
 use JsonException;
 use MagicSunday\ObituaryMatcher\Domain\ClassifiedMatch;
+use MagicSunday\ObituaryMatcher\Domain\NegativeMemoryEntry;
 use MagicSunday\ObituaryMatcher\Matching\FileMatchStore;
 use MagicSunday\ObituaryMatcher\Matching\MatchStatus;
 use MagicSunday\ObituaryMatcher\Matching\StoredMatch;
@@ -23,6 +25,7 @@ use MagicSunday\ObituaryMatcher\Support\FinderRequest;
 use MagicSunday\ObituaryMatcher\Support\FinderRequestFactory;
 use MagicSunday\ObituaryMatcher\Support\JobId;
 use MagicSunday\ObituaryMatcher\Support\QueryGenerator;
+use MagicSunday\ObituaryMatcher\Support\SearchSignatureFactory;
 use MagicSunday\ObituaryMatcher\Support\UrlHostNormalizer;
 use MagicSunday\ObituaryMatcher\Webtrees\CandidateCriteria;
 use MagicSunday\ObituaryMatcher\Webtrees\CandidateRepository;
@@ -70,6 +73,13 @@ use const JSON_THROW_ON_ERROR;
 #[UsesClass(JobId::class)]
 #[UsesClass(QueryGenerator::class)]
 #[UsesClass(UrlHostNormalizer::class)]
+#[UsesClass(SearchSignatureFactory::class)]
+#[UsesClass(NegativeMemoryEntry::class)]
+#[UsesClass(\MagicSunday\ObituaryMatcher\Domain\SearchSignature::class)]
+#[UsesClass(\MagicSunday\ObituaryMatcher\Support\NegativeMemoryPolicy::class)]
+#[UsesClass(\MagicSunday\ObituaryMatcher\Support\Normalizer::class)]
+#[UsesClass(\MagicSunday\ObituaryMatcher\Matching\FileNegativeMemoryStore::class)]
+#[UsesClass(\MagicSunday\ObituaryMatcher\Webtrees\NegativeMemoryStoreFactory::class)]
 final class EnqueueServiceTest extends AbstractEnqueueTestCase
 {
     /**
@@ -111,6 +121,91 @@ final class EnqueueServiceTest extends AbstractEnqueueTestCase
 
         // The submitted request carries exactly the requested set.
         self::assertSame(['I1'], $this->queuedPersonIds($summary->jobId));
+    }
+
+    /**
+     * §5.2d: a candidate with a fresh, same-signature genuine miss on record is NOT re-enqueued by the
+     * bulk run (the summary reports it suppressed and no job is submitted); the per-person "search again"
+     * override (enqueueOne) re-enqueues the same person regardless.
+     *
+     * @return void
+     */
+    #[Test]
+    public function aFreshGenuineMissSuppressesTheBulkReEnqueueButAPerPersonOverrideForces(): void
+    {
+        $tree = $this->importFixtureTree(
+            "0 HEAD\n1 SOUR t\n1 GEDC\n2 VERS 5.5.1\n1 CHAR UTF-8\n"
+            . "0 @I1@ INDI\n1 NAME Otto /Searchable/\n2 GIVN Otto\n2 SURN Searchable\n1 SEX M\n1 BIRT\n2 DATE 17 MAR 1930\n0 TRLR\n",
+            'enqueue-negmem',
+        );
+
+        // Seed a fresh genuine miss whose signature matches the candidate's current search state.
+        $candidates = (new CandidateRepository())->findByXrefs($tree, ['I1']);
+        self::assertArrayHasKey('I1', $candidates);
+
+        $signature = SearchSignatureFactory::fromCandidate($candidates['I1']);
+        $this->negativeMemoryStoreFor($tree)->record(
+            'I1',
+            new NegativeMemoryEntry($signature, (new DateTimeImmutable(self::PINNED_NOW))->getTimestamp()),
+        );
+
+        // Without override the re-search is suppressed: nothing is submitted, reported as suppressed.
+        $suppressedRun = $this->enqueueService()->enqueue($tree->id(), 50, 90, 'de-DE', self::REFERENCE_YEAR);
+
+        self::assertNull($suppressedRun->jobId);
+        self::assertSame(0, $suppressedRun->candidates);
+        self::assertSame(1, $suppressedRun->suppressed);
+        self::assertSame([], $this->queuedJobIds());
+
+        // The per-person path without override also suppresses — this is what triggers the handler's
+        // "search again" flash.
+        $perPersonSuppressed = $this->enqueueService()->enqueueOne($tree->id(), 'I1', 'de-DE');
+
+        self::assertNull($perPersonSuppressed->jobId);
+        self::assertSame(1, $perPersonSuppressed->suppressed);
+
+        // The per-person "search again" override re-enqueues the same person regardless of the fresh miss.
+        $overrideRun = $this->enqueueService()->enqueueOne($tree->id(), 'I1', 'de-DE', true);
+
+        self::assertNotNull($overrideRun->jobId);
+        self::assertSame(1, $overrideRun->candidates);
+        self::assertSame(0, $overrideRun->suppressed);
+        self::assertSame(['I1'], $this->queuedPersonIds($overrideRun->jobId));
+    }
+
+    /**
+     * §5.2d: a suppressed candidate is skipped DURING selection, so it does not consume a --limit slot —
+     * a lower-xref person with a fresh genuine miss must not starve a never-searched higher-xref person
+     * when the cap is 1. With the suppression applied after the window filled, I1 would take the only
+     * slot and I2 would never be reached; here I2 fills it.
+     *
+     * @return void
+     */
+    #[Test]
+    public function aSuppressedCandidateDoesNotConsumeALimitSlot(): void
+    {
+        $tree = $this->importFixtureTree(
+            "0 HEAD\n1 SOUR t\n1 GEDC\n2 VERS 5.5.1\n1 CHAR UTF-8\n"
+            . "0 @I1@ INDI\n1 NAME Otto /Searchable/\n2 GIVN Otto\n2 SURN Searchable\n1 SEX M\n1 BIRT\n2 DATE 17 MAR 1930\n"
+            . "0 @I2@ INDI\n1 NAME Emil /Reachable/\n2 GIVN Emil\n2 SURN Reachable\n1 SEX M\n1 BIRT\n2 DATE 03 JUN 1928\n0 TRLR\n",
+            'enqueue-negmem-starve',
+        );
+
+        // Record a fresh genuine miss for the lower-xref I1 only.
+        $candidates = (new CandidateRepository())->findByXrefs($tree, ['I1']);
+        self::assertArrayHasKey('I1', $candidates);
+        $this->negativeMemoryStoreFor($tree)->record(
+            'I1',
+            new NegativeMemoryEntry(SearchSignatureFactory::fromCandidate($candidates['I1']), (new DateTimeImmutable(self::PINNED_NOW))->getTimestamp()),
+        );
+
+        // Cap of 1: the suppressed I1 must not take the single slot — the never-searched I2 fills it.
+        $summary = $this->enqueueService()->enqueue($tree->id(), 1, 90, 'de-DE', self::REFERENCE_YEAR);
+
+        self::assertNotNull($summary->jobId);
+        self::assertSame(1, $summary->candidates);
+        self::assertSame(1, $summary->suppressed);
+        self::assertSame(['I2'], $this->queuedPersonIds($summary->jobId));
     }
 
     /**

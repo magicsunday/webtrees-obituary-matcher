@@ -554,6 +554,24 @@ final class ReviewScreenHandlerTest extends IntegrationTestCase
     }
 
     /**
+     * The manager enqueue form offers a §5.2d "search again" override submit that posts `override=1`, so
+     * the negative-memory re-search the suppression flash points at is actually reachable (the override
+     * branch has a live UI consumer, not just tests).
+     *
+     * @return void
+     */
+    #[Test]
+    public function theManagerTabOffersASearchAgainOverrideButton(): void
+    {
+        $html = $this->renderTabFor('https://trauer.example/override');
+
+        self::assertStringContainsString('class="om-enqueue-person"', $html);
+        // Pin the override control as one contiguous fragment: a looser split assertion would false-pass
+        // on any incidental value="1" elsewhere in the markup.
+        self::assertStringContainsString('name="override" value="1"', $html);
+    }
+
+    /**
      * An unknown key 404s.
      *
      * @return void

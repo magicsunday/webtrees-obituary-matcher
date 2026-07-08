@@ -11,17 +11,24 @@ declare(strict_types=1);
 
 namespace MagicSunday\ObituaryMatcher\Webtrees;
 
+use DateTimeImmutable;
 use DomainException;
 use Fisharebest\Webtrees\Services\TreeService;
 use Fisharebest\Webtrees\Tree;
+use MagicSunday\ObituaryMatcher\Domain\NegativeMemoryEntry;
+use MagicSunday\ObituaryMatcher\Domain\SearchOutcome;
 use MagicSunday\ObituaryMatcher\Matching\CoverageStore;
 use MagicSunday\ObituaryMatcher\Matching\IngestService;
 use MagicSunday\ObituaryMatcher\Matching\MatchStore;
+use MagicSunday\ObituaryMatcher\Matching\NegativeMemoryStore;
 use MagicSunday\ObituaryMatcher\Queue\CompletedJob;
 use MagicSunday\ObituaryMatcher\Queue\FailedJob;
 use MagicSunday\ObituaryMatcher\Queue\FailureCategory;
 use MagicSunday\ObituaryMatcher\Queue\JobTransport;
+use MagicSunday\ObituaryMatcher\Support\SearchSignatureFactory;
 use Throwable;
+
+use function array_key_exists;
 
 /**
  * The Phase-2e orchestration boundary: it drains finished finder jobs into the per-tree match stores.
@@ -170,13 +177,35 @@ class DrainService
             // miss from a portal outage. Recorded BEFORE markIngested so a record failure falls through to
             // the catch below and parks the job as failed (IngestFailed) rather than marking it ingested
             // with its coverage silently dropped; record is idempotent last-write-wins.
-            $coverageStore = $this->coverageStoreForTree($tree);
+            $coverageStore       = $this->coverageStoreForTree($tree);
+            $negativeMemoryStore = $this->negativeMemoryStoreForTree($tree);
+            $recordedAt          = $this->now()->getTimestamp();
 
             foreach ($job->coverage as $personId => $portals) {
                 // Cast the key to string: PHP coerces a purely-numeric XREF (GEDCOM-legal, e.g. `123`)
                 // array key back to int, and CoverageStore::record() takes a strict string under
                 // declare(strict_types=1) — without the cast a numeric-xref person throws a TypeError.
-                $coverageStore->record((string) $personId, $portals);
+                $personIdString = (string) $personId;
+
+                $coverageStore->record($personIdString, $portals);
+
+                // §5.2d negative memory: ONLY a genuine miss (every portal searched OK, nothing found)
+                // records that this person's current search came back empty; a portal outage
+                // (PortalFailed/Skipped) or a hit (Found) must not. Derived from the SAME coverage the
+                // UI reads, so the two never disagree. A person with no held candidate (deleted/private)
+                // has no signature to key the memory on, so it is skipped.
+                if (
+                    (SearchOutcome::fromCoverage($portals) === SearchOutcome::NoNotices)
+                    && array_key_exists($personIdString, $candidatesById)
+                ) {
+                    $negativeMemoryStore->record(
+                        $personIdString,
+                        new NegativeMemoryEntry(
+                            SearchSignatureFactory::fromCandidate($candidatesById[$personIdString]),
+                            $recordedAt,
+                        ),
+                    );
+                }
             }
 
             $this->transport->markIngested(
@@ -249,5 +278,30 @@ class DrainService
     protected function coverageStoreForTree(Tree $tree): CoverageStore
     {
         return CoverageStoreFactory::forTree($tree);
+    }
+
+    /**
+     * Builds the tree-scoped negative-memory store the drain records each genuine miss into. A seam
+     * (mirroring {@see self::coverageStoreForTree()}) so a test can redirect the per-tree store to an
+     * isolated directory rather than the live data dir.
+     *
+     * @param Tree $tree The tree whose negative-memory store is requested.
+     *
+     * @return NegativeMemoryStore The tree-scoped negative-memory store.
+     */
+    protected function negativeMemoryStoreForTree(Tree $tree): NegativeMemoryStore
+    {
+        return NegativeMemoryStoreFactory::forTree($tree);
+    }
+
+    /**
+     * The current time, as a seam a test can freeze so the recorded negative-memory timestamp is
+     * deterministic.
+     *
+     * @return DateTimeImmutable The current time.
+     */
+    protected function now(): DateTimeImmutable
+    {
+        return new DateTimeImmutable();
     }
 }

@@ -11,16 +11,20 @@ declare(strict_types=1);
 
 namespace MagicSunday\ObituaryMatcher\Test\Integration;
 
+use DateTimeImmutable;
 use Fisharebest\Webtrees\Services\GedcomImportService;
 use Fisharebest\Webtrees\Services\TreeService;
 use Fisharebest\Webtrees\Tree;
+use MagicSunday\ObituaryMatcher\Domain\PortalCoverage;
 use MagicSunday\ObituaryMatcher\Domain\ValidatedResponse;
 use MagicSunday\ObituaryMatcher\Matching\CoverageStore;
 use MagicSunday\ObituaryMatcher\Matching\FileCoverageStore;
 use MagicSunday\ObituaryMatcher\Matching\FileMatchStore;
+use MagicSunday\ObituaryMatcher\Matching\FileNegativeMemoryStore;
 use MagicSunday\ObituaryMatcher\Matching\IngestService;
 use MagicSunday\ObituaryMatcher\Matching\IngestServiceFactory;
 use MagicSunday\ObituaryMatcher\Matching\MatchStore;
+use MagicSunday\ObituaryMatcher\Matching\NegativeMemoryStore;
 use MagicSunday\ObituaryMatcher\Queue\CompletedJob;
 use MagicSunday\ObituaryMatcher\Queue\JobTransport;
 use MagicSunday\ObituaryMatcher\Queue\ResponseValidator;
@@ -47,6 +51,11 @@ use MagicSunday\ObituaryMatcher\Webtrees\MatchStoreFactory;
  */
 abstract class AbstractDrainTestCase extends AbstractStoreTestCase
 {
+    /**
+     * The fixed instant the drain double's clock is pinned to (see the anonymous class' now()).
+     */
+    protected const string PINNED_NOW = '2026-06-23T10:15:30+00:00';
+
     /**
      * {@inheritDoc}
      *
@@ -127,7 +136,46 @@ abstract class AbstractDrainTestCase extends AbstractStoreTestCase
                     MatchStoreFactory::pathForTreeId($this->storeRoot . '/coverage', $tree->id())
                 );
             }
+
+            /**
+             * Redirect the per-tree negative-memory store to an isolated directory under the test root.
+             *
+             * @param Tree $tree The tree whose negative-memory store is requested.
+             *
+             * @return NegativeMemoryStore The isolated, tree-scoped negative-memory store.
+             */
+            protected function negativeMemoryStoreForTree(Tree $tree): NegativeMemoryStore
+            {
+                return new FileNegativeMemoryStore(
+                    MatchStoreFactory::pathForTreeId($this->storeRoot . '/negative-memory', $tree->id())
+                );
+            }
+
+            /**
+             * Pin the clock so the recorded negative-memory timestamp is deterministic.
+             *
+             * @return DateTimeImmutable The fixed instant.
+             */
+            protected function now(): DateTimeImmutable
+            {
+                return new DateTimeImmutable('2026-06-23T10:15:30+00:00');
+            }
         };
+    }
+
+    /**
+     * The tree-scoped negative-memory store for the given tree, read through the same layout the drain
+     * uses, so a test can assert what genuine miss the drain recorded.
+     *
+     * @param Tree $tree The tree whose negative-memory store is read.
+     *
+     * @return NegativeMemoryStore The isolated, tree-scoped negative-memory store.
+     */
+    protected function negativeMemoryStoreFor(Tree $tree): NegativeMemoryStore
+    {
+        return new FileNegativeMemoryStore(
+            MatchStoreFactory::pathForTreeId($this->storeRoot . '/negative-memory', $tree->id())
+        );
     }
 
     /**
@@ -342,5 +390,28 @@ abstract class AbstractDrainTestCase extends AbstractStoreTestCase
             'source'      => 'example.test',
             'fetchedAt'   => '2026-06-23T10:00:00Z',
         ];
+    }
+
+    /**
+     * Build a completed job carrying NO notices for the person and the given explicit per-portal
+     * coverage, so a test can drive the search-outcome branches the all-ok harness cannot synthesise (a
+     * genuine miss with 0 notices, or a portal outage).
+     *
+     * @param string               $jobId    The job identifier.
+     * @param int                  $treeId   The tree the request belongs to.
+     * @param string               $personId The requested person id.
+     * @param list<PortalCoverage> $coverage The explicit per-portal coverage for that person.
+     *
+     * @return CompletedJob The completed job the transport yields.
+     */
+    protected function completedJobWithCoverage(string $jobId, int $treeId, string $personId, array $coverage): CompletedJob
+    {
+        return new CompletedJob(
+            $jobId,
+            $treeId,
+            [$personId],
+            [$personId => []],
+            [$personId => $coverage],
+        );
     }
 }

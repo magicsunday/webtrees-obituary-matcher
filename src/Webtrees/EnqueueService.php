@@ -16,9 +16,12 @@ use Fisharebest\Webtrees\Services\TreeService;
 use Fisharebest\Webtrees\Tree;
 use MagicSunday\ObituaryMatcher\Domain\PersonCandidate;
 use MagicSunday\ObituaryMatcher\Matching\MatchStore;
+use MagicSunday\ObituaryMatcher\Matching\NegativeMemoryStore;
 use MagicSunday\ObituaryMatcher\Queue\JobTransport;
 use MagicSunday\ObituaryMatcher\Support\FinderRequestFactory;
 use MagicSunday\ObituaryMatcher\Support\JobId;
+use MagicSunday\ObituaryMatcher\Support\NegativeMemoryPolicy;
+use MagicSunday\ObituaryMatcher\Support\SearchSignatureFactory;
 use MagicSunday\ObituaryMatcher\Support\UrlHostNormalizer;
 
 use function array_keys;
@@ -94,8 +97,15 @@ class EnqueueService
         // filled. The generator hydrates one candidate per pull, so a run on a large tree pays at
         // most O(limit + in-flight-stepped-over) individual hydrations instead of materialising the
         // whole eligible population only to slice off --limit of it (issue #38).
-        $eligible = [];
-        $skipped  = 0;
+        $eligible   = [];
+        $skipped    = 0;
+        $suppressed = 0;
+
+        // ONE clock read shared by the negative-memory freshness check and the jobId/createdAt mint.
+        $now         = $this->now();
+        $nowStamp    = $now->getTimestamp();
+        $memoryStore = $this->negativeMemoryStoreForTree($tree);
+        $policy      = $this->negativeMemoryPolicy();
 
         foreach (
             $this->repository->findCandidatesLazily(
@@ -117,6 +127,18 @@ class EnqueueService
                 continue;
             }
 
+            // §5.2d re-search policy: a candidate whose search would repeat a still-fresh genuine miss is
+            // skipped DURING selection — exactly like the in-flight filter above — so it does not consume
+            // a --limit slot. Suppressing after the cap was filled would let a window of suppressed
+            // low-xref persons starve the never-searched persons beyond it for up to the TTL; skipping
+            // here lets the window fill with genuinely-searchable candidates. The bulk run always honours
+            // the policy; the per-person "search again" override lives on enqueueOne() (§6.4 is per-person).
+            if ($this->isSuppressed($memoryStore, $policy, $candidate, $nowStamp)) {
+                ++$suppressed;
+
+                continue;
+            }
+
             $eligible[] = $candidate;
 
             if (count($eligible) === $limit) {
@@ -129,10 +151,10 @@ class EnqueueService
         }
 
         if ($eligible === []) {
-            return new EnqueueSummary(null, 0, $skipped, 0);
+            return new EnqueueSummary(null, 0, $skipped, 0, $suppressed);
         }
 
-        return $this->submitJob($tree, $eligible, $locale, $skipped);
+        return $this->submitJob($tree, $eligible, $locale, $skipped, $suppressed, $now);
     }
 
     /**
@@ -142,13 +164,15 @@ class EnqueueService
      * search), or a skipped=1 summary when the person already has a job in flight for this tree (no
      * duplicate is enqueued).
      *
-     * @param int    $treeId The numeric tree id (throws DomainException if unknown).
-     * @param string $xref   The chosen individual's xref.
-     * @param string $locale The IETF BCP 47 locale tag stamped onto the request.
+     * @param int    $treeId   The numeric tree id (throws DomainException if unknown).
+     * @param string $xref     The chosen individual's xref.
+     * @param string $locale   The IETF BCP 47 locale tag stamped onto the request.
+     * @param bool   $override Whether to bypass the negative-memory re-search policy (the manager's
+     *                         explicit "search again" for a person recorded as a recent genuine miss).
      *
      * @return EnqueueSummary The run tally.
      */
-    public function enqueueOne(int $treeId, string $xref, string $locale): EnqueueSummary
+    public function enqueueOne(int $treeId, string $xref, string $locale, bool $override = false): EnqueueSummary
     {
         $tree       = $this->treeService->find($treeId);
         $candidates = $this->repository->findByXrefs($tree, [$xref]);
@@ -170,7 +194,19 @@ class EnqueueService
             return new EnqueueSummary(null, 0, 1, 0);
         }
 
-        return $this->submitJob($tree, [$candidate], $locale, 0);
+        // ONE clock read shared by the negative-memory freshness check and the jobId/createdAt mint.
+        $now = $this->now();
+
+        // §5.2d: unless the manager overrode it, a fresh same-signature genuine miss suppresses this
+        // person's re-search (reported so the handler can flash the "search again" affordance).
+        if (
+            !$override
+            && $this->isSuppressed($this->negativeMemoryStoreForTree($tree), $this->negativeMemoryPolicy(), $candidate, $now->getTimestamp())
+        ) {
+            return new EnqueueSummary(null, 0, 0, 0, 1);
+        }
+
+        return $this->submitJob($tree, [$candidate], $locale, 0, 0, $now);
     }
 
     /**
@@ -179,14 +215,21 @@ class EnqueueService
      * one-second boundary), then returns the run tally. Shared by the auto-selecting {@see self::enqueue()}
      * and the single-person {@see self::enqueueOne()}.
      *
-     * @param Tree                  $tree     The tree the job belongs to.
-     * @param list<PersonCandidate> $eligible The candidates to enqueue (already name-filtered and deduped).
-     * @param string                $locale   The IETF BCP 47 locale tag stamped onto the request.
-     * @param int                   $skipped  The in-flight candidates skipped, carried onto the summary.
+     * The negative-memory suppression (§5.2d) is applied by the CALLERS during candidate selection (so a
+     * suppressed candidate never consumes a --limit slot); this method just builds and submits the
+     * already-filtered set, carrying the pre-computed skipped/suppressed tallies onto the summary and
+     * minting the jobId/createdAt from the caller's single clock read.
+     *
+     * @param Tree                  $tree       The tree the job belongs to.
+     * @param list<PersonCandidate> $eligible   The candidates to enqueue (name-filtered, deduped, un-suppressed).
+     * @param string                $locale     The IETF BCP 47 locale tag stamped onto the request.
+     * @param int                   $skipped    The in-flight candidates skipped, carried onto the summary.
+     * @param int                   $suppressed The candidates the caller dropped by the re-search policy.
+     * @param DateTimeImmutable     $now        The caller's single clock read (jobId + createdAt source).
      *
      * @return EnqueueSummary The run tally.
      */
-    private function submitJob(Tree $tree, array $eligible, string $locale, int $skipped): EnqueueSummary
+    private function submitJob(Tree $tree, array $eligible, string $locale, int $skipped, int $suppressed, DateTimeImmutable $now): EnqueueSummary
     {
         $store                   = $this->storeForTree($tree);
         $excludedHostsByPersonId = [];
@@ -201,7 +244,6 @@ class EnqueueService
             }
         }
 
-        $now     = $this->now();
         $jobId   = JobId::mint($now);
         $request = $this->requestFactory->build(
             $jobId,
@@ -214,7 +256,7 @@ class EnqueueService
 
         $this->transport->submit($request);
 
-        return new EnqueueSummary($jobId, count($eligible), $skipped, $excludedHostTotal);
+        return new EnqueueSummary($jobId, count($eligible), $skipped, $excludedHostTotal, $suppressed);
     }
 
     /**
@@ -238,6 +280,51 @@ class EnqueueService
     protected function now(): DateTimeImmutable
     {
         return new DateTimeImmutable();
+    }
+
+    /**
+     * The per-tree negative-memory store the re-search policy consults. A seam (mirroring
+     * {@see self::storeForTree()}) so a test can redirect it to an isolated directory.
+     *
+     * @param Tree $tree The tree whose negative-memory store is requested.
+     *
+     * @return NegativeMemoryStore The tree-scoped negative-memory store.
+     */
+    protected function negativeMemoryStoreForTree(Tree $tree): NegativeMemoryStore
+    {
+        return NegativeMemoryStoreFactory::forTree($tree);
+    }
+
+    /**
+     * The negative-memory re-search policy (its TTL). A seam so a test can pin a short TTL and a future
+     * increment can source the TTL from the module's configuration (§6.3).
+     *
+     * @return NegativeMemoryPolicy The re-search policy.
+     */
+    protected function negativeMemoryPolicy(): NegativeMemoryPolicy
+    {
+        return new NegativeMemoryPolicy();
+    }
+
+    /**
+     * Whether the given candidate's re-search should be suppressed by the §5.2d policy: a fresh,
+     * same-signature genuine miss on record. Shared by the bulk {@see self::enqueue()} selection loop and
+     * the single-person {@see self::enqueueOne()} so both apply the policy identically.
+     *
+     * @param NegativeMemoryStore  $store     The tree-scoped negative-memory store to read.
+     * @param NegativeMemoryPolicy $policy    The re-search policy (its TTL).
+     * @param PersonCandidate      $candidate The candidate whose re-search is being decided.
+     * @param int                  $nowStamp  The current Unix timestamp.
+     *
+     * @return bool True when the candidate's search should be skipped this run.
+     */
+    private function isSuppressed(NegativeMemoryStore $store, NegativeMemoryPolicy $policy, PersonCandidate $candidate, int $nowStamp): bool
+    {
+        return $policy->suppresses(
+            $store->find($candidate->id),
+            SearchSignatureFactory::fromCandidate($candidate),
+            $nowStamp,
+        );
     }
 
     /**
