@@ -15,6 +15,8 @@ use Fisharebest\Webtrees\Services\GedcomImportService;
 use Fisharebest\Webtrees\Services\TreeService;
 use Fisharebest\Webtrees\Tree;
 use MagicSunday\ObituaryMatcher\Domain\ValidatedResponse;
+use MagicSunday\ObituaryMatcher\Matching\CoverageStore;
+use MagicSunday\ObituaryMatcher\Matching\FileCoverageStore;
 use MagicSunday\ObituaryMatcher\Matching\FileMatchStore;
 use MagicSunday\ObituaryMatcher\Matching\IngestService;
 use MagicSunday\ObituaryMatcher\Matching\IngestServiceFactory;
@@ -111,7 +113,35 @@ abstract class AbstractDrainTestCase extends AbstractStoreTestCase
                     MatchStoreFactory::pathForTree($this->storeRoot, $tree)
                 );
             }
+
+            /**
+             * Redirect the per-tree coverage store to an isolated directory under the test root.
+             *
+             * @param Tree $tree The tree whose coverage store is requested.
+             *
+             * @return CoverageStore The isolated, tree-scoped coverage store.
+             */
+            protected function coverageStoreForTree(Tree $tree): CoverageStore
+            {
+                return new FileCoverageStore(
+                    MatchStoreFactory::pathForTreeId($this->storeRoot . '/coverage', $tree->id())
+                );
+            }
         };
+    }
+
+    /**
+     * The tree-scoped coverage store for the given tree, read through the same layout the drain uses.
+     *
+     * @param Tree $tree The tree whose coverage store is read.
+     *
+     * @return CoverageStore The isolated, tree-scoped coverage store.
+     */
+    protected function coverageStoreFor(Tree $tree): CoverageStore
+    {
+        return new FileCoverageStore(
+            MatchStoreFactory::pathForTreeId($this->storeRoot . '/coverage', $tree->id())
+        );
     }
 
     /**

@@ -14,6 +14,7 @@ namespace MagicSunday\ObituaryMatcher\Webtrees;
 use DomainException;
 use Fisharebest\Webtrees\Services\TreeService;
 use Fisharebest\Webtrees\Tree;
+use MagicSunday\ObituaryMatcher\Matching\CoverageStore;
 use MagicSunday\ObituaryMatcher\Matching\IngestService;
 use MagicSunday\ObituaryMatcher\Matching\MatchStore;
 use MagicSunday\ObituaryMatcher\Queue\CompletedJob;
@@ -164,6 +165,20 @@ class DrainService
         // through parkFailed(), which likewise tolerates a park failure for the same reason.
         try {
             $result = $this->ingest->ingest($job->notices, $job->coverage, $candidatesById, $store);
+
+            // Persist each requested person's per-portal coverage so a later render can tell a genuine
+            // miss from a portal outage. Recorded BEFORE markIngested so a record failure falls through to
+            // the catch below and parks the job as failed (IngestFailed) rather than marking it ingested
+            // with its coverage silently dropped; record is idempotent last-write-wins.
+            $coverageStore = $this->coverageStoreForTree($tree);
+
+            foreach ($job->coverage as $personId => $portals) {
+                // Cast the key to string: PHP coerces a purely-numeric XREF (GEDCOM-legal, e.g. `123`)
+                // array key back to int, and CoverageStore::record() takes a strict string under
+                // declare(strict_types=1) — without the cast a numeric-xref person throws a TypeError.
+                $coverageStore->record((string) $personId, $portals);
+            }
+
             $this->transport->markIngested(
                 $job->jobId,
                 [
@@ -220,5 +235,19 @@ class DrainService
     protected function storeForTree(Tree $tree): MatchStore
     {
         return MatchStoreFactory::forTree($tree);
+    }
+
+    /**
+     * Builds the tree-scoped coverage store the drain records each person's per-portal coverage into. A
+     * seam (mirroring {@see self::storeForTree()}) so a test can redirect the per-tree coverage store to
+     * an isolated directory rather than the live data dir.
+     *
+     * @param Tree $tree The tree whose coverage store is requested.
+     *
+     * @return CoverageStore The tree-scoped coverage store.
+     */
+    protected function coverageStoreForTree(Tree $tree): CoverageStore
+    {
+        return CoverageStoreFactory::forTree($tree);
     }
 }

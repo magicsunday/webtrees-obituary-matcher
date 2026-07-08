@@ -40,7 +40,7 @@ msgstr[0] ""
 msgstr[1] ""
 msgstr[2] ""
 
-#: resources/views/tab.phtml:37
+#: resources/views/tab.phtml:42
 #, php-format
 msgid "%s open suggestion"
 msgid_plural "%s open suggestions"
@@ -84,7 +84,7 @@ msgstr ""
 msgid "Ambiguity gap"
 msgstr ""
 
-#: resources/views/review.phtml:85 resources/views/tab.phtml:45
+#: resources/views/review.phtml:85 resources/views/tab.phtml:50
 #: resources/views/worklist.phtml:50
 msgid "Ambiguous"
 msgstr ""
@@ -217,7 +217,7 @@ msgid "HTTP status: %s"
 msgstr ""
 
 #: resources/views/review.phtml:72 resources/views/review.phtml:84
-#: resources/views/tab.phtml:44
+#: resources/views/tab.phtml:49
 msgid "Hard conflict"
 msgstr ""
 
@@ -288,7 +288,7 @@ msgstr ""
 msgid "No finder jobs are currently open."
 msgstr ""
 
-#: resources/views/review.phtml:22 resources/views/tab.phtml:20
+#: resources/views/review.phtml:22 resources/views/tab.phtml:22
 #: resources/views/worklist.phtml:21
 msgid "No match"
 msgstr ""
@@ -354,7 +354,7 @@ msgstr ""
 msgid "Parent"
 msgstr ""
 
-#: resources/views/review.phtml:26 resources/views/tab.phtml:32
+#: resources/views/review.phtml:26 resources/views/tab.phtml:34
 #: resources/views/worklist.phtml:33
 msgid "Pending"
 msgstr ""
@@ -383,7 +383,7 @@ msgstr ""
 msgid "Possible"
 msgstr ""
 
-#: resources/views/review.phtml:20 resources/views/tab.phtml:18
+#: resources/views/review.phtml:20 resources/views/tab.phtml:20
 #: resources/views/worklist.phtml:19
 msgid "Possible match"
 msgstr ""
@@ -400,7 +400,7 @@ msgstr ""
 msgid "Probable"
 msgstr ""
 
-#: resources/views/review.phtml:19 resources/views/tab.phtml:17
+#: resources/views/review.phtml:19 resources/views/tab.phtml:19
 #: resources/views/worklist.phtml:18
 msgid "Probable match"
 msgstr ""
@@ -452,7 +452,7 @@ msgid ""
 "revert tool with --force to override."
 msgstr ""
 
-#: resources/views/tab.phtml:50 resources/views/worklist.phtml:162
+#: resources/views/tab.phtml:55 resources/views/worklist.phtml:162
 #: resources/views/worklist.phtml:193
 msgid "Review"
 msgstr ""
@@ -478,7 +478,7 @@ msgstr ""
 msgid "Scoring weights"
 msgstr ""
 
-#: resources/views/control-panel.phtml:186 resources/views/tab.phtml:58
+#: resources/views/control-panel.phtml:186 resources/views/tab.phtml:63
 msgid "Search for death notices"
 msgstr ""
 
@@ -520,6 +520,12 @@ msgstr ""
 msgid "Soft conflict"
 msgstr ""
 
+#: resources/views/tab.phtml:40
+msgid ""
+"Some sources were unavailable during the last search, so this result may be "
+"incomplete. Try searching again later."
+msgstr ""
+
 #: resources/views/worklist.phtml:131
 msgid "Sort by"
 msgstr ""
@@ -544,7 +550,7 @@ msgstr ""
 msgid "Strong"
 msgstr ""
 
-#: resources/views/review.phtml:18 resources/views/tab.phtml:16
+#: resources/views/review.phtml:18 resources/views/tab.phtml:18
 #: resources/views/worklist.phtml:17
 msgid "Strong match"
 msgstr ""
@@ -664,7 +670,7 @@ msgid "Tree person"
 msgstr ""
 
 #: resources/views/review.phtml:27 resources/views/review.phtml:213
-#: resources/views/tab.phtml:33 resources/views/worklist.phtml:34
+#: resources/views/tab.phtml:35 resources/views/worklist.phtml:34
 #: resources/views/worklist.phtml:44
 msgid "Uncertain"
 msgstr ""
@@ -682,7 +688,7 @@ msgstr ""
 msgid "Weak"
 msgstr ""
 
-#: resources/views/review.phtml:21 resources/views/tab.phtml:19
+#: resources/views/review.phtml:21 resources/views/tab.phtml:21
 #: resources/views/worklist.phtml:20
 msgid "Weak match"
 msgstr ""

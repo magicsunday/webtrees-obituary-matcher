@@ -13,6 +13,7 @@ namespace MagicSunday\ObituaryMatcher\Test\Integration;
 
 use Fisharebest\Webtrees\Individual;
 use Fisharebest\Webtrees\Tree;
+use MagicSunday\ObituaryMatcher\Matching\FileCoverageStore;
 use MagicSunday\ObituaryMatcher\Matching\FileMatchStore;
 use MagicSunday\ObituaryMatcher\Matching\MatchStatus;
 use MagicSunday\ObituaryMatcher\Test\Support\RemovesFlatTempStoreTrait;
@@ -47,6 +48,7 @@ use PHPUnit\Framework\Attributes\UsesClass;
 #[UsesClass(SuggestionTabPresenter::class)]
 #[UsesClass(SuggestionViewModel::class)]
 #[UsesClass(FileMatchStore::class)]
+#[UsesClass(FileCoverageStore::class)]
 #[UsesClass(MatchSeeder::class)]
 #[UsesClass(MatchStatus::class)]
 final class ObituaryMatcherModuleIntegrationTest extends IntegrationTestCase
@@ -91,7 +93,7 @@ final class ObituaryMatcherModuleIntegrationTest extends IntegrationTestCase
 
             protected function presenterForTree(Tree $tree): SuggestionTabPresenter
             {
-                return new SuggestionTabPresenter(new FileMatchStore($this->dir));
+                return new SuggestionTabPresenter(new FileMatchStore($this->dir), new FileCoverageStore($this->dir . '/coverage'));
             }
         };
 
