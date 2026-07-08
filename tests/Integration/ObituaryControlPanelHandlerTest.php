@@ -42,6 +42,7 @@ use MagicSunday\ObituaryMatcher\Queue\ProbeStatus;
 use MagicSunday\ObituaryMatcher\Queue\QueueLimits;
 use MagicSunday\ObituaryMatcher\Queue\RestPendingLedger;
 use MagicSunday\ObituaryMatcher\Support\FinderConnection;
+use MagicSunday\ObituaryMatcher\Support\FinderConnectionResolver;
 use MagicSunday\ObituaryMatcher\Support\FinderRequestFactory;
 use MagicSunday\ObituaryMatcher\Support\QueryGenerator;
 use MagicSunday\ObituaryMatcher\Support\UrlHostNormalizer;
@@ -918,6 +919,140 @@ final class ObituaryControlPanelHandlerTest extends AbstractEnqueueTestCase
     }
 
     /**
+     * A save-finder run persists the submitted additional finders (§5.2f increment 2) into the
+     * `finder_additional` preference alongside the primary, so the fan-out resolver reads them back.
+     *
+     * @return void
+     */
+    #[Test]
+    public function saveFinderPersistsTheSubmittedAdditionalFinders(): void
+    {
+        $this->handler()->handle($this->panelPost([
+            'action'     => 'save-finder',
+            'base_url'   => 'https://primary.example',
+            'token'      => 'primary-token',
+            'additional' => [
+                ['base_url' => 'https://extra.example', 'token' => 'extra-token', 'active' => '1'],
+            ],
+        ]));
+
+        $connections = FinderConnectionResolver::listFromConfig(
+            'rest',
+            'https://primary.example',
+            'primary-token',
+            $this->module->getPreference('finder_additional'),
+        );
+
+        self::assertCount(2, $connections);
+        self::assertSame('https://primary.example', $connections[0]->baseUrl());
+        self::assertSame('https://extra.example', $connections[1]->baseUrl());
+        self::assertSame('extra-token', $connections[1]->token());
+    }
+
+    /**
+     * An invalid additional finder rejects the WHOLE save (all-or-nothing): neither the primary nor the
+     * additional finders are written, matching the single-finder both-or-neither contract.
+     *
+     * @return void
+     */
+    #[Test]
+    public function saveFinderRejectsTheWholeSaveWhenAnAdditionalFinderIsInvalid(): void
+    {
+        $response = $this->handler()->handle($this->panelPost([
+            'action'     => 'save-finder',
+            'base_url'   => 'https://primary.example',
+            'token'      => 'primary-token',
+            'additional' => [
+                ['base_url' => 'ftp://nope', 'token' => '', 'active' => '1'],
+            ],
+        ]));
+
+        self::assertSame(StatusCodeInterface::STATUS_FOUND, $response->getStatusCode());
+        self::assertSame('', $this->module->getPreference('finder_base_url'));
+        self::assertSame('', $this->module->getPreference('finder_additional'));
+        self::assertNotSame('rest', $this->module->getPreference('finder_transport'));
+    }
+
+    /**
+     * Submitting no additional finders clears a previously stored list, so removing every extra finder in
+     * the UI persists as "no additional finders".
+     *
+     * @return void
+     */
+    #[Test]
+    public function saveFinderClearsTheAdditionalFindersWhenNoneAreSubmitted(): void
+    {
+        $this->module->setPreference(
+            'finder_additional',
+            '[{"baseUrl":"https://extra.example","token":"t","active":true}]',
+        );
+
+        $this->handler()->handle($this->panelPost([
+            'action'   => 'save-finder',
+            'base_url' => 'https://primary.example',
+            'token'    => 'primary-token',
+        ]));
+
+        self::assertSame('', $this->module->getPreference('finder_additional'));
+    }
+
+    /**
+     * A blank token on an additional finder keeps the token already stored for that finder (matched by
+     * base-URL identity), so a settings save that does not re-enter the secret does not wipe it.
+     *
+     * @return void
+     */
+    #[Test]
+    public function saveFinderKeepsAnAdditionalFindersStoredTokenOnBlank(): void
+    {
+        $this->module->setPreference(
+            'finder_additional',
+            '[{"baseUrl":"https://extra.example","token":"stored-extra","active":true}]',
+        );
+
+        $this->handler()->handle($this->panelPost([
+            'action'     => 'save-finder',
+            'base_url'   => 'https://primary.example',
+            'token'      => 'primary-token',
+            'additional' => [
+                ['base_url' => 'https://extra.example', 'token' => '', 'active' => '1'],
+            ],
+        ]));
+
+        $connections = FinderConnectionResolver::listFromConfig(
+            'rest',
+            'https://primary.example',
+            'primary-token',
+            $this->module->getPreference('finder_additional'),
+        );
+
+        self::assertCount(2, $connections);
+        self::assertSame('stored-extra', $connections[1]->token());
+    }
+
+    /**
+     * An additional finder duplicating the PRIMARY base URL rejects the whole save: the primary is a
+     * reserved identity, so an additional finder can never duplicate it.
+     *
+     * @return void
+     */
+    #[Test]
+    public function saveFinderRejectsAnAdditionalFinderDuplicatingThePrimary(): void
+    {
+        $this->handler()->handle($this->panelPost([
+            'action'     => 'save-finder',
+            'base_url'   => 'https://primary.example',
+            'token'      => 'primary-token',
+            'additional' => [
+                ['base_url' => 'https://primary.example/', 'token' => '', 'active' => '1'],
+            ],
+        ]));
+
+        self::assertSame('', $this->module->getPreference('finder_base_url'));
+        self::assertSame('', $this->module->getPreference('finder_additional'));
+    }
+
+    /**
      * The `test` action probes a valid REST finder and re-renders (NOT redirects) with a reachable
      * readout carrying the advertised finder id: the scripted client answers the capabilities request
      * with a valid document, and the captured finder view carries the mapped readout.
@@ -1512,7 +1647,9 @@ final class ObituaryControlPanelHandlerTest extends AbstractEnqueueTestCase
      * Builds a POST request for the panel route carrying the given parsed body, authenticated as the
      * setUp administrator.
      *
-     * @param array<string, string> $body The form body.
+     * @param array<string, string|list<array<string, string>>> $body The form body (a value is a scalar
+     *                                                                field, or the nested additional-finder
+     *                                                                rows for the `additional` key).
      *
      * @return ServerRequestInterface The request the handler consumes.
      */

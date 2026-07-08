@@ -31,6 +31,7 @@ use MagicSunday\ObituaryMatcher\Queue\FinderCapabilities;
 use MagicSunday\ObituaryMatcher\Queue\FinderCapabilitiesProbe;
 use MagicSunday\ObituaryMatcher\Queue\ProbeStatus;
 use MagicSunday\ObituaryMatcher\Queue\RestPendingLedger;
+use MagicSunday\ObituaryMatcher\Support\AdditionalFindersEditor;
 use MagicSunday\ObituaryMatcher\Support\FinderConnection;
 use MagicSunday\ObituaryMatcher\Support\FinderConnectionResolver;
 use MagicSunday\ObituaryMatcher\Support\WebtreesInstallLocator;
@@ -43,6 +44,8 @@ use Psr\Http\Server\RequestHandlerInterface;
 use Throwable;
 
 use function ctype_digit;
+use function is_array;
+use function is_string;
 use function redirect;
 use function route;
 use function strip_tags;
@@ -294,6 +297,12 @@ class ObituaryControlPanelHandler implements RequestHandlerInterface
      * save NEVER leaves REST active against a half-written credential set, for an already-active install
      * just as for a dormant legacy `'file'` one. Always PRG-redirects.
      *
+     * The submitted ADDITIONAL finders (§5.2f increment 2) are validated and normalised by
+     * {@see AdditionalFindersEditor::toJson()} inside the SAME all-or-nothing gate: an invalid or
+     * duplicate additional row rejects the whole save (primary included), and the resulting
+     * `finder_additional` JSON is persisted during the deactivated window alongside the primary
+     * credentials, so the whole connection activates atomically.
+     *
      * @param ServerRequestInterface $request The incoming POST request.
      *
      * @return ResponseInterface The redirect response.
@@ -304,10 +313,24 @@ class ObituaryControlPanelHandler implements RequestHandlerInterface
         // here (nothing new to validate); the existing token stays untouched below.
         [$baseUrl, $tokenRaw, $remove, $token] = $this->resolveFinderInput($request, null);
 
+        $submittedAdditional = $this->submittedAdditionalFinders($request);
+
         try {
             // Validate the base URL and the resolved token's control characters in one go; the returned
             // object is not needed because persistence stores the flat preferences.
             FinderConnection::rest($baseUrl, $token);
+
+            // §5.2f: validate and normalise the additional finders in the SAME all-or-nothing gate. The
+            // primary's base-URL identity is reserved so an additional finder can never duplicate it, and
+            // the currently-stored list feeds the keep-by-identity token resolution (a blank additional
+            // token keeps the finder's stored secret). The first invalid/duplicate row throws, rejecting
+            // the whole save before anything is persisted — the same both-or-neither contract the primary
+            // uses. The returned JSON is persisted below.
+            $additionalJson = AdditionalFindersEditor::toJson(
+                $submittedAdditional,
+                $this->module->getPreference('finder_additional', ''),
+                [FinderConnection::baseUrlKeyFor($baseUrl)],
+            );
         } catch (InvalidArgumentException) {
             FlashMessages::addMessage(I18N::translate('Finder connection could not be saved.'), 'danger');
 
@@ -331,6 +354,12 @@ class ObituaryControlPanelHandler implements RequestHandlerInterface
         } elseif ($tokenRaw !== '') {
             $this->module->setPreference('finder_token', $tokenRaw);
         }
+
+        // Persist the additional finders while REST is still deactivated: the resolver reads
+        // `finder_additional` only under the `finder_transport === 'rest'` gate, so writing it before the
+        // reactivation below keeps the whole connection (primary + additional) inert until the save
+        // completes — an empty string clears the list when none were submitted.
+        $this->module->setPreference('finder_additional', $additionalJson);
 
         // REACTIVATE the consent marker LAST, only after every connection field has been committed. This
         // lifts the migration gate in self::finderConnection() atomically — a legacy file-mode install
@@ -372,6 +401,55 @@ class ObituaryControlPanelHandler implements RequestHandlerInterface
         }
 
         return [$baseUrl, $tokenRaw, $remove, $token];
+    }
+
+    /**
+     * Reads the submitted additional-finder rows (§5.2f increment 2) from the parsed body into the flat
+     * shape {@see AdditionalFindersEditor::toJson()} consumes. The rows arrive as a nested `additional`
+     * array (one entry per list row, each with `base_url`, `token` and the checkbox flags `active` /
+     * `remove_token`). The body is narrowed defensively — a missing `additional`, a non-array row, or a
+     * non-string field never throws — so an entirely absent list (the single-finder case) yields an empty
+     * list and a malformed field degrades to its empty default rather than a TypeError. The checkbox flags
+     * are read by PRESENCE (an unchecked checkbox is simply not submitted), matching the plain
+     * value-carrying checkboxes the template renders.
+     *
+     * @param ServerRequestInterface $request The incoming POST request.
+     *
+     * @return list<array{baseUrl: string, token: string, active: bool, removeToken: bool}> The submitted rows.
+     */
+    private function submittedAdditionalFinders(ServerRequestInterface $request): array
+    {
+        $parsedBody = $request->getParsedBody();
+
+        if (!is_array($parsedBody)) {
+            return [];
+        }
+
+        $rawRows = $parsedBody['additional'] ?? null;
+
+        if (!is_array($rawRows)) {
+            return [];
+        }
+
+        $rows = [];
+
+        foreach ($rawRows as $rawRow) {
+            if (!is_array($rawRow)) {
+                continue;
+            }
+
+            $baseUrl = $rawRow['base_url'] ?? null;
+            $token   = $rawRow['token'] ?? null;
+
+            $rows[] = [
+                'baseUrl'     => is_string($baseUrl) ? $baseUrl : '',
+                'token'       => is_string($token) ? $token : '',
+                'active'      => isset($rawRow['active']),
+                'removeToken' => isset($rawRow['remove_token']),
+            ];
+        }
+
+        return $rows;
     }
 
     /**
