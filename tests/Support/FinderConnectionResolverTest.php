@@ -271,6 +271,40 @@ final class FinderConnectionResolverTest extends TestCase
     }
 
     /**
+     * Two base URLs differing only by a trailing slash are the SAME endpoint, so they dedup: the dedup
+     * key is normalised through {@see FinderConnection::baseUrlKey()}. An additional finder configured
+     * `https://finder.example/` collapses onto the slashless primary rather than double-searching that
+     * finder, and two additional finders differing only by a trailing slash collapse to one. This pins
+     * the normalisation — without it, the trailing-slash variant would survive as a second connection.
+     *
+     * @return void
+     */
+    #[Test]
+    public function listDedupsBaseUrlsThatDifferOnlyByATrailingSlash(): void
+    {
+        $trailingSlashDupOfPrimary = FinderConnectionResolver::listFromConfig(
+            'rest',
+            'https://finder.example',
+            'primary-token',
+            '[{"baseUrl":"https://finder.example/","token":"other-token","active":true}]',
+        );
+
+        self::assertCount(1, $trailingSlashDupOfPrimary);
+        self::assertSame('https://finder.example', $trailingSlashDupOfPrimary[0]->baseUrl());
+        self::assertSame('primary-token', $trailingSlashDupOfPrimary[0]->token());
+
+        $trailingSlashDupAdditionals = FinderConnectionResolver::listFromConfig(
+            'rest',
+            '',
+            '',
+            '[{"baseUrl":"https://x.example","active":true},{"baseUrl":"https://x.example/","active":true}]',
+        );
+
+        self::assertCount(1, $trailingSlashDupAdditionals);
+        self::assertSame('https://x.example', $trailingSlashDupAdditionals[0]->baseUrl());
+    }
+
+    /**
      * Every defensive drop branch of the additional-finders decoder rejects the malformed entry while the
      * primary survives — a corrupt `finder_additional` preference can never crash the resolution or
      * suppress the configured primary.

@@ -154,6 +154,21 @@ final readonly class FinderConnection
     }
 
     /**
+     * Returns the canonical identity key of the base URL: the base URL with any single trailing slash
+     * stripped. This is the SINGLE source of the dedup/ledger-identity rule — `https://f.example` and
+     * `https://f.example/` are the same endpoint, so they must resolve to the same key. Both the
+     * connection de-duplication ({@see FinderConnectionResolver::listFromConfig()}) and the per-finder
+     * ledger-root namespacing ({@see \MagicSunday\ObituaryMatcher\Webtrees\RestCliBootstrap::resolveAll()})
+     * key on this method, so the two can never drift: if the rule ever changed, both sites change together.
+     *
+     * @return string The base URL with any trailing slash removed.
+     */
+    public function baseUrlKey(): string
+    {
+        return rtrim($this->baseUrl, '/');
+    }
+
+    /**
      * Returns the raw bearer token for its single legitimate use (the Authorization header), or null
      * when the connection is unauthenticated.
      *

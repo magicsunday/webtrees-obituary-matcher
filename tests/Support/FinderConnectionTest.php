@@ -203,4 +203,25 @@ final class FinderConnectionTest extends TestCase
 
         self::assertSame('http://finder_host.example:8080/api', $connection->baseUrl());
     }
+
+    /**
+     * The identity key strips a single trailing slash so a base URL configured `…/` and its slashless
+     * form yield the same key — the dedup/ledger-identity invariant. A base URL without a trailing slash
+     * is returned unchanged, and the raw base URL is left untouched for the actual request.
+     *
+     * @return void
+     */
+    #[Test]
+    public function theBaseUrlKeyStripsATrailingSlashButLeavesTheRawBaseUrlIntact(): void
+    {
+        $withSlash = FinderConnection::rest('https://finder.example/', null);
+
+        self::assertSame('https://finder.example', $withSlash->baseUrlKey());
+        self::assertSame('https://finder.example/', $withSlash->baseUrl());
+
+        $withoutSlash = FinderConnection::rest('https://finder.example', null);
+
+        self::assertSame('https://finder.example', $withoutSlash->baseUrlKey());
+        self::assertSame($withoutSlash->baseUrlKey(), $withSlash->baseUrlKey());
+    }
 }

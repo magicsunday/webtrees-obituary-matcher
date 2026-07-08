@@ -18,7 +18,6 @@ use SensitiveParameter;
 use function is_array;
 use function is_string;
 use function json_decode;
-use function rtrim;
 
 use const JSON_THROW_ON_ERROR;
 
@@ -120,19 +119,11 @@ final class FinderConnectionResolver
         $primary = self::fromConfig($transport, $baseUrl, $token);
 
         if ($primary instanceof FinderConnection) {
-            $connections[]                                 = $primary;
-            $seenBaseUrls[rtrim($primary->baseUrl(), '/')] = true;
+            $connections[]                        = $primary;
+            $seenBaseUrls[$primary->baseUrlKey()] = true;
         }
 
         foreach (self::decodeAdditional($additionalJson) as [$addBaseUrl, $addToken]) {
-            // A duplicate base URL (the primary's or an earlier additional's) is skipped: each connection
-            // must have a distinct base URL so the per-finder ledger namespacing keyed on it stays unique.
-            // The key is compared with a trailing slash stripped so `https://f.example` and
-            // `https://f.example/` — the same endpoint — dedup rather than double-searching that finder.
-            if (isset($seenBaseUrls[rtrim($addBaseUrl, '/')])) {
-                continue;
-            }
-
             try {
                 $connection = FinderConnection::rest($addBaseUrl, $addToken === '' ? null : $addToken);
             } catch (InvalidArgumentException) {
@@ -141,8 +132,16 @@ final class FinderConnectionResolver
                 continue;
             }
 
-            $connections[]                                    = $connection;
-            $seenBaseUrls[rtrim($connection->baseUrl(), '/')] = true;
+            // A duplicate base URL (the primary's or an earlier additional's) is skipped: each connection
+            // must have a distinct base URL so the per-finder ledger namespacing keyed on it stays unique.
+            // Both the set writes and this lookup key on FinderConnection::baseUrlKey(), so `https://f.example`
+            // and `https://f.example/` — the same endpoint — dedup rather than double-searching that finder.
+            if (isset($seenBaseUrls[$connection->baseUrlKey()])) {
+                continue;
+            }
+
+            $connections[]                           = $connection;
+            $seenBaseUrls[$connection->baseUrlKey()] = true;
         }
 
         return $connections;

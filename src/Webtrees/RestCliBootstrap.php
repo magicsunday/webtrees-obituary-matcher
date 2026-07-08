@@ -89,13 +89,20 @@ final class RestCliBootstrap
 
         // Key the ledger root on finder IDENTITY, not list position: the PRIMARY connection keeps the
         // unchanged base ledger root (so its existing in-flight jobs are never orphaned), and EVERY other
-        // (additional) finder gets an isolated sub-ledger keyed by a hash of its base URL. Resolving the
-        // primary base URL here (rather than assuming index 0 is the primary) keeps the mapping stable
-        // even when the primary is unset — then no finder claims the base root and every additional finder
-        // uses its own hash sub-root, so configuring a primary later cannot strand an additional's jobs.
-        // The identity key strips a trailing slash so a base URL configured `…/` matches its slashless
-        // form and the ledger sub-root stays stable across that trivial variation (the connection still
-        // carries the raw base URL for the actual request).
+        // (additional) finder gets an isolated sub-ledger keyed by a hash of its identity key. Resolving the
+        // primary identity here (rather than assuming index 0 is the primary) keeps the mapping stable even
+        // when the primary is unset — then no finder claims the base root and every additional finder uses
+        // its own hash sub-root, so configuring a NEW, DISTINCT primary URL later cannot strand an
+        // additional's jobs. The one transition this does NOT cover is PROMOTING an existing additional
+        // finder to primary (setting finder_base_url to a URL already active as an additional): that finder
+        // then moves from its hash sub-root to the base root, so any entries still in flight in the old
+        // sub-root are no longer polled and leak there — the match self-heals on the next enqueue (the
+        // candidate is still death-date-missing, so it is re-issued into the base root), but the orphaned
+        // ledger files are not reclaimed. Ledger migration on that transition is tracked as a follow-up for
+        // the config-management increment (§5.2f increment 2). The identity key strips a trailing slash via
+        // FinderConnection::baseUrlKey(), the same rule the dedup uses, so a base URL configured `…/` maps
+        // to the same sub-root as its slashless form (the connection still carries the raw base URL for the
+        // actual request).
         $primaryConnection = FinderConnectionResolver::fromConfig(
             $transport,
             $module->getPreference('finder_base_url', ''),
@@ -103,13 +110,13 @@ final class RestCliBootstrap
         );
 
         $primaryKey = $primaryConnection instanceof FinderConnection
-            ? rtrim($primaryConnection->baseUrl(), '/')
+            ? $primaryConnection->baseUrlKey()
             : null;
 
         $pairs = [];
 
         foreach ($connections as $connection) {
-            $identityKey = rtrim($connection->baseUrl(), '/');
+            $identityKey = $connection->baseUrlKey();
 
             $ledgerRoot = $identityKey === $primaryKey
                 ? $baseRoot
