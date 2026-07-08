@@ -13,7 +13,7 @@ declare(strict_types=1);
  * Headless CLI adapter that enqueues ONE bounded finder job for a single tree's death-date-missing
  * candidates. It is a THIN composition root: it boots the request-less webtrees runtime
  * ({@see HeadlessBootstrap}), logs in the system principal so every candidate is visible, wires the
- * REST producer object graph and hands the single enqueue decision to {@see EnqueueService::enqueue()}.
+ * REST producer object graph and hands the single enqueue decision to {@see \MagicSunday\ObituaryMatcher\Webtrees\EnqueueService::enqueue()}.
  * All domain logic lives in the injected services; this file only parses options, assembles the graph,
  * prints the one-line tally and maps the outcome to an exit code.
  *
@@ -44,7 +44,7 @@ declare(strict_types=1);
 
 use Fisharebest\Webtrees\I18N;
 use MagicSunday\ObituaryMatcher\Webtrees\CliModuleResolver;
-use MagicSunday\ObituaryMatcher\Webtrees\EnqueueService;
+use MagicSunday\ObituaryMatcher\Webtrees\EnqueueFanOutResult;
 use MagicSunday\ObituaryMatcher\Webtrees\EnqueueServiceFactory;
 use MagicSunday\ObituaryMatcher\Webtrees\FinderCliConfigurationException;
 use MagicSunday\ObituaryMatcher\Webtrees\HeadlessBootstrap;
@@ -135,7 +135,10 @@ try {
         exit(1);
     }
 
-    [$connection, $restPendingRoot] = RestCliBootstrap::resolve(
+    // §5.2f: resolve EVERY active finder (primary + additional) paired with its isolated ledger root, so
+    // one enqueue run fans the job out to all configured finders. A single-finder install yields exactly
+    // one pair, identical to before.
+    $finders = RestCliBootstrap::resolveAll(
         $module,
         $restPendingOption,
         dirname(__DIR__),
@@ -161,41 +164,52 @@ try {
 // configured language tag.
 $locale = I18N::languageTag();
 
-// Assemble the producer object graph over the connection and ledger root resolved above. The reference
-// year defaults to null (the current year) — it is a service-only seam with no CLI flag.
-$enqueueService = EnqueueServiceFactory::create($connection, $restPendingRoot);
+// Assemble a producer per finder over its own ledger root and enqueue against each, collecting the
+// per-finder summaries for aggregation. The reference year defaults to null (the current year) — a
+// service-only seam with no CLI flag. A single-finder install runs the loop exactly once.
+//
+// Per-finder fault isolation (§5.2f): one offline or misconfigured finder must NOT block the others.
+// A DomainException (unknown tree) is the SAME for every finder — a run-fatal misconfiguration handled
+// inline. Any OTHER Throwable is a per-finder fault: its detail is routed to the guarded log sink (never
+// echoed — the S46 lesson), the run is marked failed for the exit code, and the loop continues with the
+// remaining finders so a healthy finder still enqueues.
+$summaries        = [];
+$hadFinderFailure = false;
 
-try {
-    $summary = $enqueueService->enqueue($treeId, $limit, $minAge, $locale);
-} catch (DomainException) {
-    // An unknown/vanished tree id: a fixed error + non-zero exit (the tree binding is required).
-    fwrite(STDERR, sprintf('Unknown tree id: %d', $treeId) . PHP_EOL);
+foreach ($finders as [$connection, $restPendingRoot]) {
+    try {
+        $summaries[] = EnqueueServiceFactory::create($connection, $restPendingRoot)
+            ->enqueue($treeId, $limit, $minAge, $locale);
+    } catch (DomainException) {
+        // An unknown/vanished tree id (the same tree for every finder): a fixed error + non-zero exit.
+        fwrite(STDERR, sprintf('Unknown tree id: %d', $treeId) . PHP_EOL);
 
-    exit(1);
-} catch (Throwable $exception) {
-    // Any other producer failure — a transport RuntimeException, but ALSO any TypeError/Error/
-    // InvalidArgumentException (the last extends LogicException, not RuntimeException) that could
-    // otherwise escape to PHP's default uncaught-exception handler and print the full message + stack
-    // trace (with absolute paths) to STDERR/cron mail. Catch every Throwable, print a fixed category,
-    // and route the detail to the SAME guarded sink the bootstrap uses (error_log defaults to STDERR
-    // in CLI, so only log when a real sink is configured — the S46 lesson). DomainException (the
-    // operator's own numeric --tree) is handled above, safe to echo.
-    fwrite(STDERR, 'Enqueue failed.' . PHP_EOL);
-    HeadlessBootstrap::logCliError('enqueue', $exception);
+        exit(1);
+    } catch (Throwable $exception) {
+        // Any other producer failure — a transport RuntimeException, but ALSO any TypeError/Error/
+        // InvalidArgumentException — is isolated to this finder: log the detail to the guarded sink and
+        // continue, so a single finder's fault cannot abort the whole fan-out.
+        HeadlessBootstrap::logCliError('enqueue', $exception);
 
-    exit(1);
+        $hadFinderFailure = true;
+    }
 }
+
+$result = EnqueueFanOutResult::fromSummaries($summaries);
 
 fwrite(
     STDOUT,
     sprintf(
-        'enqueued=%s candidates=%d skipped_inflight=%d excluded_hosts=%d tree=%d',
-        $summary->jobId ?? 'none',
-        $summary->candidates,
-        $summary->skippedInflight,
-        $summary->excludedHosts,
+        'enqueued=%s candidates=%d skipped_inflight=%d excluded_hosts=%d suppressed=%d tree=%d',
+        $result->jobIds === [] ? 'none' : implode(',', $result->jobIds),
+        $result->candidates,
+        $result->skippedInflight,
+        $result->excludedHosts,
+        $result->suppressed,
         $treeId,
     ) . PHP_EOL,
 );
 
-exit(0);
+// A fault at ANY finder exits non-zero so cron/monitoring is alerted, while the successful finders'
+// aggregated tally is still reported above.
+exit($hadFinderFailure ? 1 : 0);

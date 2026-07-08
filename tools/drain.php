@@ -25,7 +25,9 @@ declare(strict_types=1);
  * the token strictly out of argv and logs — it lives only in the persisted preference and the outbound
  * Authorization header. `--rest-pending` is the in-flight ledger root directory (defaults to the running
  * instance's `data/obituary-matcher/rest-pending`, resolved relative to this module's install location).
- * `--limit` caps the number of done jobs processed this run (default 20). All are `=`-form long options.
+ * `--limit` caps the number of done jobs processed PER FINDER this run (default 20): with multiple
+ * finders configured, each finder's ledger is drained up to `--limit` done jobs, so a fan-out run can
+ * ingest up to `--limit × <finder count>` jobs total. All are `=`-form long options.
  *
  * Usage:
  *   php tools/drain.php [--tree=1] [--rest-pending=/path/to/rest-pending] [--limit=20]
@@ -40,6 +42,7 @@ declare(strict_types=1);
  */
 
 use MagicSunday\ObituaryMatcher\Webtrees\CliModuleResolver;
+use MagicSunday\ObituaryMatcher\Webtrees\DrainFanOutResult;
 use MagicSunday\ObituaryMatcher\Webtrees\DrainServiceFactory;
 use MagicSunday\ObituaryMatcher\Webtrees\FinderCliConfigurationException;
 use MagicSunday\ObituaryMatcher\Webtrees\HeadlessBootstrap;
@@ -123,7 +126,10 @@ try {
         exit(1);
     }
 
-    [$connection, $restPendingRoot] = RestCliBootstrap::resolve(
+    // §5.2f: resolve EVERY active finder (primary + additional) paired with its isolated ledger root, so
+    // one drain run polls and ingests every configured finder's completed jobs. A single-finder install
+    // yields exactly one pair, identical to before.
+    $finders = RestCliBootstrap::resolveAll(
         $module,
         $restPendingOption,
         dirname(__DIR__),
@@ -145,36 +151,46 @@ try {
     exit(1);
 }
 
-// Assemble the drain graph over the connection and ledger root resolved above via its composition root
-// (the per-job store is wired inside DrainService). The admin-editable scoring weights are read from the
-// module here so the drain scores with the operator's configured caps, not just the enriched defaults.
-$drainService = DrainServiceFactory::create($connection, $restPendingRoot, $module->scoreConfig());
+// Drain every finder's ledger via its own composition root (the per-job store is wired inside
+// DrainService), aggregating the per-finder tallies. The admin-editable scoring weights are read from the
+// module once so the drain scores with the operator's configured caps, not just the enriched defaults. A
+// single-finder install runs the loop exactly once. Cross-finder de-duplication is handled downstream by
+// the per-notice atomic store (last-writer-wins on the canonical URL key), not here.
+$scoreConfig = $module->scoreConfig();
 
-try {
-    $summary = $drainService->drain($onlyTreeId, $limit);
-} catch (Throwable $exception) {
-    // A DB/I-O fault DURING draining (TreeService::find / CandidateRepository::findByXrefs run webtrees
-    // queries OUTSIDE DrainService's inner try) would otherwise escape to PHP's default uncaught-exception
-    // handler and print the full message + stack trace (SQL text, connection name, absolute paths) to
-    // STDERR/cron mail. Catch every Throwable, print a fixed category, and route the detail to the SAME
-    // guarded sink the bootstrap uses (error_log defaults to STDERR in CLI, so it only logs when a real
-    // sink is configured — the S46 lesson). This mirrors the enqueue adapter's producer guard.
-    fwrite(STDERR, 'Drain failed.' . PHP_EOL);
-    HeadlessBootstrap::logCliError('drain', $exception);
+// Per-finder fault isolation (§5.2f): a DB/I-O fault while draining one finder (TreeService::find /
+// CandidateRepository::findByXrefs run webtrees queries OUTSIDE DrainService's inner try) must NOT block
+// the others. Catch every Throwable per finder, route the detail to the guarded log sink (never echoed —
+// SQL text / connection name / absolute paths would otherwise reach STDERR/cron mail, the S46 lesson),
+// mark the run failed for the exit code, and continue with the remaining finders.
+$summaries        = [];
+$hadFinderFailure = false;
 
-    exit(1);
+foreach ($finders as [$connection, $restPendingRoot]) {
+    try {
+        $summaries[] = DrainServiceFactory::create($connection, $restPendingRoot, $scoreConfig)
+            ->drain($onlyTreeId, $limit);
+    } catch (Throwable $exception) {
+        HeadlessBootstrap::logCliError('drain', $exception);
+
+        $hadFinderFailure = true;
+    }
 }
+
+$result = DrainFanOutResult::fromSummaries($summaries);
 
 fwrite(
     STDOUT,
     sprintf(
         'ingested=%d skipped=%d failed=%d stored=%d stale=%d',
-        $summary->ingested,
-        $summary->skipped,
-        $summary->failed,
-        $summary->stored,
-        $summary->stale,
+        $result->ingested,
+        $result->skipped,
+        $result->failed,
+        $result->stored,
+        $result->stale,
     ) . PHP_EOL,
 );
 
-exit($summary->failed > 0 ? 1 : 0);
+// A failure at ANY finder — a parked ingest OR a caught per-finder fault — exits non-zero so
+// cron/monitoring is alerted, while the successful finders' aggregated tally is still reported above.
+exit(($result->hasFailure() || $hadFinderFailure) ? 1 : 0);

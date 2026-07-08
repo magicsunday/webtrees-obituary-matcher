@@ -12,7 +12,14 @@ declare(strict_types=1);
 namespace MagicSunday\ObituaryMatcher\Support;
 
 use InvalidArgumentException;
+use JsonException;
 use SensitiveParameter;
+
+use function is_array;
+use function is_string;
+use function json_decode;
+
+use const JSON_THROW_ON_ERROR;
 
 /**
  * The single, webtrees-free source of truth for turning the three persisted finder-connection preferences
@@ -72,5 +79,130 @@ final class FinderConnectionResolver
         } catch (InvalidArgumentException) {
             return null;
         }
+    }
+
+    /**
+     * Resolves the full list of ACTIVE finder connections the matcher composes over (§5.2f): the primary
+     * connection ({@see self::fromConfig()}) followed by every active, valid ADDITIONAL finder decoded
+     * from the `finder_additional` preference. The list is empty unless the module-wide REST consent
+     * marker `finder_transport === 'rest'` is set — the same gate the single connection uses, so an
+     * additional finder can never transmit person data without that consent. Each additional entry is
+     * validated at the single {@see FinderConnection::rest()} source; an invalid or inactive entry is
+     * skipped (never fatal), so one malformed row cannot suppress the others. An additional finder whose
+     * base URL duplicates one already in the list (the primary or an earlier additional) is dropped, so
+     * each connection has a distinct base URL — the invariant the per-finder ledger namespacing relies on.
+     * A single-finder install yields exactly `[primary]`, identical to today.
+     *
+     * @param string $transport      The persisted `finder_transport` marker (only `'rest'` activates).
+     * @param string $baseUrl        The persisted primary `finder_base_url` value.
+     * @param string $token          The persisted primary `finder_token` value.
+     * @param string $additionalJson The persisted `finder_additional` value (a JSON list of additional
+     *                               finders), or an empty string when none are configured.
+     *
+     * @return list<FinderConnection> The active connections, primary first; empty when not configured.
+     */
+    public static function listFromConfig(
+        string $transport,
+        string $baseUrl,
+        #[SensitiveParameter]
+        string $token,
+        #[SensitiveParameter]
+        string $additionalJson,
+    ): array {
+        if ($transport !== 'rest') {
+            return [];
+        }
+
+        $connections  = [];
+        $seenBaseUrls = [];
+
+        $primary = self::fromConfig($transport, $baseUrl, $token);
+
+        if ($primary instanceof FinderConnection) {
+            $connections[]                        = $primary;
+            $seenBaseUrls[$primary->baseUrlKey()] = true;
+        }
+
+        foreach (self::decodeAdditional($additionalJson) as [$addBaseUrl, $addToken]) {
+            try {
+                $connection = FinderConnection::rest($addBaseUrl, $addToken === '' ? null : $addToken);
+            } catch (InvalidArgumentException) {
+                // A malformed additional finder is skipped, not fatal: the primary and the other valid
+                // additional finders still resolve (mirrors the null-on-rejection contract above).
+                continue;
+            }
+
+            // A duplicate base URL (the primary's or an earlier additional's) is skipped: each connection
+            // must have a distinct base URL so the per-finder ledger namespacing keyed on it stays unique.
+            // Both the set writes and this lookup key on FinderConnection::baseUrlKey(), so `https://f.example`
+            // and `https://f.example/` — the same endpoint — dedup rather than double-searching that finder.
+            if (isset($seenBaseUrls[$connection->baseUrlKey()])) {
+                continue;
+            }
+
+            $connections[]                           = $connection;
+            $seenBaseUrls[$connection->baseUrlKey()] = true;
+        }
+
+        return $connections;
+    }
+
+    /**
+     * Decodes the `finder_additional` preference into the ACTIVE additional finders as `[baseUrl, token]`
+     * pairs. Defensive: invalid JSON, a non-list document, a non-object row, an inactive row (its `active`
+     * flag is not exactly true), or a row without a string base URL is dropped rather than throwing, so a
+     * corrupt preference can never crash the enqueue/drain path.
+     *
+     * @param string $additionalJson The persisted `finder_additional` JSON, or an empty string.
+     *
+     * @return list<array{0: string, 1: string}> The active additional finders as `[baseUrl, token]`.
+     */
+    private static function decodeAdditional(
+        #[SensitiveParameter]
+        string $additionalJson,
+    ): array {
+        if ($additionalJson === '') {
+            return [];
+        }
+
+        try {
+            $decoded = json_decode($additionalJson, true, flags: JSON_THROW_ON_ERROR);
+        } catch (JsonException) {
+            return [];
+        }
+
+        if (!is_array($decoded)) {
+            return [];
+        }
+
+        $active = [];
+
+        foreach ($decoded as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+
+            // Strict identity to true: an inactive row, or a truthy-but-non-bool `active` (e.g. `1`), is
+            // NOT treated as active — the flag must be a real boolean true.
+            if (($row['active'] ?? null) !== true) {
+                continue;
+            }
+
+            $rowBaseUrl = $row['baseUrl'] ?? null;
+
+            if (!is_string($rowBaseUrl)) {
+                continue;
+            }
+
+            if ($rowBaseUrl === '') {
+                continue;
+            }
+
+            $rowToken = $row['token'] ?? null;
+
+            $active[] = [$rowBaseUrl, is_string($rowToken) ? $rowToken : ''];
+        }
+
+        return $active;
     }
 }
