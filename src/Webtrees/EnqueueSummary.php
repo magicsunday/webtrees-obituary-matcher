@@ -14,7 +14,8 @@ namespace MagicSunday\ObituaryMatcher\Webtrees;
 /**
  * The aggregated tally of one {@see EnqueueService::enqueue()} run: the enqueued job id (or null
  * when no candidate survived the filter), the number of candidates written into the request, the
- * number skipped by the in-flight dedup, and the total excluded-host entries emitted.
+ * number skipped by the in-flight dedup, the total excluded-host entries emitted, and the number
+ * suppressed by the negative-memory re-search policy (§5.2d).
  *
  * @author  Rico Sonntag <mail@ricosonntag.de>
  * @license https://opensource.org/licenses/GPL-3.0 GNU General Public License v3.0
@@ -32,12 +33,15 @@ final readonly class EnqueueSummary
      *                                     stops hydrating once --limit survivors are gathered, so this is
      *                                     a within-batch tally, not the whole-population in-flight total.
      * @param int         $excludedHosts   The total excluded-host entries across the job's candidates.
+     * @param int         $suppressed      The candidates skipped by the negative-memory re-search policy
+     *                                     (a fresh, same-signature genuine miss); 0 when overridden.
      */
     public function __construct(
         public ?string $jobId,
         public int $candidates,
         public int $skippedInflight,
         public int $excludedHosts,
+        public int $suppressed = 0,
     ) {
     }
 }

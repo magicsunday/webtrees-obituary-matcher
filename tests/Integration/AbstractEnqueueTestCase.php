@@ -17,8 +17,10 @@ use Fisharebest\Webtrees\Services\TreeService;
 use Fisharebest\Webtrees\Tree;
 use MagicSunday\ObituaryMatcher\Domain\ClassifiedMatch;
 use MagicSunday\ObituaryMatcher\Matching\FileMatchStore;
+use MagicSunday\ObituaryMatcher\Matching\FileNegativeMemoryStore;
 use MagicSunday\ObituaryMatcher\Matching\MatchStatus;
 use MagicSunday\ObituaryMatcher\Matching\MatchStore;
+use MagicSunday\ObituaryMatcher\Matching\NegativeMemoryStore;
 use MagicSunday\ObituaryMatcher\Matching\StoredMatch;
 use MagicSunday\ObituaryMatcher\Matching\StoredMatchKey;
 use MagicSunday\ObituaryMatcher\Queue\AtomicFile;
@@ -48,6 +50,11 @@ use function hash;
  */
 abstract class AbstractEnqueueTestCase extends AbstractStoreTestCase
 {
+    /**
+     * The fixed instant the enqueue double's clock is pinned to (see the anonymous class' now()).
+     */
+    protected const string PINNED_NOW = '2026-06-23T10:15:30+00:00';
+
     /**
      * @var RecordingJobTransport The transport the last enqueueService() build was wired to, so a
      *                            scenario can read the submitted request back after the run.
@@ -131,6 +138,18 @@ abstract class AbstractEnqueueTestCase extends AbstractStoreTestCase
             }
 
             /**
+             * Redirect the per-tree negative-memory store to an isolated directory under the test root.
+             *
+             * @param Tree $tree The tree whose negative-memory store is requested.
+             *
+             * @return NegativeMemoryStore The isolated, tree-scoped negative-memory store.
+             */
+            protected function negativeMemoryStoreForTree(Tree $tree): NegativeMemoryStore
+            {
+                return new FileNegativeMemoryStore(MatchStoreFactory::pathForTree($this->storeRoot . '/negative-memory', $tree));
+            }
+
+            /**
              * Pin the clock so the minted jobId and the createdAt stamp are deterministic.
              *
              * @return DateTimeImmutable The fixed instant.
@@ -140,6 +159,19 @@ abstract class AbstractEnqueueTestCase extends AbstractStoreTestCase
                 return new DateTimeImmutable('2026-06-23T10:15:30+00:00');
             }
         };
+    }
+
+    /**
+     * The tree-scoped negative-memory store the enqueue double consults, read through the same layout,
+     * so a test can seed a recorded genuine miss the re-search policy then acts on.
+     *
+     * @param Tree $tree The tree whose negative-memory store is read.
+     *
+     * @return NegativeMemoryStore The isolated, tree-scoped negative-memory store.
+     */
+    protected function negativeMemoryStoreFor(Tree $tree): NegativeMemoryStore
+    {
+        return new FileNegativeMemoryStore(MatchStoreFactory::pathForTree($this->storeRoot . '/negative-memory', $tree));
     }
 
     /**

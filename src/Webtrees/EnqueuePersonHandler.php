@@ -100,6 +100,10 @@ class EnqueuePersonHandler implements RequestHandlerInterface
             return redirect($individualUrl);
         }
 
+        // A manager's explicit "search again" bypasses the negative-memory re-search policy (§5.2d): a
+        // person recorded as a recent genuine miss is re-enqueued anyway. Absent the flag the policy holds.
+        $override = Validator::parsedBody($request)->boolean('override', false);
+
         // The individual must exist and be visible to the principal (privacy gate) before we enqueue it.
         $individual = Registry::individualFactory()->make($xref, $tree);
         Auth::checkIndividualAccess($individual, false, false);
@@ -125,6 +129,7 @@ class EnqueuePersonHandler implements RequestHandlerInterface
                 $tree->id(),
                 $xref,
                 I18N::languageTag(),
+                $override,
             );
         } catch (Throwable $throwable) {
             // Any enqueue failure (transport, a vanished tree) flashes + redirects — the handler contract
@@ -141,6 +146,11 @@ class EnqueuePersonHandler implements RequestHandlerInterface
 
         if ($summary->jobId !== null) {
             FlashMessages::addMessage(I18N::translate('Search job queued (%s).', $summary->jobId), 'success');
+        } elseif ($summary->suppressed > 0) {
+            FlashMessages::addMessage(
+                I18N::translate('This person was recently searched and nothing was found, so the search was not repeated. Use “Search again” to search now anyway.'),
+                'info',
+            );
         } else {
             FlashMessages::addMessage(
                 I18N::translate('That person could not be queued: unknown, unsearchable, or already awaiting results.'),

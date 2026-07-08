@@ -11,11 +11,14 @@ declare(strict_types=1);
 
 namespace MagicSunday\ObituaryMatcher\Test\Integration;
 
+use DateTimeImmutable;
 use Fisharebest\Webtrees\Auth;
 use Fisharebest\Webtrees\Individual;
 use Fisharebest\Webtrees\Registry;
 use Fisharebest\Webtrees\Tree;
 use MagicSunday\ObituaryMatcher\Domain\CoverageStatus;
+use MagicSunday\ObituaryMatcher\Domain\NegativeMemoryEntry;
+use MagicSunday\ObituaryMatcher\Domain\PortalCoverage;
 use MagicSunday\ObituaryMatcher\Matching\FileCoverageStore;
 use MagicSunday\ObituaryMatcher\Matching\FileMatchStore;
 use MagicSunday\ObituaryMatcher\Matching\IngestService;
@@ -55,8 +58,15 @@ use RuntimeException;
 #[UsesClass(MatchStoreFactory::class)]
 #[UsesClass(\MagicSunday\ObituaryMatcher\Webtrees\CoverageStoreFactory::class)]
 #[UsesClass(FileCoverageStore::class)]
-#[UsesClass(\MagicSunday\ObituaryMatcher\Domain\PortalCoverage::class)]
+#[UsesClass(PortalCoverage::class)]
 #[UsesClass(CoverageStatus::class)]
+#[UsesClass(\MagicSunday\ObituaryMatcher\Domain\SearchOutcome::class)]
+#[UsesClass(\MagicSunday\ObituaryMatcher\Domain\SearchSignature::class)]
+#[UsesClass(NegativeMemoryEntry::class)]
+#[UsesClass(\MagicSunday\ObituaryMatcher\Support\SearchSignatureFactory::class)]
+#[UsesClass(\MagicSunday\ObituaryMatcher\Support\Normalizer::class)]
+#[UsesClass(\MagicSunday\ObituaryMatcher\Matching\FileNegativeMemoryStore::class)]
+#[UsesClass(\MagicSunday\ObituaryMatcher\Webtrees\NegativeMemoryStoreFactory::class)]
 #[UsesClass(\MagicSunday\ObituaryMatcher\Webtrees\PersonCandidateAdapter::class)]
 #[UsesClass(\MagicSunday\ObituaryMatcher\Webtrees\WebtreesDateMapper::class)]
 #[UsesClass(IngestService::class)]
@@ -110,6 +120,55 @@ final class DrainServiceTest extends AbstractDrainTestCase
         self::assertCount(1, $coverage);
         self::assertSame('trauer_anzeigen', $coverage[0]->portal);
         self::assertSame(CoverageStatus::Ok, $coverage[0]->status);
+    }
+
+    /**
+     * A genuine miss (every portal searched OK, zero notices found) records a negative memory for the
+     * person, timestamped by the drain's clock — the §5.2d signal a later enqueue reads to suppress a
+     * pointless re-search.
+     *
+     * @return void
+     */
+    #[Test]
+    public function theDrainRecordsANegativeMemoryForAGenuineMiss(): void
+    {
+        $tree      = $this->ottoTree('fixture-negmem');
+        $transport = new RecordingJobTransport([
+            $this->completedJobWithCoverage('job-001', $tree->id(), 'I1', [
+                new PortalCoverage('trauer_anzeigen', CoverageStatus::Ok, 0, null),
+            ]),
+        ]);
+
+        $this->drainService($transport)->drain(null, 20);
+
+        $memory = $this->negativeMemoryStoreFor($tree)->find('I1');
+
+        self::assertInstanceOf(NegativeMemoryEntry::class, $memory);
+        self::assertSame(
+            (new DateTimeImmutable(self::PINNED_NOW))->getTimestamp(),
+            $memory->recordedAt,
+        );
+    }
+
+    /**
+     * A portal outage (a failed portal, zero notices) is NOT a confirmed miss, so no negative memory is
+     * recorded: the person stays eligible for a retry rather than being suppressed.
+     *
+     * @return void
+     */
+    #[Test]
+    public function theDrainDoesNotRecordANegativeMemoryForAPortalOutage(): void
+    {
+        $tree      = $this->ottoTree('fixture-negmem-outage');
+        $transport = new RecordingJobTransport([
+            $this->completedJobWithCoverage('job-001', $tree->id(), 'I1', [
+                new PortalCoverage('trauer_anzeigen', CoverageStatus::Failed, null, 'timeout'),
+            ]),
+        ]);
+
+        $this->drainService($transport)->drain(null, 20);
+
+        self::assertNull($this->negativeMemoryStoreFor($tree)->find('I1'));
     }
 
     /**

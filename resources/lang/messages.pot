@@ -117,7 +117,7 @@ msgstr ""
 msgid "Child"
 msgstr ""
 
-#: src/Webtrees/EnqueuePersonHandler.php:110
+#: src/Webtrees/EnqueuePersonHandler.php:114
 #: src/Webtrees/ObituaryControlPanelHandler.php:513
 msgid "Configure the finder connection first."
 msgstr ""
@@ -473,16 +473,20 @@ msgstr ""
 msgid "Scoring weights"
 msgstr ""
 
+#: resources/views/tab.phtml:65
+msgid "Search again"
+msgstr ""
+
 #: resources/views/control-panel.phtml:186 resources/views/tab.phtml:63
 msgid "Search for death notices"
 msgstr ""
 
-#: src/Webtrees/EnqueuePersonHandler.php:137
+#: src/Webtrees/EnqueuePersonHandler.php:142
 #: src/Webtrees/ObituaryControlPanelHandler.php:545
 msgid "Search job could not be queued."
 msgstr ""
 
-#: src/Webtrees/EnqueuePersonHandler.php:143
+#: src/Webtrees/EnqueuePersonHandler.php:148
 #: src/Webtrees/ObituaryControlPanelHandler.php:551
 #, php-format
 msgid "Search job queued (%s)."
@@ -558,7 +562,7 @@ msgstr ""
 msgid "Test connection"
 msgstr ""
 
-#: src/Webtrees/EnqueuePersonHandler.php:146
+#: src/Webtrees/EnqueuePersonHandler.php:156
 msgid ""
 "That person could not be queued: unknown, unsearchable, or already awaiting "
 "results."
@@ -590,7 +594,7 @@ msgstr ""
 msgid "The finder is reachable."
 msgstr ""
 
-#: src/Webtrees/EnqueuePersonHandler.php:118
+#: src/Webtrees/EnqueuePersonHandler.php:122
 #: src/Webtrees/ObituaryControlPanelHandler.php:521
 msgid "The finder storage location is unavailable."
 msgstr ""
@@ -653,6 +657,12 @@ msgstr ""
 #: src/Webtrees/ReviewScreenHandler.php:345
 #: src/Webtrees/ReviewScreenHandler.php:358
 msgid "This match was already finalised by someone else."
+msgstr ""
+
+#: src/Webtrees/EnqueuePersonHandler.php:151
+msgid ""
+"This person was recently searched and nothing was found, so the search was "
+"not repeated. Use “Search again” to search now anyway."
 msgstr ""
 
 #: resources/views/worklist.phtml:96

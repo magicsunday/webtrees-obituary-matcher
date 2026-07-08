@@ -61,6 +61,8 @@ $statusLabels = [
               action="<?= e(route(EnqueuePersonHandler::ROUTE_NAME, ['tree' => $individual->tree()->name(), 'xref' => $individual->xref()])) ?>">
             <?= csrf_field() ?>
             <button type="submit"><?= e(I18N::translate('Search for death notices')) ?></button>
+            <?php // §5.2d override: forces a re-search even when a recent genuine miss would suppress it. ?>
+            <button type="submit" name="override" value="1"><?= e(I18N::translate('Search again')) ?></button>
         </form>
     <?php endif ?>
 </div>
