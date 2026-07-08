@@ -64,8 +64,10 @@ final readonly class IngestService
      *                                                               ingest, keyed by person id (the
      *                                                               strict job-ownership boundary was
      *                                                               enforced by the validator).
-     * @param array<string, list<PortalCoverage>>    $coverage       The per-portal coverage, keyed by
-     *                                                               person id. A `failed` portal means the
+     * @param array<array-key, list<PortalCoverage>> $coverage       The per-portal coverage, keyed by
+     *                                                               person id (array-key, not string: PHP
+     *                                                               coerces a purely-numeric XREF key back
+     *                                                               to int). A `failed` portal means the
      *                                                               person's silence there is NOT a
      *                                                               confirmed miss, surfaced as a warning.
      * @param array<string, PersonCandidate>         $candidatesById The candidates the module currently

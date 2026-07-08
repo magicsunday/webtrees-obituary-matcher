@@ -15,6 +15,8 @@ use Fisharebest\Webtrees\Auth;
 use Fisharebest\Webtrees\Individual;
 use Fisharebest\Webtrees\Registry;
 use Fisharebest\Webtrees\Tree;
+use MagicSunday\ObituaryMatcher\Domain\CoverageStatus;
+use MagicSunday\ObituaryMatcher\Matching\FileCoverageStore;
 use MagicSunday\ObituaryMatcher\Matching\FileMatchStore;
 use MagicSunday\ObituaryMatcher\Matching\IngestService;
 use MagicSunday\ObituaryMatcher\Matching\MatchStore;
@@ -51,6 +53,10 @@ use RuntimeException;
 #[UsesClass(\MagicSunday\ObituaryMatcher\Webtrees\DrainOutcome::class)]
 #[UsesClass(CandidateRepository::class)]
 #[UsesClass(MatchStoreFactory::class)]
+#[UsesClass(\MagicSunday\ObituaryMatcher\Webtrees\CoverageStoreFactory::class)]
+#[UsesClass(FileCoverageStore::class)]
+#[UsesClass(\MagicSunday\ObituaryMatcher\Domain\PortalCoverage::class)]
+#[UsesClass(CoverageStatus::class)]
 #[UsesClass(\MagicSunday\ObituaryMatcher\Webtrees\PersonCandidateAdapter::class)]
 #[UsesClass(\MagicSunday\ObituaryMatcher\Webtrees\WebtreesDateMapper::class)]
 #[UsesClass(IngestService::class)]
@@ -82,6 +88,28 @@ final class DrainServiceTest extends AbstractDrainTestCase
             'job-001',
             $transport,
         );
+    }
+
+    /**
+     * The drain persists each requested person's per-portal coverage to the coverage store, so a later
+     * render can tell a genuine miss from a portal outage. The completed job carries the all-ok coverage
+     * the harness synthesises for I1.
+     *
+     * @return void
+     */
+    #[Test]
+    public function theDrainRecordsEachRequestedPersonsCoverage(): void
+    {
+        $tree      = $this->ottoTree('fixture-coverage');
+        $transport = new RecordingJobTransport([$this->completedJob('job-001', $tree->id(), 'I1', 'Otto Searchable')]);
+
+        $this->drainService($transport)->drain(null, 20);
+
+        $coverage = $this->coverageStoreFor($tree)->findByPerson('I1');
+
+        self::assertCount(1, $coverage);
+        self::assertSame('trauer_anzeigen', $coverage[0]->portal);
+        self::assertSame(CoverageStatus::Ok, $coverage[0]->status);
     }
 
     /**

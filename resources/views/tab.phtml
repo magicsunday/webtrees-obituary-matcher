@@ -5,12 +5,14 @@ declare(strict_types=1);
 use Fisharebest\Webtrees\Auth;
 use Fisharebest\Webtrees\I18N;
 use Fisharebest\Webtrees\Individual;
+use MagicSunday\ObituaryMatcher\Domain\SearchOutcome;
 use MagicSunday\ObituaryMatcher\Ui\SuggestionViewModel;
 use MagicSunday\ObituaryMatcher\Webtrees\EnqueuePersonHandler;
 use MagicSunday\ObituaryMatcher\Webtrees\ReviewScreenHandler;
 
 /** @var Individual $individual */
 /** @var list<SuggestionViewModel> $suggestions */
+/** @var SearchOutcome $searchOutcome */
 
 $bandLabels = [
     'strong'   => I18N::translate('Strong match'),
@@ -34,6 +36,9 @@ $statusLabels = [
 ];
 ?>
 <div class="wt-obituary-matcher-tab">
+    <?php if ($searchOutcome === SearchOutcome::PortalFailed) : ?>
+        <p class="om-coverage-warning" role="status"><?= e(I18N::translate('Some sources were unavailable during the last search, so this result may be incomplete. Try searching again later.')) ?></p>
+    <?php endif ?>
     <p class="om-count"><?= e(I18N::plural('%s open suggestion', '%s open suggestions', count($suggestions), I18N::number(count($suggestions)))) ?></p>
     <?php foreach ($suggestions as $s) : ?>
         <div class="om-suggestion om-band-<?= e($s->bandKey) ?>">

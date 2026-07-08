@@ -11,6 +11,7 @@ declare(strict_types=1);
 
 namespace MagicSunday\ObituaryMatcher\Test\Integration;
 
+use MagicSunday\ObituaryMatcher\Matching\FileCoverageStore;
 use MagicSunday\ObituaryMatcher\Matching\FileMatchStore;
 use MagicSunday\ObituaryMatcher\Matching\MatchStatus;
 use MagicSunday\ObituaryMatcher\Matching\StoredMatch;
@@ -45,6 +46,7 @@ use function unlink;
  */
 #[CoversClass(SuggestionTabPresenter::class)]
 #[UsesClass(FileMatchStore::class)]
+#[UsesClass(FileCoverageStore::class)]
 #[UsesClass(SuggestionViewModel::class)]
 #[UsesClass(StoredMatch::class)]
 #[UsesClass(MatchStatus::class)]
@@ -114,7 +116,7 @@ final class ObituaryTabIntegrationTest extends TestCase
         file_put_contents($dir . '/bad.json', '{ not json');
         MatchSeeder::seed(new FileMatchStore($dir), 'I1', MatchStatus::Pending, 'strong', '2023-09-04');
 
-        self::assertCount(1, (new SuggestionTabPresenter(new FileMatchStore($dir)))->suggestionsFor('I1'));
+        self::assertCount(1, (new SuggestionTabPresenter(new FileMatchStore($dir), new FileCoverageStore($dir . '/coverage')))->suggestionsFor('I1'));
     }
 
     /**
@@ -131,6 +133,6 @@ final class ObituaryTabIntegrationTest extends TestCase
         $this->dir = $base;
         MatchSeeder::seed(new FileMatchStore($base . '/tree-1'), 'I1', MatchStatus::Pending, 'strong', '2023-01-01');
 
-        self::assertFalse((new SuggestionTabPresenter(new FileMatchStore($base . '/tree-2')))->hasContent('I1'));
+        self::assertFalse((new SuggestionTabPresenter(new FileMatchStore($base . '/tree-2'), new FileCoverageStore($base . '/tree-2/coverage')))->hasContent('I1'));
     }
 }

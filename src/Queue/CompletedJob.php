@@ -31,7 +31,7 @@ final readonly class CompletedJob
      * @param int                                    $treeId             The webtrees tree the job belongs to.
      * @param list<string>                           $requestedPersonIds The person ids the job requested.
      * @param array<string, list<DeathNoticeRecord>> $notices            The validated notices, keyed by requested person id.
-     * @param array<string, list<PortalCoverage>>    $coverage           The per-portal coverage, keyed by requested person id.
+     * @param array<array-key, list<PortalCoverage>> $coverage           The per-portal coverage, keyed by requested person id (array-key, not string: PHP coerces a purely-numeric XREF key back to int).
      */
     public function __construct(
         public string $jobId,

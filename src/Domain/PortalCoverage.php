@@ -11,6 +11,9 @@ declare(strict_types=1);
 
 namespace MagicSunday\ObituaryMatcher\Domain;
 
+use function is_int;
+use function is_string;
+
 /**
  * One portal's coverage of one person in a finder response: which portal, whether it was searched
  * ({@see CoverageStatus}), how many notices it returned when searched, and an optional human-readable
@@ -38,5 +41,54 @@ final readonly class PortalCoverage
         public ?int $noticeCount,
         public ?string $message,
     ) {
+    }
+
+    /**
+     * Serialises this coverage entry to a plain array for the coverage store.
+     *
+     * @return array{portal: string, status: string, noticeCount: int|null, message: string|null} The row.
+     */
+    public function toArray(): array
+    {
+        return [
+            'portal'      => $this->portal,
+            'status'      => $this->status->value,
+            'noticeCount' => $this->noticeCount,
+            'message'     => $this->message,
+        ];
+    }
+
+    /**
+     * Rebuilds a coverage entry from a stored row, returning null when the row is corrupt (a missing or
+     * unknown portal/status) — this reads the store's OWN persisted format, so it is a defensive read
+     * rather than the strict untrusted-input narrowing the validator applies to a finder response.
+     *
+     * @param array<int|string, mixed> $row The stored row.
+     *
+     * @return self|null The coverage entry, or null when the row cannot be rebuilt.
+     */
+    public static function fromArray(array $row): ?self
+    {
+        $portal    = $row['portal'] ?? null;
+        $statusRaw = $row['status'] ?? null;
+        $status    = is_string($statusRaw) ? CoverageStatus::tryFrom($statusRaw) : null;
+
+        if (
+            !is_string($portal)
+            || ($portal === '')
+            || ($status === null)
+        ) {
+            return null;
+        }
+
+        $noticeCount = $row['noticeCount'] ?? null;
+        $message     = $row['message'] ?? null;
+
+        return new self(
+            $portal,
+            $status,
+            is_int($noticeCount) ? $noticeCount : null,
+            is_string($message) ? $message : null,
+        );
     }
 }

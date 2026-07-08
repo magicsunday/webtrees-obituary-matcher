@@ -11,6 +11,10 @@ declare(strict_types=1);
 
 namespace MagicSunday\ObituaryMatcher\Test\Ui;
 
+use MagicSunday\ObituaryMatcher\Domain\CoverageStatus;
+use MagicSunday\ObituaryMatcher\Domain\PortalCoverage;
+use MagicSunday\ObituaryMatcher\Domain\SearchOutcome;
+use MagicSunday\ObituaryMatcher\Matching\CoverageStore;
 use MagicSunday\ObituaryMatcher\Matching\MatchStatus;
 use MagicSunday\ObituaryMatcher\Matching\MatchStore;
 use MagicSunday\ObituaryMatcher\Matching\StoredMatch;
@@ -37,6 +41,8 @@ use function array_values;
 #[UsesClass(SuggestionViewModel::class)]
 #[UsesClass(StoredMatch::class)]
 #[UsesClass(MatchStatus::class)]
+#[UsesClass(SearchOutcome::class)]
+#[UsesClass(PortalCoverage::class)]
 final class SuggestionTabPresenterTest extends TestCase
 {
     /**
@@ -175,6 +181,52 @@ final class SuggestionTabPresenterTest extends TestCase
     }
 
     /**
+     * Builds an in-memory coverage store fake returning the given per-person coverage.
+     *
+     * @param array<string, list<PortalCoverage>> $byPerson The coverage keyed by person XREF.
+     *
+     * @return CoverageStore The in-memory coverage store fake.
+     */
+    private function coverage(array $byPerson = []): CoverageStore
+    {
+        return new class($byPerson) implements CoverageStore {
+            /**
+             * Constructor.
+             *
+             * @param array<string, list<PortalCoverage>> $byPerson The coverage keyed by person XREF.
+             */
+            public function __construct(private array $byPerson)
+            {
+            }
+
+            /**
+             * Records the per-portal coverage for a person (no-op read model in this fake).
+             *
+             * @param string               $personId The requested person the coverage belongs to.
+             * @param list<PortalCoverage> $coverage The per-portal coverage for that person.
+             *
+             * @return void
+             */
+            public function record(string $personId, array $coverage): void
+            {
+                $this->byPerson[$personId] = $coverage;
+            }
+
+            /**
+             * Returns the recorded per-portal coverage for a person, or an empty list when none.
+             *
+             * @param string $personId The person whose coverage is read.
+             *
+             * @return list<PortalCoverage> The recorded coverage.
+             */
+            public function findByPerson(string $personId): array
+            {
+                return $this->byPerson[$personId] ?? [];
+            }
+        };
+    }
+
+    /**
      * Builds a stored match for the given candidate and status.
      *
      * @param string      $xref   The candidate identifier.
@@ -208,7 +260,7 @@ final class SuggestionTabPresenterTest extends TestCase
     public function hasContentTrueForNonTerminal(): void
     {
         self::assertTrue(
-            (new SuggestionTabPresenter($this->store([$this->row('I1', MatchStatus::Pending)])))->hasContent('I1')
+            (new SuggestionTabPresenter($this->store([$this->row('I1', MatchStatus::Pending)]), $this->coverage()))->hasContent('I1')
         );
     }
 
@@ -221,10 +273,10 @@ final class SuggestionTabPresenterTest extends TestCase
     public function hasContentFalseForTerminalOnlyAndEmpty(): void
     {
         self::assertFalse(
-            (new SuggestionTabPresenter($this->store([$this->row('I1', MatchStatus::Confirmed)])))->hasContent('I1')
+            (new SuggestionTabPresenter($this->store([$this->row('I1', MatchStatus::Confirmed)]), $this->coverage()))->hasContent('I1')
         );
         self::assertFalse(
-            (new SuggestionTabPresenter($this->store([])))->hasContent('I9')
+            (new SuggestionTabPresenter($this->store([]), $this->coverage()))->hasContent('I9')
         );
     }
 
@@ -236,7 +288,7 @@ final class SuggestionTabPresenterTest extends TestCase
     #[Test]
     public function suggestionsForReturnsViewModels(): void
     {
-        $vms = (new SuggestionTabPresenter($this->store([$this->row('I1', MatchStatus::Uncertain)])))->suggestionsFor('I1');
+        $vms = (new SuggestionTabPresenter($this->store([$this->row('I1', MatchStatus::Uncertain)]), $this->coverage()))->suggestionsFor('I1');
 
         self::assertCount(1, $vms);
         self::assertSame('uncertain', $vms[0]->statusKey);
@@ -386,7 +438,7 @@ final class SuggestionTabPresenterTest extends TestCase
             }
         };
 
-        $presenter = new SuggestionTabPresenter($store);
+        $presenter = new SuggestionTabPresenter($store, $this->coverage());
 
         $presenter->hasContent('I1');
         $presenter->suggestionsFor('I1');
@@ -524,12 +576,52 @@ final class SuggestionTabPresenterTest extends TestCase
             }
         };
 
-        $presenter = new SuggestionTabPresenter($store);
+        $presenter = new SuggestionTabPresenter($store, $this->coverage());
 
         $presenter->hasContent('I9');
         $presenter->suggestionsFor('I9');
         $presenter->hasContent('I9');
 
         self::assertSame(1, $store->calls);
+    }
+
+    /**
+     * With no open suggestions but a portal outage on the last search, the tab reports content: the
+     * incomplete result must be surfaced rather than read as a clean miss.
+     *
+     * @return void
+     */
+    #[Test]
+    public function hasContentTrueForPortalOutageWithoutSuggestions(): void
+    {
+        $presenter = new SuggestionTabPresenter(
+            $this->store([]),
+            $this->coverage([
+                'I1' => [new PortalCoverage('a', CoverageStatus::Failed, null, null)],
+            ]),
+        );
+
+        self::assertTrue($presenter->hasContent('I1'));
+        self::assertSame(SearchOutcome::PortalFailed, $presenter->searchOutcome('I1'));
+    }
+
+    /**
+     * A clean search that found nothing classifies as NoNotices and — with no open suggestions — stays
+     * hidden (a genuine miss does not open the tab).
+     *
+     * @return void
+     */
+    #[Test]
+    public function noNoticesOutcomeStaysHidden(): void
+    {
+        $presenter = new SuggestionTabPresenter(
+            $this->store([]),
+            $this->coverage([
+                'I1' => [new PortalCoverage('a', CoverageStatus::Ok, 0, null)],
+            ]),
+        );
+
+        self::assertFalse($presenter->hasContent('I1'));
+        self::assertSame(SearchOutcome::NoNotices, $presenter->searchOutcome('I1'));
     }
 }

@@ -338,11 +338,13 @@ class ObituaryMatcherModule extends AbstractModule implements ModuleConfigInterf
     #[Override]
     public function getTabContent(Individual $individual): string
     {
-        $suggestions = $this->presenterForTree($individual->tree())->suggestionsFor($individual->xref());
+        $presenter   = $this->presenterForTree($individual->tree());
+        $suggestions = $presenter->suggestionsFor($individual->xref());
 
         return view($this->name() . '::tab', [
-            'individual'  => $individual,
-            'suggestions' => $suggestions,
+            'individual'    => $individual,
+            'suggestions'   => $suggestions,
+            'searchOutcome' => $presenter->searchOutcome($individual->xref()),
         ]);
     }
 
@@ -356,6 +358,9 @@ class ObituaryMatcherModule extends AbstractModule implements ModuleConfigInterf
      */
     protected function presenterForTree(Tree $tree): SuggestionTabPresenter
     {
-        return $this->presenters[$tree->id()] ??= new SuggestionTabPresenter(MatchStoreFactory::forTree($tree));
+        return $this->presenters[$tree->id()] ??= new SuggestionTabPresenter(
+            MatchStoreFactory::forTree($tree),
+            CoverageStoreFactory::forTree($tree),
+        );
     }
 }

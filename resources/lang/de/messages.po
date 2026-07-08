@@ -37,7 +37,7 @@ msgid_plural "%s matches rejected."
 msgstr[0] "%s Treffer abgelehnt."
 msgstr[1] "%s Treffer abgelehnt."
 
-#: resources/views/tab.phtml:37
+#: resources/views/tab.phtml:42
 #, php-format
 msgid "%s open suggestion"
 msgid_plural "%s open suggestions"
@@ -79,7 +79,7 @@ msgstr "Alle"
 msgid "Ambiguity gap"
 msgstr "Mehrdeutigkeitsabstand"
 
-#: resources/views/review.phtml:85 resources/views/tab.phtml:45
+#: resources/views/review.phtml:85 resources/views/tab.phtml:50
 #: resources/views/worklist.phtml:50
 msgid "Ambiguous"
 msgstr "Mehrdeutig"
@@ -211,7 +211,7 @@ msgid "HTTP status: %s"
 msgstr "HTTP-Status: %s"
 
 #: resources/views/review.phtml:72 resources/views/review.phtml:84
-#: resources/views/tab.phtml:44
+#: resources/views/tab.phtml:49
 msgid "Hard conflict"
 msgstr "Harter Konflikt"
 
@@ -286,7 +286,7 @@ msgstr "Im Stammbaum sind keine Angehörigen erfasst."
 msgid "No finder jobs are currently open."
 msgstr "Derzeit sind keine Finder-Aufträge offen."
 
-#: resources/views/review.phtml:22 resources/views/tab.phtml:20
+#: resources/views/review.phtml:22 resources/views/tab.phtml:22
 #: resources/views/worklist.phtml:21
 msgid "No match"
 msgstr "Kein Treffer"
@@ -352,7 +352,7 @@ msgstr "Seitennavigation"
 msgid "Parent"
 msgstr "Elternteil"
 
-#: resources/views/review.phtml:26 resources/views/tab.phtml:32
+#: resources/views/review.phtml:26 resources/views/tab.phtml:34
 #: resources/views/worklist.phtml:33
 msgid "Pending"
 msgstr "Ausstehend"
@@ -381,7 +381,7 @@ msgstr "Portal"
 msgid "Possible"
 msgstr "Möglich"
 
-#: resources/views/review.phtml:20 resources/views/tab.phtml:18
+#: resources/views/review.phtml:20 resources/views/tab.phtml:20
 #: resources/views/worklist.phtml:19
 msgid "Possible match"
 msgstr "Möglicher Treffer"
@@ -398,7 +398,7 @@ msgstr "Vorschau: Wer würde durchsucht?"
 msgid "Probable"
 msgstr "Wahrscheinlich"
 
-#: resources/views/review.phtml:19 resources/views/tab.phtml:17
+#: resources/views/review.phtml:19 resources/views/tab.phtml:19
 #: resources/views/worklist.phtml:18
 msgid "Probable match"
 msgstr "Wahrscheinlicher Treffer"
@@ -453,7 +453,7 @@ msgstr ""
 "entfernt. Zum Übergehen das Kommandozeilen-Werkzeug zum Zurücknehmen mit --"
 "force verwenden."
 
-#: resources/views/tab.phtml:50 resources/views/worklist.phtml:162
+#: resources/views/tab.phtml:55 resources/views/worklist.phtml:162
 #: resources/views/worklist.phtml:193
 msgid "Review"
 msgstr "Prüfen"
@@ -479,7 +479,7 @@ msgstr "Bewertung"
 msgid "Scoring weights"
 msgstr "Bewertungsgewichte"
 
-#: resources/views/control-panel.phtml:186 resources/views/tab.phtml:58
+#: resources/views/control-panel.phtml:186 resources/views/tab.phtml:63
 msgid "Search for death notices"
 msgstr "Nach Traueranzeigen suchen"
 
@@ -521,6 +521,15 @@ msgstr "Geschwister"
 msgid "Soft conflict"
 msgstr "Weicher Konflikt"
 
+#: resources/views/tab.phtml:40
+msgid ""
+"Some sources were unavailable during the last search, so this result may be "
+"incomplete. Try searching again later."
+msgstr ""
+"Bei der letzten Suche waren einige Quellen nicht erreichbar. Das Ergebnis "
+"ist deshalb möglicherweise unvollständig. Versuchen Sie es später noch "
+"einmal."
+
 #: resources/views/worklist.phtml:131
 msgid "Sort by"
 msgstr "Sortieren nach"
@@ -545,7 +554,7 @@ msgstr "Status"
 msgid "Strong"
 msgstr "Sicher"
 
-#: resources/views/review.phtml:18 resources/views/tab.phtml:16
+#: resources/views/review.phtml:18 resources/views/tab.phtml:18
 #: resources/views/worklist.phtml:17
 msgid "Strong match"
 msgstr "Sicherer Treffer"
@@ -677,7 +686,7 @@ msgid "Tree person"
 msgstr "Person im Stammbaum"
 
 #: resources/views/review.phtml:27 resources/views/review.phtml:213
-#: resources/views/tab.phtml:33 resources/views/worklist.phtml:34
+#: resources/views/tab.phtml:35 resources/views/worklist.phtml:34
 #: resources/views/worklist.phtml:44
 msgid "Uncertain"
 msgstr "Unsicher"
@@ -695,7 +704,7 @@ msgstr "Quelle anzeigen"
 msgid "Weak"
 msgstr "Schwach"
 
-#: resources/views/review.phtml:21 resources/views/tab.phtml:19
+#: resources/views/review.phtml:21 resources/views/tab.phtml:21
 #: resources/views/worklist.phtml:20
 msgid "Weak match"
 msgstr "Schwacher Treffer"

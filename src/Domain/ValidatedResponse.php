@@ -28,7 +28,9 @@ final readonly class ValidatedResponse
      * Constructor.
      *
      * @param array<string, list<DeathNoticeRecord>> $notices  The validated notices, keyed by person id.
-     * @param array<string, list<PortalCoverage>>    $coverage The per-portal coverage, keyed by person id.
+     * @param array<array-key, list<PortalCoverage>> $coverage The per-portal coverage, keyed by person
+     *                                                         id (array-key, not string: PHP coerces a
+     *                                                         purely-numeric XREF key back to int).
      */
     public function __construct(
         public array $notices,

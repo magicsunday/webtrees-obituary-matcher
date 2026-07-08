@@ -33,6 +33,7 @@ use Fisharebest\Webtrees\Session;
 use Fisharebest\Webtrees\Tree;
 use Fisharebest\Webtrees\View;
 use MagicSunday\ObituaryMatcher\Domain\ClassifiedMatch;
+use MagicSunday\ObituaryMatcher\Domain\SearchOutcome;
 use MagicSunday\ObituaryMatcher\Matching\FileMatchStore;
 use MagicSunday\ObituaryMatcher\Matching\MatchStatus;
 use MagicSunday\ObituaryMatcher\Matching\MatchStore;
@@ -522,8 +523,9 @@ final class ReviewScreenHandlerTest extends IntegrationTestCase
         Auth::login($member);
 
         $html = view(self::MODULE_NAMESPACE . '::tab', [
-            'individual'  => $individual,
-            'suggestions' => [SuggestionViewModel::fromStoredMatch($this->store()->findByPerson('I1')[0])],
+            'individual'    => $individual,
+            'suggestions'   => [SuggestionViewModel::fromStoredMatch($this->store()->findByPerson('I1')[0])],
+            'searchOutcome' => SearchOutcome::Found,
         ]);
 
         // Positive anchor: the suggestion body still renders, so the negative below cannot pass vacuously.
@@ -2215,8 +2217,9 @@ final class ReviewScreenHandlerTest extends IntegrationTestCase
         self::assertInstanceOf(Individual::class, $individual);
 
         return view(self::MODULE_NAMESPACE . '::tab', [
-            'individual'  => $individual,
-            'suggestions' => [SuggestionViewModel::fromStoredMatch($this->store()->findByPerson('I1')[0])],
+            'individual'    => $individual,
+            'suggestions'   => [SuggestionViewModel::fromStoredMatch($this->store()->findByPerson('I1')[0])],
+            'searchOutcome' => SearchOutcome::Found,
         ]);
     }
 
