@@ -39,14 +39,15 @@ final class EnqueueFanOutResultTest extends TestCase
     public function sumsTheCountsAndCollectsBothJobIds(): void
     {
         $result = EnqueueFanOutResult::fromSummaries([
-            new EnqueueSummary('job-a', 3, 1, 2),
-            new EnqueueSummary('job-b', 4, 2, 0),
+            new EnqueueSummary('job-a', 3, 1, 2, 4),
+            new EnqueueSummary('job-b', 4, 2, 0, 5),
         ]);
 
         self::assertSame(['job-a', 'job-b'], $result->jobIds);
         self::assertSame(7, $result->candidates);
         self::assertSame(3, $result->skippedInflight);
         self::assertSame(2, $result->excludedHosts);
+        self::assertSame(9, $result->suppressed);
     }
 
     /**
@@ -59,14 +60,15 @@ final class EnqueueFanOutResultTest extends TestCase
     public function excludesANullJobIdWhileStillSummingItsCounts(): void
     {
         $result = EnqueueFanOutResult::fromSummaries([
-            new EnqueueSummary('job-a', 2, 0, 1),
-            new EnqueueSummary(null, 0, 5, 0),
+            new EnqueueSummary('job-a', 2, 0, 1, 0),
+            new EnqueueSummary(null, 0, 5, 0, 7),
         ]);
 
         self::assertSame(['job-a'], $result->jobIds);
         self::assertSame(2, $result->candidates);
         self::assertSame(5, $result->skippedInflight);
         self::assertSame(1, $result->excludedHosts);
+        self::assertSame(7, $result->suppressed);
     }
 
     /**
@@ -83,5 +85,6 @@ final class EnqueueFanOutResultTest extends TestCase
         self::assertSame(0, $result->candidates);
         self::assertSame(0, $result->skippedInflight);
         self::assertSame(0, $result->excludedHosts);
+        self::assertSame(0, $result->suppressed);
     }
 }

@@ -70,14 +70,17 @@ final class RestCliBootstrap
         ?string $restPendingOption,
         string $moduleRoot,
     ): array {
-        $transport = $module->getPreference('finder_transport', '');
+        // Read every finder preference ONCE into a local so the connection list and the primary-identity
+        // key below are both derived from the SAME config snapshot. getPreference() is an uncached DB read,
+        // so re-reading finder_base_url / finder_token a second time to recover the primary key would let a
+        // concurrent control-panel save land between the two reads — the list would describe the old
+        // primary while the key described the new one, mis-routing (orphaning) that finder's ledger.
+        $transport      = $module->getPreference('finder_transport', '');
+        $baseUrl        = $module->getPreference('finder_base_url', '');
+        $token          = $module->getPreference('finder_token', '');
+        $additionalJson = $module->getPreference('finder_additional', '');
 
-        $connections = FinderConnectionResolver::listFromConfig(
-            $transport,
-            $module->getPreference('finder_base_url', ''),
-            $module->getPreference('finder_token', ''),
-            $module->getPreference('finder_additional', ''),
-        );
+        $connections = FinderConnectionResolver::listFromConfig($transport, $baseUrl, $token, $additionalJson);
 
         if ($connections === []) {
             throw new FinderCliConfigurationException(
@@ -103,11 +106,7 @@ final class RestCliBootstrap
         // FinderConnection::baseUrlKey(), the same rule the dedup uses, so a base URL configured `…/` maps
         // to the same sub-root as its slashless form (the connection still carries the raw base URL for the
         // actual request).
-        $primaryConnection = FinderConnectionResolver::fromConfig(
-            $transport,
-            $module->getPreference('finder_base_url', ''),
-            $module->getPreference('finder_token', ''),
-        );
+        $primaryConnection = FinderConnectionResolver::fromConfig($transport, $baseUrl, $token);
 
         $primaryKey = $primaryConnection instanceof FinderConnection
             ? $primaryConnection->baseUrlKey()

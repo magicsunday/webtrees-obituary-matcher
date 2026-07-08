@@ -25,7 +25,9 @@ declare(strict_types=1);
  * the token strictly out of argv and logs — it lives only in the persisted preference and the outbound
  * Authorization header. `--rest-pending` is the in-flight ledger root directory (defaults to the running
  * instance's `data/obituary-matcher/rest-pending`, resolved relative to this module's install location).
- * `--limit` caps the number of done jobs processed this run (default 20). All are `=`-form long options.
+ * `--limit` caps the number of done jobs processed PER FINDER this run (default 20): with multiple
+ * finders configured, each finder's ledger is drained up to `--limit` done jobs, so a fan-out run can
+ * ingest up to `--limit × <finder count>` jobs total. All are `=`-form long options.
  *
  * Usage:
  *   php tools/drain.php [--tree=1] [--rest-pending=/path/to/rest-pending] [--limit=20]

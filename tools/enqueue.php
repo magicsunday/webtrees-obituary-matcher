@@ -200,11 +200,12 @@ $result = EnqueueFanOutResult::fromSummaries($summaries);
 fwrite(
     STDOUT,
     sprintf(
-        'enqueued=%s candidates=%d skipped_inflight=%d excluded_hosts=%d tree=%d',
+        'enqueued=%s candidates=%d skipped_inflight=%d excluded_hosts=%d suppressed=%d tree=%d',
         $result->jobIds === [] ? 'none' : implode(',', $result->jobIds),
         $result->candidates,
         $result->skippedInflight,
         $result->excludedHosts,
+        $result->suppressed,
         $treeId,
     ) . PHP_EOL,
 );

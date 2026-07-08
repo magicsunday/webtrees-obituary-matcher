@@ -14,9 +14,9 @@ namespace MagicSunday\ObituaryMatcher\Webtrees;
 /**
  * The aggregated tally of one multi-finder enqueue fan-out (§5.2f): the job ids submitted across every
  * finder (one per finder that wrote a job), plus the summed per-finder candidate / in-flight-skip /
- * excluded-host counts. A single-finder run aggregates exactly one {@see EnqueueSummary}, so the result
- * mirrors that summary. Extracting the summation here keeps the arithmetic testable rather than inlined
- * in the CLI adapter.
+ * excluded-host / negative-memory-suppressed counts — every scalar of {@see EnqueueSummary} is carried
+ * so a single-finder run aggregates to the same values that one summary reports. Extracting the summation
+ * here keeps the arithmetic testable rather than inlined in the CLI adapter.
  *
  * @author  Rico Sonntag <mail@ricosonntag.de>
  * @license https://opensource.org/licenses/GPL-3.0 GNU General Public License v3.0
@@ -31,12 +31,15 @@ final readonly class EnqueueFanOutResult
      * @param int          $candidates      The total candidates written across all finders' requests.
      * @param int          $skippedInflight The total in-flight candidates skipped across all finders.
      * @param int          $excludedHosts   The total excluded-host entries across all finders' requests.
+     * @param int          $suppressed      The total candidates skipped by the negative-memory re-search
+     *                                      policy (§5.2d) across all finders.
      */
     public function __construct(
         public array $jobIds,
         public int $candidates,
         public int $skippedInflight,
         public int $excludedHosts,
+        public int $suppressed,
     ) {
     }
 
@@ -54,6 +57,7 @@ final readonly class EnqueueFanOutResult
         $candidates    = 0;
         $skipped       = 0;
         $excludedHosts = 0;
+        $suppressed    = 0;
 
         foreach ($summaries as $summary) {
             if ($summary->jobId !== null) {
@@ -63,8 +67,9 @@ final readonly class EnqueueFanOutResult
             $candidates    += $summary->candidates;
             $skipped       += $summary->skippedInflight;
             $excludedHosts += $summary->excludedHosts;
+            $suppressed    += $summary->suppressed;
         }
 
-        return new self($jobIds, $candidates, $skipped, $excludedHosts);
+        return new self($jobIds, $candidates, $skipped, $excludedHosts, $suppressed);
     }
 }
