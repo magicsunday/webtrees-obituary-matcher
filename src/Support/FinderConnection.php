@@ -165,7 +165,24 @@ final readonly class FinderConnection
      */
     public function baseUrlKey(): string
     {
-        return rtrim($this->baseUrl, '/');
+        return self::baseUrlKeyFor($this->baseUrl);
+    }
+
+    /**
+     * Returns the canonical identity key for a RAW base-URL string, applying the same trailing-slash
+     * rule as {@see self::baseUrlKey()}. This static form is the single source usable BEFORE a connection
+     * exists — the control-panel editor ({@see AdditionalFindersEditor}) needs the key of a submitted
+     * base URL to match it against the stored token and to dedup within the form, before the validated
+     * connection is built. Keeping the rule here (rather than a second inline `rtrim`) means the write
+     * path, the read-path dedup and the ledger namespacing can never drift apart.
+     *
+     * @param string $baseUrl The raw base URL to key.
+     *
+     * @return string The base URL with any trailing slash removed.
+     */
+    public static function baseUrlKeyFor(string $baseUrl): string
+    {
+        return rtrim($baseUrl, '/');
     }
 
     /**
