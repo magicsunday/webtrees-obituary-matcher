@@ -18,6 +18,7 @@ use SensitiveParameter;
 use function is_array;
 use function is_string;
 use function json_decode;
+use function rtrim;
 
 use const JSON_THROW_ON_ERROR;
 
@@ -106,6 +107,7 @@ final class FinderConnectionResolver
         string $baseUrl,
         #[SensitiveParameter]
         string $token,
+        #[SensitiveParameter]
         string $additionalJson,
     ): array {
         if ($transport !== 'rest') {
@@ -118,14 +120,16 @@ final class FinderConnectionResolver
         $primary = self::fromConfig($transport, $baseUrl, $token);
 
         if ($primary instanceof FinderConnection) {
-            $connections[]                     = $primary;
-            $seenBaseUrls[$primary->baseUrl()] = true;
+            $connections[]                                 = $primary;
+            $seenBaseUrls[rtrim($primary->baseUrl(), '/')] = true;
         }
 
         foreach (self::decodeAdditional($additionalJson) as [$addBaseUrl, $addToken]) {
             // A duplicate base URL (the primary's or an earlier additional's) is skipped: each connection
             // must have a distinct base URL so the per-finder ledger namespacing keyed on it stays unique.
-            if (isset($seenBaseUrls[$addBaseUrl])) {
+            // The key is compared with a trailing slash stripped so `https://f.example` and
+            // `https://f.example/` — the same endpoint — dedup rather than double-searching that finder.
+            if (isset($seenBaseUrls[rtrim($addBaseUrl, '/')])) {
                 continue;
             }
 
@@ -137,8 +141,8 @@ final class FinderConnectionResolver
                 continue;
             }
 
-            $connections[]                        = $connection;
-            $seenBaseUrls[$connection->baseUrl()] = true;
+            $connections[]                                    = $connection;
+            $seenBaseUrls[rtrim($connection->baseUrl(), '/')] = true;
         }
 
         return $connections;
@@ -154,8 +158,10 @@ final class FinderConnectionResolver
      *
      * @return list<array{0: string, 1: string}> The active additional finders as `[baseUrl, token]`.
      */
-    private static function decodeAdditional(string $additionalJson): array
-    {
+    private static function decodeAdditional(
+        #[SensitiveParameter]
+        string $additionalJson,
+    ): array {
         if ($additionalJson === '') {
             return [];
         }

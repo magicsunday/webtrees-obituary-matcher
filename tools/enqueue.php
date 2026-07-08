@@ -167,30 +167,32 @@ $locale = I18N::languageTag();
 // Assemble a producer per finder over its own ledger root and enqueue against each, collecting the
 // per-finder summaries for aggregation. The reference year defaults to null (the current year) — a
 // service-only seam with no CLI flag. A single-finder install runs the loop exactly once.
-$summaries = [];
+//
+// Per-finder fault isolation (§5.2f): one offline or misconfigured finder must NOT block the others.
+// A DomainException (unknown tree) is the SAME for every finder — a run-fatal misconfiguration handled
+// inline. Any OTHER Throwable is a per-finder fault: its detail is routed to the guarded log sink (never
+// echoed — the S46 lesson), the run is marked failed for the exit code, and the loop continues with the
+// remaining finders so a healthy finder still enqueues.
+$summaries        = [];
+$hadFinderFailure = false;
 
-try {
-    foreach ($finders as [$connection, $restPendingRoot]) {
+foreach ($finders as [$connection, $restPendingRoot]) {
+    try {
         $summaries[] = EnqueueServiceFactory::create($connection, $restPendingRoot)
             ->enqueue($treeId, $limit, $minAge, $locale);
+    } catch (DomainException) {
+        // An unknown/vanished tree id (the same tree for every finder): a fixed error + non-zero exit.
+        fwrite(STDERR, sprintf('Unknown tree id: %d', $treeId) . PHP_EOL);
+
+        exit(1);
+    } catch (Throwable $exception) {
+        // Any other producer failure — a transport RuntimeException, but ALSO any TypeError/Error/
+        // InvalidArgumentException — is isolated to this finder: log the detail to the guarded sink and
+        // continue, so a single finder's fault cannot abort the whole fan-out.
+        HeadlessBootstrap::logCliError('enqueue', $exception);
+
+        $hadFinderFailure = true;
     }
-} catch (DomainException) {
-    // An unknown/vanished tree id (the same tree for every finder): a fixed error + non-zero exit.
-    fwrite(STDERR, sprintf('Unknown tree id: %d', $treeId) . PHP_EOL);
-
-    exit(1);
-} catch (Throwable $exception) {
-    // Any other producer failure — a transport RuntimeException, but ALSO any TypeError/Error/
-    // InvalidArgumentException (the last extends LogicException, not RuntimeException) that could
-    // otherwise escape to PHP's default uncaught-exception handler and print the full message + stack
-    // trace (with absolute paths) to STDERR/cron mail. Catch every Throwable, print a fixed category,
-    // and route the detail to the SAME guarded sink the bootstrap uses (error_log defaults to STDERR
-    // in CLI, so only log when a real sink is configured — the S46 lesson). DomainException (the
-    // operator's own numeric --tree) is handled above, safe to echo.
-    fwrite(STDERR, 'Enqueue failed.' . PHP_EOL);
-    HeadlessBootstrap::logCliError('enqueue', $exception);
-
-    exit(1);
 }
 
 $result = EnqueueFanOutResult::fromSummaries($summaries);
@@ -207,4 +209,6 @@ fwrite(
     ) . PHP_EOL,
 );
 
-exit(0);
+// A fault at ANY finder exits non-zero so cron/monitoring is alerted, while the successful finders'
+// aggregated tally is still reported above.
+exit($hadFinderFailure ? 1 : 0);

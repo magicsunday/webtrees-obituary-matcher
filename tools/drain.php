@@ -156,24 +156,23 @@ try {
 // the per-notice atomic store (last-writer-wins on the canonical URL key), not here.
 $scoreConfig = $module->scoreConfig();
 
-$summaries = [];
+// Per-finder fault isolation (§5.2f): a DB/I-O fault while draining one finder (TreeService::find /
+// CandidateRepository::findByXrefs run webtrees queries OUTSIDE DrainService's inner try) must NOT block
+// the others. Catch every Throwable per finder, route the detail to the guarded log sink (never echoed —
+// SQL text / connection name / absolute paths would otherwise reach STDERR/cron mail, the S46 lesson),
+// mark the run failed for the exit code, and continue with the remaining finders.
+$summaries        = [];
+$hadFinderFailure = false;
 
-try {
-    foreach ($finders as [$connection, $restPendingRoot]) {
+foreach ($finders as [$connection, $restPendingRoot]) {
+    try {
         $summaries[] = DrainServiceFactory::create($connection, $restPendingRoot, $scoreConfig)
             ->drain($onlyTreeId, $limit);
-    }
-} catch (Throwable $exception) {
-    // A DB/I-O fault DURING draining (TreeService::find / CandidateRepository::findByXrefs run webtrees
-    // queries OUTSIDE DrainService's inner try) would otherwise escape to PHP's default uncaught-exception
-    // handler and print the full message + stack trace (SQL text, connection name, absolute paths) to
-    // STDERR/cron mail. Catch every Throwable, print a fixed category, and route the detail to the SAME
-    // guarded sink the bootstrap uses (error_log defaults to STDERR in CLI, so it only logs when a real
-    // sink is configured — the S46 lesson). This mirrors the enqueue adapter's producer guard.
-    fwrite(STDERR, 'Drain failed.' . PHP_EOL);
-    HeadlessBootstrap::logCliError('drain', $exception);
+    } catch (Throwable $exception) {
+        HeadlessBootstrap::logCliError('drain', $exception);
 
-    exit(1);
+        $hadFinderFailure = true;
+    }
 }
 
 $result = DrainFanOutResult::fromSummaries($summaries);
@@ -190,4 +189,6 @@ fwrite(
     ) . PHP_EOL,
 );
 
-exit($result->hasFailure() ? 1 : 0);
+// A failure at ANY finder — a parked ingest OR a caught per-finder fault — exits non-zero so
+// cron/monitoring is alerted, while the successful finders' aggregated tally is still reported above.
+exit(($result->hasFailure() || $hadFinderFailure) ? 1 : 0);

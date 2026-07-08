@@ -93,18 +93,27 @@ final class RestCliBootstrap
         // primary base URL here (rather than assuming index 0 is the primary) keeps the mapping stable
         // even when the primary is unset — then no finder claims the base root and every additional finder
         // uses its own hash sub-root, so configuring a primary later cannot strand an additional's jobs.
-        $primaryBaseUrl = FinderConnectionResolver::fromConfig(
+        // The identity key strips a trailing slash so a base URL configured `…/` matches its slashless
+        // form and the ledger sub-root stays stable across that trivial variation (the connection still
+        // carries the raw base URL for the actual request).
+        $primaryConnection = FinderConnectionResolver::fromConfig(
             $transport,
             $module->getPreference('finder_base_url', ''),
             $module->getPreference('finder_token', ''),
-        )?->baseUrl();
+        );
+
+        $primaryKey = $primaryConnection instanceof FinderConnection
+            ? rtrim($primaryConnection->baseUrl(), '/')
+            : null;
 
         $pairs = [];
 
         foreach ($connections as $connection) {
-            $ledgerRoot = $connection->baseUrl() === $primaryBaseUrl
+            $identityKey = rtrim($connection->baseUrl(), '/');
+
+            $ledgerRoot = $identityKey === $primaryKey
                 ? $baseRoot
-                : $baseRoot . '/finder-' . substr(hash('sha256', $connection->baseUrl()), 0, 16);
+                : $baseRoot . '/finder-' . substr(hash('sha256', $identityKey), 0, 16);
 
             $pairs[] = [$connection, $ledgerRoot];
         }
