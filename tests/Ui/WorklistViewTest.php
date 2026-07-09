@@ -20,7 +20,7 @@ use PHPUnit\Framework\TestCase;
 
 /**
  * Shape test pinning the load-bearing positional constructor order of the worklist value objects:
- * Task 3 builds a {@see WorklistRowView} positionally, so a reorder of the 11 promoted fields would
+ * Task 3 builds a {@see WorklistRowView} positionally, so a reorder of the 13 promoted fields would
  * silently mis-map every row. This guards that contract together with the counts/filter projection.
  *
  * @author  Rico Sonntag <mail@ricosonntag.de>
@@ -69,7 +69,9 @@ final class WorklistViewTest extends TestCase
 
         self::assertSame('Max Mustermann', $view->rows[0]->personName);
         self::assertSame('/tree/demo/obituary-review/I1/abc', $view->rows[0]->reviewUrl);
+        self::assertNull($view->rows[0]->revertObituaryUrl);
         self::assertSame('I1:abc', $view->rows[0]->bulkRejectToken);
+        self::assertSame('https://finder.example', $view->rows[0]->originFinderId);
         self::assertSame(1, $view->counts['open']);
         self::assertSame('all', $view->statusFilter);
         self::assertSame('all', $view->flagFilter);
