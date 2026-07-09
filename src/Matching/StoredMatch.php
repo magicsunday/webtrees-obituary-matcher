@@ -34,12 +34,14 @@ final readonly class StoredMatch
     /**
      * Constructor.
      *
-     * @param string               $personId    The candidate identifier.
-     * @param string               $obituaryUrl The source notice URL (raw, pre-normalisation).
-     * @param MatchStatus          $status      The lifecycle status.
-     * @param ClassifiedMatchArray $match       The trusted scoring payload from the engine.
-     * @param string|null          $reason      The rejection reason, if any.
-     * @param WriteBackArray|null  $writeBack   The persisted confirm write-back, or null until confirmed.
+     * @param string               $personId       The candidate identifier.
+     * @param string               $obituaryUrl    The source notice URL (raw, pre-normalisation).
+     * @param MatchStatus          $status         The lifecycle status.
+     * @param ClassifiedMatchArray $match          The trusted scoring payload from the engine.
+     * @param string|null          $reason         The rejection reason, if any.
+     * @param WriteBackArray|null  $writeBack      The persisted confirm write-back, or null until confirmed.
+     * @param string|null          $originFinderId The identity of the finder that produced this match
+     *                                             (§5.2f), or null for a single-finder / legacy row.
      */
     public function __construct(
         public string $personId,
@@ -48,6 +50,7 @@ final readonly class StoredMatch
         public array $match,
         public ?string $reason = null,
         public ?array $writeBack = null,
+        public ?string $originFinderId = null,
     ) {
     }
 
@@ -60,18 +63,20 @@ final readonly class StoredMatch
      *     status: string,
      *     match: ClassifiedMatchArray,
      *     reason: string|null,
-     *     writeBack: WriteBackArray|null
+     *     writeBack: WriteBackArray|null,
+     *     originFinderId: string|null
      * }
      */
     public function toArray(): array
     {
         return [
-            'personId'    => $this->personId,
-            'obituaryUrl' => $this->obituaryUrl,
-            'status'      => $this->status->value,
-            'match'       => $this->match,
-            'reason'      => $this->reason,
-            'writeBack'   => $this->writeBack,
+            'personId'       => $this->personId,
+            'obituaryUrl'    => $this->obituaryUrl,
+            'status'         => $this->status->value,
+            'match'          => $this->match,
+            'reason'         => $this->reason,
+            'writeBack'      => $this->writeBack,
+            'originFinderId' => $this->originFinderId,
         ];
     }
 
@@ -129,6 +134,17 @@ final readonly class StoredMatch
             throw new CorruptMatchRowException('Stored match row has an invalid write-back payload.');
         }
 
+        // Migration shim: a row written before §5.2f carries no `originFinderId` key, which narrows to
+        // null (a legacy / single-finder match with no recorded origin) rather than being rejected.
+        $originFinderId = $row['originFinderId'] ?? null;
+
+        if (
+            ($originFinderId !== null)
+            && !is_string($originFinderId)
+        ) {
+            throw new CorruptMatchRowException('Stored match row has an invalid origin finder id.');
+        }
+
         /**
          * @var ClassifiedMatchArray $match
          */
@@ -144,6 +160,7 @@ final readonly class StoredMatch
             $match,
             $reason,
             $writeBack,
+            $originFinderId,
         );
     }
 }

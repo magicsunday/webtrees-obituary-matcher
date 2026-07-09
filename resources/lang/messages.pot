@@ -349,16 +349,20 @@ msgstr ""
 msgid "Open finder jobs"
 msgstr ""
 
+#: resources/views/worklist.phtml:162
+msgid "Origin finder"
+msgstr ""
+
 #: resources/views/review.phtml:56
 msgid "Other relative"
 msgstr ""
 
-#: resources/views/worklist.phtml:222
+#: resources/views/worklist.phtml:228
 #, php-format
 msgid "Page %1$s of %2$s"
 msgstr ""
 
-#: resources/views/worklist.phtml:211
+#: resources/views/worklist.phtml:217
 msgid "Pagination"
 msgstr ""
 
@@ -457,11 +461,11 @@ msgstr ""
 msgid "Restore defaults"
 msgstr ""
 
-#: resources/views/review.phtml:200 resources/views/worklist.phtml:201
+#: resources/views/review.phtml:200 resources/views/worklist.phtml:207
 msgid "Revert"
 msgstr ""
 
-#: resources/views/review.phtml:200 resources/views/worklist.phtml:201
+#: resources/views/review.phtml:200 resources/views/worklist.phtml:207
 #, php-format
 msgid "Revert match for %s"
 msgstr ""
@@ -472,8 +476,8 @@ msgid ""
 "revert tool with --force to override."
 msgstr ""
 
-#: resources/views/tab.phtml:55 resources/views/worklist.phtml:162
-#: resources/views/worklist.phtml:193
+#: resources/views/tab.phtml:55 resources/views/worklist.phtml:165
+#: resources/views/worklist.phtml:199
 msgid "Review"
 msgstr ""
 
@@ -527,7 +531,7 @@ msgstr ""
 msgid "Select"
 msgstr ""
 
-#: resources/views/worklist.phtml:171
+#: resources/views/worklist.phtml:174
 #, php-format
 msgid "Select %s for bulk reject"
 msgstr ""
@@ -572,7 +576,7 @@ msgstr ""
 msgid "Start search"
 msgstr ""
 
-#: resources/views/worklist.phtml:161
+#: resources/views/worklist.phtml:164
 msgid "Status"
 msgstr ""
 
@@ -735,11 +739,11 @@ msgstr ""
 msgid "Why this score"
 msgstr ""
 
-#: resources/views/worklist.phtml:227 resources/views/worklist.phtml:229
+#: resources/views/worklist.phtml:233 resources/views/worklist.phtml:235
 msgid "next"
 msgstr ""
 
-#: resources/views/worklist.phtml:216 resources/views/worklist.phtml:218
+#: resources/views/worklist.phtml:222 resources/views/worklist.phtml:224
 msgid "previous"
 msgstr ""
 

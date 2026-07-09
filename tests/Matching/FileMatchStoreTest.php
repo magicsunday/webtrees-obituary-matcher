@@ -107,6 +107,31 @@ final class FileMatchStoreTest extends TempDirTestCase
     }
 
     /**
+     * A status transition preserves the origin finder (§5.2f): rejecting a pending match keeps the finder
+     * identity stamped at ingest, so a later worklist render still attributes the row to its origin. This
+     * pins that the rebuild in {@see FileMatchStore::markRejected()} carries the field forward rather than
+     * dropping it to the constructor default.
+     *
+     * @return void
+     */
+    #[Test]
+    public function aTransitionPreservesTheOriginFinder(): void
+    {
+        $store = new FileMatchStore($this->tmp);
+
+        $store->upsertPending(
+            $this->storedMatch('I1', 'https://example.test/a', MatchStatus::Pending, 'https://finder.example'),
+        );
+
+        $store->markRejected('I1', 'https://example.test/a', 'not a match');
+
+        $rows = $store->findByPerson('I1');
+        self::assertCount(1, $rows);
+        self::assertSame(MatchStatus::Rejected, $rows[0]->status);
+        self::assertSame('https://finder.example', $rows[0]->originFinderId);
+    }
+
+    /**
      * A confirmed row is terminal against an automated re-ingest: a later pending upsert is a
      * silent no-op that reports false and the row stays Confirmed, while a first write reports true.
      *
@@ -1131,8 +1156,12 @@ final class FileMatchStoreTest extends TempDirTestCase
      *
      * @return StoredMatch The stored match with a real engine payload.
      */
-    private function storedMatch(string $personId, string $obituaryUrl, MatchStatus $status): StoredMatch
-    {
+    private function storedMatch(
+        string $personId,
+        string $obituaryUrl,
+        MatchStatus $status,
+        ?string $originFinderId = null,
+    ): StoredMatch {
         $candidate = new PersonCandidate(
             $personId,
             Gender::Male,
@@ -1157,6 +1186,6 @@ final class FileMatchStoreTest extends TempDirTestCase
         $classification = (new Classifier())->classify($result, [$result]);
         $classified     = new ClassifiedMatch($result, $classification);
 
-        return new StoredMatch($personId, $obituaryUrl, $status, $classified->toArray());
+        return new StoredMatch($personId, $obituaryUrl, $status, $classified->toArray(), originFinderId: $originFinderId);
     }
 }

@@ -172,6 +172,33 @@ final class IngestServiceTest extends TempDirTestCase
         self::assertSame('Waldfriedhof Musterstadt', $match->match['extractedFacts']['cemetery']);
         self::assertSame('2024-03-20', $match->match['extractedFacts']['funeralDate']);
         self::assertSame('https://example.test/traueranzeige/erika', $match->obituaryUrl);
+        // No origin finder was passed, so a single-finder / legacy ingest records none.
+        self::assertNull($match->originFinderId);
+    }
+
+    /**
+     * The finder identity passed to the ingest (§5.2f) is stamped onto every stored match, so the worklist
+     * can later attribute each suggestion to the finder that produced it.
+     *
+     * @return void
+     */
+    #[Test]
+    public function ingestStampsTheOriginFinderOntoEachStoredMatch(): void
+    {
+        $notices = $this->notices('response-valid.json', ['I1']);
+        $store   = new FileMatchStore($this->tmp . '/store');
+
+        $this->newService()->ingest(
+            $notices,
+            [],
+            ['I1' => $this->candidateMatchingErika()],
+            $store,
+            'https://finder.example',
+        );
+
+        $pending = $store->allPending();
+        self::assertCount(1, $pending);
+        self::assertSame('https://finder.example', $pending[0]->originFinderId);
     }
 
     /**
