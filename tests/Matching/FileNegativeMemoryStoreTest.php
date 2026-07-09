@@ -21,6 +21,7 @@ use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\Attributes\UsesClass;
 use RuntimeException;
 
+use function dirname;
 use function file_put_contents;
 use function hash;
 use function sprintf;
@@ -203,9 +204,10 @@ final class FileNegativeMemoryStoreTest extends TempDirTestCase
     #[Test]
     public function readsACorruptFileAsNull(): void
     {
-        $dir = $this->tmp . '/negative-memory';
-        AtomicFile::ensureDirectory($dir);
-        file_put_contents(sprintf('%s/%s.json', $dir, hash('sha256', 'I1')), '{ not json');
+        $dir  = $this->tmp . '/negative-memory';
+        $path = sprintf('%s/%s/%s.json', $dir, hash('sha256', 'I1'), hash('sha256', 'https://finder.a'));
+        AtomicFile::ensureDirectory(dirname($path));
+        file_put_contents($path, '{ not json');
 
         self::assertNull((new FileNegativeMemoryStore($dir))->find('I1', 'https://finder.a'));
     }
@@ -219,11 +221,12 @@ final class FileNegativeMemoryStoreTest extends TempDirTestCase
     #[Test]
     public function readsACorruptRowAsNull(): void
     {
-        $dir = $this->tmp . '/negative-memory';
-        AtomicFile::ensureDirectory($dir);
+        $dir  = $this->tmp . '/negative-memory';
+        $path = sprintf('%s/%s/%s.json', $dir, hash('sha256', 'I1'), hash('sha256', 'https://finder.a'));
+        AtomicFile::ensureDirectory(dirname($path));
         AtomicFile::writeJson(
-            sprintf('%s/%s.json', $dir, hash('sha256', 'I1')),
-            ['personId' => 'I1', 'memories' => ['https://finder.a' => ['signature' => '', 'recordedAt' => 'nope']]]
+            $path,
+            ['personId' => 'I1', 'finderId' => 'https://finder.a', 'memory' => ['signature' => '', 'recordedAt' => 'nope']]
         );
 
         self::assertNull((new FileNegativeMemoryStore($dir))->find('I1', 'https://finder.a'));

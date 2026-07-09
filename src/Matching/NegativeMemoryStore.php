@@ -29,6 +29,14 @@ use MagicSunday\ObituaryMatcher\Domain\NegativeMemoryEntry;
 interface NegativeMemoryStore
 {
     /**
+     * @var string The finder-identity key used when no finder identity is configured (a single-finder
+     *             deployment or an arg-less test build). The drain WRITES and the enqueue READS the
+     *             negative memory under this same key, so pinning it here keeps the two layers from
+     *             drifting apart (a silent drift would stop suppression matching with no test signal).
+     */
+    public const string DEFAULT_FINDER_ID = '';
+
+    /**
      * Records (last-write-wins for that finder) that a finder's search of a person under the entry's
      * signature was a genuine miss, leaving every OTHER finder's memory for the person untouched.
      *

@@ -201,15 +201,15 @@ class DrainService
                 // matcher believe another finder already searched the person. Derived from the SAME
                 // coverage the UI reads, so the two never disagree. A person with no held candidate
                 // (deleted/private) has no signature to key the memory on, so it is skipped. The finder
-                // identity is the drain's baseUrlKey; a drain constructed without one falls back to the
-                // empty-string default finder, which the enqueue side mirrors.
+                // identity is the drain's baseUrlKey; a drain constructed without one falls back to
+                // NegativeMemoryStore::DEFAULT_FINDER_ID, which the enqueue side reads under the same key.
                 if (
                     ($outcome === SearchOutcome::NoNotices)
                     && array_key_exists($personIdString, $candidatesById)
                 ) {
                     $negativeMemoryStore->record(
                         $personIdString,
-                        $this->finderId ?? '',
+                        $this->finderId ?? NegativeMemoryStore::DEFAULT_FINDER_ID,
                         new NegativeMemoryEntry(
                             SearchSignatureFactory::fromCandidate($candidatesById[$personIdString]),
                             $recordedAt,

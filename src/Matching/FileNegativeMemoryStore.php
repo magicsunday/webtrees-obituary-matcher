@@ -16,23 +16,29 @@ use MagicSunday\ObituaryMatcher\Queue\AtomicFile;
 use RuntimeException;
 use Throwable;
 
-use function dirname;
+use function glob;
 use function hash;
 use function is_array;
+use function is_dir;
 use function is_file;
+use function rmdir;
 use function sprintf;
 use function unlink;
 
 /**
- * A file-backed {@see NegativeMemoryStore}: one JSON document per person, named by the SHA-256 of the
- * person id (so an arbitrary xref can never escape the store directory), holding a per-finder map of
- * that person's genuine-miss records (§5.2f) — `{personId, memories: {<finderId>: {signature,
- * recordedAt}}}`. A record merges into the map so one finder's miss never drops another's; a clear
- * removes the whole document. Writes are atomic ({@see AtomicFile}); a read tolerates an absent,
- * corrupt or legacy (pre-§5.2f single-`memory`) document by returning no memory (fail-soft, so a
- * truncated record never breaks the enqueue path and a legacy document simply self-heals on the next
- * search), and the write is capped at the same ceiling the read enforces so a document a capped reader
- * could never read back is never persisted.
+ * A file-backed {@see NegativeMemoryStore} keyed per (person × finder) (§5.2f): one JSON document per
+ * (person, finder) at `<dir>/<sha256(personId)>/<sha256(finderId)>.json`, holding `{personId, finderId,
+ * memory: {signature, recordedAt}}`. Both ids are hashed into the path, so an arbitrary xref or finder
+ * id can never escape the store directory.
+ *
+ * A record writes exactly ONE file (its own finder's), never touching another finder's document — so
+ * two finders recording a miss for the same person concurrently cannot lose or resurrect each other's
+ * entry (there is no shared read-modify-write). A clear removes the person's whole per-finder
+ * subdirectory. Writes are atomic ({@see AtomicFile}); a read tolerates an absent, corrupt or legacy
+ * (pre-§5.2f single-document) file by returning no memory (fail-soft, so a truncated record never
+ * breaks the enqueue path and a legacy layout simply self-heals on the next search), and the write is
+ * capped at the same ceiling the read enforces so a document a capped reader could never read back is
+ * never persisted.
  *
  * @author  Rico Sonntag <mail@ricosonntag.de>
  * @license https://opensource.org/licenses/GPL-3.0 GNU General Public License v3.0
@@ -41,9 +47,9 @@ use function unlink;
 final readonly class FileNegativeMemoryStore implements NegativeMemoryStore
 {
     /**
-     * @var int The byte ceiling for a per-person negative-memory document (defence against a corrupt
-     *          or maliciously large file). Each per-finder row is tiny; the cap only guards against a
-     *          hand-corrupted or symlinked file, and comfortably holds every realistic finder count.
+     * @var int The byte ceiling for a single per-(person × finder) negative-memory document (defence
+     *          against a corrupt or maliciously large file). A signature+timestamp row is tiny; the cap
+     *          only guards against a hand-corrupted or symlinked file.
      */
     private const int MAX_BYTES = 65_536;
 
@@ -68,19 +74,16 @@ final readonly class FileNegativeMemoryStore implements NegativeMemoryStore
      */
     public function record(string $personId, string $finderId, NegativeMemoryEntry $entry): void
     {
-        $path = $this->pathFor($personId);
+        $path = $this->pathFor($personId, $finderId);
 
-        // Read-modify-write so a fresh miss from one finder merges into the person's map without
-        // dropping any other finder's memory. Drains run sequentially per tree, so the read-modify-write
-        // is not contended; a rare cross-process lost update would only re-search a person once more
-        // (negative memory is a self-healing soft cache).
-        $memories            = $this->readMemories($path);
-        $memories[$finderId] = $entry->toArray();
-
-        AtomicFile::ensureDirectory(dirname($path));
+        // One file per (person, finder): the write touches only this finder's document, so it is a
+        // whole-file atomic replace with NO read-modify-write — a concurrent record or clear for another
+        // finder of the same person can neither lose this entry nor resurrect a cleared one.
+        AtomicFile::ensureDirectory($this->dirFor($personId));
         AtomicFile::writeJson($path, [
             'personId' => $personId,
-            'memories' => $memories,
+            'finderId' => $finderId,
+            'memory'   => $entry->toArray(),
         ], self::MAX_BYTES);
     }
 
@@ -94,7 +97,20 @@ final readonly class FileNegativeMemoryStore implements NegativeMemoryStore
      */
     public function find(string $personId, string $finderId): ?NegativeMemoryEntry
     {
-        $row = $this->readMemories($this->pathFor($personId))[$finderId] ?? null;
+        $path = $this->pathFor($personId, $finderId);
+
+        if (!is_file($path)) {
+            return null;
+        }
+
+        try {
+            $row = AtomicFile::readJsonCapped($path, self::MAX_BYTES)['memory'] ?? null;
+        } catch (RuntimeException) {
+            // Fail-soft (mirroring the coverage store): a truncated/non-JSON/oversize/symlinked file
+            // surfaces as a RuntimeException from readJsonCapped and is treated as "no memory" rather
+            // than breaking the enqueue path. A programming error is not swallowed (no catch (Throwable)).
+            return null;
+        }
 
         if (!is_array($row)) {
             return null;
@@ -112,58 +128,57 @@ final readonly class FileNegativeMemoryStore implements NegativeMemoryStore
      */
     public function clear(string $personId): void
     {
-        $path = $this->pathFor($personId);
+        $dir = $this->dirFor($personId);
 
         // Best-effort: clearing is soft-cache hygiene (the person has a hit and is already surfaced in
-        // the worklist), so a failed unlink — including the warning the webtrees error handler converts
-        // into an exception — must never park the drain job or crash the drain. A lingering stale entry
-        // only re-suppresses ONE finder for a person already found by another, which the union policy
-        // and the person's live match both tolerate.
+        // the worklist), so a failed unlink/rmdir — including a warning the webtrees error handler
+        // converts into an exception, or an rmdir that loses to a concurrent finder writing a fresh miss
+        // into the directory — must never park the drain job or crash the drain. A lingering entry only
+        // re-suppresses ONE finder for a person already found by another, which the person's live match
+        // tolerates; a concurrently-written fresh miss surviving the clear is correct (it is genuine).
         try {
-            if (is_file($path)) {
-                unlink($path);
+            if (!is_dir($dir)) {
+                return;
             }
+
+            $files = glob($dir . '/*.json');
+
+            if ($files !== false) {
+                foreach ($files as $file) {
+                    if (is_file($file)) {
+                        unlink($file);
+                    }
+                }
+            }
+
+            rmdir($dir);
         } catch (Throwable) {
             // Deliberately swallowed: see the comment above.
         }
     }
 
     /**
-     * Reads a person's raw per-finder memory map from disk, tolerating an absent, corrupt, oversize or
-     * legacy (pre-§5.2f single-`memory`) document by returning an empty map. Reading the store's OWN
-     * persisted format, so this is a defensive read rather than untrusted-input narrowing.
-     *
-     * @param string $path The absolute document path.
-     *
-     * @return array<array-key, mixed> The raw `finderId => row` map, or [] when none is readable.
-     */
-    private function readMemories(string $path): array
-    {
-        if (!is_file($path)) {
-            return [];
-        }
-
-        try {
-            $memories = AtomicFile::readJsonCapped($path, self::MAX_BYTES)['memories'] ?? null;
-        } catch (RuntimeException) {
-            // Fail-soft (mirroring the coverage store): a truncated/non-JSON/oversize/symlinked file
-            // surfaces as a RuntimeException from readJsonCapped and is treated as "no memory" rather
-            // than breaking the enqueue path. A programming error is not swallowed (no catch (Throwable)).
-            return [];
-        }
-
-        return is_array($memories) ? $memories : [];
-    }
-
-    /**
-     * Returns the absolute path of the per-person negative-memory document.
+     * Returns the absolute path of the per-(person × finder) negative-memory document.
      *
      * @param string $personId The person the document belongs to.
+     * @param string $finderId The finder the document belongs to.
      *
      * @return string The absolute document path.
      */
-    private function pathFor(string $personId): string
+    private function pathFor(string $personId, string $finderId): string
     {
-        return sprintf('%s/%s.json', $this->dir, hash('sha256', $personId));
+        return sprintf('%s/%s.json', $this->dirFor($personId), hash('sha256', $finderId));
+    }
+
+    /**
+     * Returns the absolute path of a person's per-finder subdirectory.
+     *
+     * @param string $personId The person whose subdirectory is addressed.
+     *
+     * @return string The absolute subdirectory path.
+     */
+    private function dirFor(string $personId): string
+    {
+        return sprintf('%s/%s', $this->dir, hash('sha256', $personId));
     }
 }

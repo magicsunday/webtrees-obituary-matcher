@@ -58,7 +58,8 @@ class EnqueueService
      * @param JobTransport         $transport      The transport that submits the job and exposes the in-flight set.
      * @param string|null          $finderId       The identity of the finder this enqueue serves (§5.2f),
      *                                             used to read THIS finder's negative memory; null falls
-     *                                             back to the empty-string default finder the drain mirrors.
+     *                                             back to NegativeMemoryStore::DEFAULT_FINDER_ID, the same
+     *                                             key the drain records under.
      */
     public function __construct(
         private readonly CandidateRepository $repository,
@@ -327,7 +328,7 @@ class EnqueueService
     private function isSuppressed(NegativeMemoryStore $store, NegativeMemoryPolicy $policy, PersonCandidate $candidate, int $nowStamp): bool
     {
         return $policy->suppresses(
-            $store->find($candidate->id, $this->finderId ?? ''),
+            $store->find($candidate->id, $this->finderId ?? NegativeMemoryStore::DEFAULT_FINDER_ID),
             SearchSignatureFactory::fromCandidate($candidate),
             $nowStamp,
         );
