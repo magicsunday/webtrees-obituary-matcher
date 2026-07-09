@@ -23,7 +23,7 @@ msgstr ""
 msgid "%1$s open · %2$s confirmed · %3$s rejected · %4$s uncertain"
 msgstr "%1$s offen · %2$s bestätigt · %3$s abgelehnt · %4$s unsicher"
 
-#: resources/views/control-panel.phtml:281
+#: resources/views/control-panel.phtml:286
 #, php-format
 msgid "%s finder job is awaiting results."
 msgid_plural "%s finder jobs are awaiting results."
@@ -79,7 +79,7 @@ msgstr "Finder hinzufügen"
 msgid "Additional finders"
 msgstr "Zusätzliche Finder"
 
-#: resources/views/control-panel.phtml:214
+#: resources/views/control-panel.phtml:219
 msgid "Advertised schema versions"
 msgstr "Angebotene Schema-Versionen"
 
@@ -133,7 +133,7 @@ msgid "Child"
 msgstr "Kind"
 
 #: src/Webtrees/EnqueuePersonHandler.php:114
-#: src/Webtrees/ObituaryControlPanelHandler.php:593
+#: src/Webtrees/ObituaryControlPanelHandler.php:648
 msgid "Configure the finder connection first."
 msgstr "Bitte zuerst die Finder-Verbindung einrichten."
 
@@ -161,11 +161,11 @@ msgstr "Maximaler Konfliktabzug"
 msgid "Conflicts"
 msgstr "Konflikte"
 
-#: resources/views/control-panel.phtml:195
+#: resources/views/control-panel.phtml:200
 msgid "Connection test result"
 msgstr "Ergebnis des Verbindungstests"
 
-#: resources/views/control-panel.phtml:225
+#: resources/views/control-panel.phtml:230
 msgid "Country"
 msgstr "Land"
 
@@ -178,7 +178,7 @@ msgid "Death date"
 msgstr "Sterbedatum"
 
 #: resources/views/control-panel.phtml:34 resources/views/worklist.phtml:70
-#: src/Webtrees/ObituaryControlPanelHandler.php:686
+#: src/Webtrees/ObituaryControlPanelHandler.php:741
 #: src/Webtrees/ObituaryMatcherModule.php:261
 #: src/Webtrees/ObituaryMatcherModule.php:277
 msgid "Death notices"
@@ -196,7 +196,7 @@ msgstr "Ermitteltes Sterbedatum"
 msgid "Family"
 msgstr "Familie"
 
-#: resources/views/control-panel.phtml:206
+#: resources/views/control-panel.phtml:211
 msgid "Finder ID"
 msgstr "Finder-ID"
 
@@ -213,7 +213,7 @@ msgstr "Die Finder-Verbindung konnte nicht gespeichert werden."
 msgid "Finder connection saved."
 msgstr "Finder-Verbindung gespeichert."
 
-#: resources/views/control-panel.phtml:209
+#: resources/views/control-panel.phtml:214
 msgid "Finder version"
 msgstr "Finder-Version"
 
@@ -221,7 +221,7 @@ msgstr "Finder-Version"
 msgid "Grandchild"
 msgstr "Enkelkind"
 
-#: resources/views/control-panel.phtml:201
+#: resources/views/control-panel.phtml:206
 #, php-format
 msgid "HTTP status: %s"
 msgstr "HTTP-Status: %s"
@@ -267,7 +267,7 @@ msgstr "Höchstalter"
 msgid "Minimum age"
 msgstr "Mindestalter"
 
-#: resources/views/control-panel.phtml:224 resources/views/review.phtml:32
+#: resources/views/control-panel.phtml:229 resources/views/review.phtml:32
 #: resources/views/worklist.phtml:55
 msgid "Name"
 msgstr "Name"
@@ -284,7 +284,7 @@ msgstr "In der Traueranzeige genannt"
 msgid "Next best candidate"
 msgstr "Nächstbester Kandidat"
 
-#: src/Webtrees/ObituaryControlPanelHandler.php:634
+#: src/Webtrees/ObituaryControlPanelHandler.php:689
 msgid "No candidates matched the current settings; nothing was queued."
 msgstr ""
 "Keine Kandidaten entsprachen den aktuellen Einstellungen; es wurde nichts "
@@ -298,7 +298,7 @@ msgstr "Es wurde kein tagesgenaues Sterbedatum ermittelt."
 msgid "No family is recorded in the tree."
 msgstr "Im Stammbaum sind keine Angehörigen erfasst."
 
-#: resources/views/control-panel.phtml:277
+#: resources/views/control-panel.phtml:282
 msgid "No finder jobs are currently open."
 msgstr "Derzeit sind keine Finder-Aufträge offen."
 
@@ -320,7 +320,7 @@ msgstr "Noch keine Traueranzeigen-Treffer in diesem Stammbaum."
 msgid "No token set."
 msgstr "Kein Token hinterlegt."
 
-#: resources/views/control-panel.phtml:261
+#: resources/views/control-panel.phtml:266
 msgid "No trees are available."
 msgstr "Es sind keine Stammbäume verfügbar."
 
@@ -328,7 +328,7 @@ msgstr "Es sind keine Stammbäume verfügbar."
 msgid "Note"
 msgstr "Notiz"
 
-#: resources/views/control-panel.phtml:244
+#: resources/views/control-panel.phtml:249
 msgid "Notice fields"
 msgstr "Felder der Traueranzeige"
 
@@ -348,7 +348,7 @@ msgstr "Traueranzeigen-Arbeitsliste"
 msgid "Open"
 msgstr "Offen"
 
-#: resources/views/control-panel.phtml:274
+#: resources/views/control-panel.phtml:279
 msgid "Open finder jobs"
 msgstr "Offene Finder-Aufträge"
 
@@ -390,7 +390,7 @@ msgstr "Plausibilität"
 msgid "Plausibility weight"
 msgstr "Gewichtung Plausibilität"
 
-#: resources/views/control-panel.phtml:223
+#: resources/views/control-panel.phtml:228
 msgid "Portal"
 msgstr "Portal"
 
@@ -426,7 +426,7 @@ msgstr "Wahrscheinlicher Treffer"
 msgid "REST base URL"
 msgstr "REST-Basis-URL"
 
-#: resources/views/control-panel.phtml:226
+#: resources/views/control-panel.phtml:231
 msgid "Regions"
 msgstr "Regionen"
 
@@ -516,17 +516,17 @@ msgstr ""
 msgid "Search again"
 msgstr "Erneut suchen"
 
-#: resources/views/control-panel.phtml:258 resources/views/tab.phtml:63
+#: resources/views/control-panel.phtml:263 resources/views/tab.phtml:63
 msgid "Search for death notices"
 msgstr "Nach Traueranzeigen suchen"
 
 #: src/Webtrees/EnqueuePersonHandler.php:142
-#: src/Webtrees/ObituaryControlPanelHandler.php:625
+#: src/Webtrees/ObituaryControlPanelHandler.php:680
 msgid "Search job could not be queued."
 msgstr "Der Suchauftrag konnte nicht eingereiht werden."
 
 #: src/Webtrees/EnqueuePersonHandler.php:148
-#: src/Webtrees/ObituaryControlPanelHandler.php:631
+#: src/Webtrees/ObituaryControlPanelHandler.php:686
 #, php-format
 msgid "Search job queued (%s)."
 msgstr "Suchauftrag eingereiht (%s)."
@@ -579,7 +579,7 @@ msgstr "Quelle"
 msgid "Spouse"
 msgstr "Ehepartner"
 
-#: resources/views/control-panel.phtml:269
+#: resources/views/control-panel.phtml:274
 msgid "Start search"
 msgstr "Suche starten"
 
@@ -596,7 +596,7 @@ msgstr "Sicher"
 msgid "Strong match"
 msgstr "Sicherer Treffer"
 
-#: resources/views/control-panel.phtml:254
+#: resources/views/control-panel.phtml:259
 msgid "Supported features"
 msgstr "Unterstützte Funktionen"
 
@@ -647,7 +647,7 @@ msgid "The finder is reachable."
 msgstr "Der Finder ist erreichbar."
 
 #: src/Webtrees/EnqueuePersonHandler.php:122
-#: src/Webtrees/ObituaryControlPanelHandler.php:601
+#: src/Webtrees/ObituaryControlPanelHandler.php:656
 msgid "The finder storage location is unavailable."
 msgstr "Der Speicherort des Finders ist nicht verfügbar."
 
@@ -739,8 +739,8 @@ msgstr "Person im Stammbaum"
 msgid "Uncertain"
 msgstr "Unsicher"
 
-#: src/Webtrees/ObituaryControlPanelHandler.php:585
-#: src/Webtrees/ObituaryControlPanelHandler.php:618
+#: src/Webtrees/ObituaryControlPanelHandler.php:640
+#: src/Webtrees/ObituaryControlPanelHandler.php:673
 msgid "Unknown tree."
 msgstr "Unbekannter Stammbaum."
 
