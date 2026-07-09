@@ -79,6 +79,9 @@ final readonly class IngestService
      * @param MatchStore                             $store          The persistence boundary the suggestions
      *                                                               are written to (passed per call so the
      *                                                               service stays store-agnostic).
+     * @param string|null                            $originFinderId The identity of the finder this response
+     *                                                               came from (§5.2f), stamped onto each
+     *                                                               stored match; null for a single-finder run.
      *
      * @return IngestResult The per-metric counts and non-fatal warnings of this run.
      */
@@ -87,6 +90,7 @@ final readonly class IngestService
         array $coverage,
         array $candidatesById,
         MatchStore $store,
+        ?string $originFinderId = null,
     ): IngestResult {
         // Ownership was already enforced by the validator that produced these notices: every key here
         // is one of the requested person ids.
@@ -125,7 +129,7 @@ final readonly class IngestService
             $candidate = $candidatesById[$personId];
 
             foreach ($personNotices as $notice) {
-                $match = $this->buildPendingMatch($candidate, $notice);
+                $match = $this->buildPendingMatch($candidate, $notice, $originFinderId);
 
                 // The identity key mirrors FileMatchStore's keying so the count tracks distinct
                 // rows on disk, not notices iterated.
@@ -179,13 +183,17 @@ final readonly class IngestService
      * match. The name avoids colliding with the injected {@see Classifier::classify()}, which is only
      * one step of this orchestration.
      *
-     * @param PersonCandidate   $candidate The held candidate for this person.
-     * @param DeathNoticeRecord $notice    The scraped notice to score.
+     * @param PersonCandidate   $candidate      The held candidate for this person.
+     * @param DeathNoticeRecord $notice         The scraped notice to score.
+     * @param string|null       $originFinderId The identity of the finder this notice came from (§5.2f).
      *
      * @return StoredMatch The pending suggestion to persist.
      */
-    private function buildPendingMatch(PersonCandidate $candidate, DeathNoticeRecord $notice): StoredMatch
-    {
+    private function buildPendingMatch(
+        PersonCandidate $candidate,
+        DeathNoticeRecord $notice,
+        ?string $originFinderId,
+    ): StoredMatch {
         // The notice is scored against the single held candidate; the best-of-set selection mirrors
         // EngineWorkedExampleTest so a future multi-candidate set is handled identically (and there
         // is no runner-up to carry when exactly one candidate is in the set).
@@ -206,6 +214,7 @@ final readonly class IngestService
             $best->obituaryUrl,
             MatchStatus::Pending,
             $classified->toArray(),
+            originFinderId: $originFinderId,
         );
     }
 }

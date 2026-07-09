@@ -60,12 +60,16 @@ class DrainService
      * @param IngestService       $ingest      The store-agnostic enriched ingest pipeline.
      * @param TreeService         $treeService The webtrees tree lookup (throws on an unknown id).
      * @param JobTransport        $transport   The transport that yields and finalises completed jobs.
+     * @param string|null         $finderId    The identity of the finder this drain serves (§5.2f),
+     *                                         stamped onto every match ingested from its jobs; null when
+     *                                         the drain is not finder-scoped (a single-finder / legacy run).
      */
     public function __construct(
         private readonly CandidateRepository $repository,
         private readonly IngestService $ingest,
         private readonly TreeService $treeService,
         private readonly JobTransport $transport,
+        private readonly ?string $finderId = null,
     ) {
     }
 
@@ -171,7 +175,7 @@ class DrainService
         // rename, so it must sit inside the guard too rather than crash the whole drain. The park goes
         // through parkFailed(), which likewise tolerates a park failure for the same reason.
         try {
-            $result = $this->ingest->ingest($job->notices, $job->coverage, $candidatesById, $store);
+            $result = $this->ingest->ingest($job->notices, $job->coverage, $candidatesById, $store, $this->finderId);
 
             // Persist each requested person's per-portal coverage so a later render can tell a genuine
             // miss from a portal outage. Recorded BEFORE markIngested so a record failure falls through to

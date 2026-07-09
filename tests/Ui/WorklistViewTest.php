@@ -20,7 +20,7 @@ use PHPUnit\Framework\TestCase;
 
 /**
  * Shape test pinning the load-bearing positional constructor order of the worklist value objects:
- * Task 3 builds a {@see WorklistRowView} positionally, so a reorder of the 11 promoted fields would
+ * Task 3 builds a {@see WorklistRowView} positionally, so a reorder of the 13 promoted fields would
  * silently mis-map every row. This guards that contract together with the counts/filter projection.
  *
  * @author  Rico Sonntag <mail@ricosonntag.de>
@@ -53,6 +53,7 @@ final class WorklistViewTest extends TestCase
             '/tree/demo/obituary-review/I1/abc',
             null,
             'I1:abc',
+            'https://finder.example',
         );
 
         $view = new WorklistView(
@@ -66,9 +67,22 @@ final class WorklistViewTest extends TestCase
             1,
         );
 
+        // Pin EVERY positional field to its distinct fixture value: the whole point of this shape
+        // test is to catch a constructor reorder, so a mid-constructor swap (e.g. the adjacent
+        // nullable-string pair sourceUrl@7 / sourceHost@8) must not be able to pass silently.
         self::assertSame('Max Mustermann', $view->rows[0]->personName);
+        self::assertSame('I1', $view->rows[0]->personId);
+        self::assertSame('/tree/demo/individual/I1', $view->rows[0]->personUrl);
+        self::assertSame('strong', $view->rows[0]->bandKey);
+        self::assertSame(92, $view->rows[0]->score);
+        self::assertSame('04.09.2023', $view->rows[0]->deathDate);
+        self::assertSame('https://obituary.example/a', $view->rows[0]->sourceUrl);
+        self::assertSame('obituary.example', $view->rows[0]->sourceHost);
+        self::assertSame('pending', $view->rows[0]->statusKey);
         self::assertSame('/tree/demo/obituary-review/I1/abc', $view->rows[0]->reviewUrl);
+        self::assertNull($view->rows[0]->revertObituaryUrl);
         self::assertSame('I1:abc', $view->rows[0]->bulkRejectToken);
+        self::assertSame('https://finder.example', $view->rows[0]->originFinderId);
         self::assertSame(1, $view->counts['open']);
         self::assertSame('all', $view->statusFilter);
         self::assertSame('all', $view->flagFilter);

@@ -60,6 +60,7 @@ final class DrainServiceFactory
             IngestServiceFactory::create($scoreConfig),
             new TreeService(new GedcomImportService()),
             JobTransportFactory::create($connection, $restPendingRoot),
+            $connection->baseUrlKey(),
         );
     }
 }

@@ -199,11 +199,13 @@ final readonly class FileMatchStore implements MatchStore
                 return;
             }
 
-            $match     = $existing->match;
-            $writeBack = $existing->writeBack;
+            $match          = $existing->match;
+            $writeBack      = $existing->writeBack;
+            $originFinderId = $existing->originFinderId;
         } else {
-            $match     = ClassifiedMatch::emptyArray($personId, $obituaryUrl);
-            $writeBack = null;
+            $match          = ClassifiedMatch::emptyArray($personId, $obituaryUrl);
+            $writeBack      = null;
+            $originFinderId = null;
         }
 
         $rejected = new StoredMatch(
@@ -213,6 +215,7 @@ final readonly class FileMatchStore implements MatchStore
             $match,
             $reason,
             $writeBack,
+            $originFinderId,
         );
 
         $this->ensureLayout($personId);
@@ -270,6 +273,7 @@ final readonly class FileMatchStore implements MatchStore
             $existing->match,
             $reason,
             $existing->writeBack,
+            $existing->originFinderId,
         );
 
         $this->ensureLayout($personId);
@@ -317,6 +321,7 @@ final readonly class FileMatchStore implements MatchStore
             $existing->match,
             $existing->reason,
             $writeBack->toArray(),
+            $existing->originFinderId,
         );
 
         $this->ensureLayout($personId);
@@ -358,6 +363,9 @@ final readonly class FileMatchStore implements MatchStore
             $obituaryUrl,
             MatchStatus::Pending,
             $existing->match,
+            null,
+            null,
+            $existing->originFinderId,
         );
 
         $this->ensureLayout($personId);
