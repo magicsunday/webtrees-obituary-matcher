@@ -16,13 +16,14 @@ use MagicSunday\ObituaryMatcher\Queue\AtomicFile;
 use RuntimeException;
 use Throwable;
 
-use function glob;
 use function hash;
 use function is_array;
 use function is_dir;
 use function is_file;
 use function rmdir;
+use function scandir;
 use function sprintf;
+use function str_ends_with;
 use function unlink;
 
 /**
@@ -141,10 +142,18 @@ final readonly class FileNegativeMemoryStore implements NegativeMemoryStore
                 return;
             }
 
-            $files = glob($dir . '/*.json');
+            // scandir (not glob): it lists the literal directory, so a base store path that happens to
+            // contain a glob metacharacter ([, ?, *) can never make the listing silently miss files.
+            $entries = scandir($dir);
 
-            if ($files !== false) {
-                foreach ($files as $file) {
+            if ($entries !== false) {
+                foreach ($entries as $entry) {
+                    if (!str_ends_with($entry, '.json')) {
+                        continue;
+                    }
+
+                    $file = $dir . '/' . $entry;
+
                     if (is_file($file)) {
                         unlink($file);
                     }
