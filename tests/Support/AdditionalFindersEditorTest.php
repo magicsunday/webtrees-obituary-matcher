@@ -415,6 +415,27 @@ final class AdditionalFindersEditorTest extends TestCase
     }
 
     /**
+     * The stored token is looked up by base-URL IDENTITY: an exact match and a trailing-slash variant both
+     * resolve the stored token, a finder without a token or an unknown URL resolves null, and an empty
+     * preference resolves null. This is the fallback the control-panel per-row test reuses so an existing
+     * additional finder is probed with its own credential.
+     *
+     * @return void
+     */
+    #[Test]
+    public function storedTokenForResolvesTheTokenByIdentity(): void
+    {
+        $existing = '[{"baseUrl":"https://a.example","token":"tok-a","active":true},'
+            . '{"baseUrl":"https://b.example","active":false}]';
+
+        self::assertSame('tok-a', AdditionalFindersEditor::storedTokenFor($existing, 'https://a.example'));
+        self::assertSame('tok-a', AdditionalFindersEditor::storedTokenFor($existing, 'https://a.example/'));
+        self::assertNull(AdditionalFindersEditor::storedTokenFor($existing, 'https://b.example'));
+        self::assertNull(AdditionalFindersEditor::storedTokenFor($existing, 'https://unknown.example'));
+        self::assertNull(AdditionalFindersEditor::storedTokenFor('', 'https://a.example'));
+    }
+
+    /**
      * A stored additional finder whose token is an empty string contributes no token to the keep-map, so a
      * blank submitted token for that finder resolves to an unauthenticated connection rather than an empty
      * token — pinning the empty-token skip branch of the keep lookup.

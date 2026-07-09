@@ -188,6 +188,7 @@ $statusLabels = [
     <input type="hidden" name="action" value="test">
     <input type="hidden" name="base_url" id="wt-obituary-additional-test-base-url" value="">
     <input type="hidden" name="token" id="wt-obituary-additional-test-token" value="">
+    <input type="hidden" name="remove_token" id="wt-obituary-additional-test-remove" value="">
 </form>
 
 <?php if ($finder->probe !== null) : ?>
@@ -305,6 +306,7 @@ $statusLabels = [
         const testForm = document.getElementById("wt-obituary-additional-finder-test-form");
         const testBaseUrl = document.getElementById("wt-obituary-additional-test-base-url");
         const testToken = document.getElementById("wt-obituary-additional-test-token");
+        const testRemove = document.getElementById("wt-obituary-additional-test-remove");
 
         // The next free row index, seeded from the count of server-rendered rows so a newly added row
         // never collides with an existing one.
@@ -325,9 +327,14 @@ $statusLabels = [
                 testButton.addEventListener("click", function () {
                     const baseUrlInput = row.querySelector("input[name$=\"[base_url]\"]");
                     const tokenInput = row.querySelector("input[name$=\"[token]\"]");
+                    const removeInput = row.querySelector("input[name$=\"[remove_token]\"]");
 
                     testBaseUrl.value = baseUrlInput === null ? "" : baseUrlInput.value;
                     testToken.value = tokenInput === null ? "" : tokenInput.value;
+
+                    // Forward the row's remove-token intent so remove-wins holds: probing a row whose
+                    // "Remove token" box is ticked tests it unauthenticated, matching what a save persists.
+                    testRemove.value = ((removeInput !== null) && removeInput.checked) ? "1" : "";
                     testForm.submit();
                 });
             }

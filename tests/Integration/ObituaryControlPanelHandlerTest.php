@@ -1326,6 +1326,38 @@ final class ObituaryControlPanelHandlerTest extends AbstractEnqueueTestCase
     }
 
     /**
+     * Remove wins over the additional-finder token fallback: a per-row test whose remove-token flag is set
+     * probes the additional finder UNAUTHENTICATED, even though that finder has a stored token — matching
+     * what a save persists. This pins the server contract the per-row test script relies on when it
+     * forwards the row's remove-token state.
+     *
+     * @return void
+     */
+    #[Test]
+    public function testActionRemoveWinsOverTheAdditionalFindersStoredToken(): void
+    {
+        $this->module->setPreference('finder_token', 'primary-token');
+        $this->module->setPreference(
+            'finder_additional',
+            '[{"baseUrl":"https://extra.example","token":"extra-token","active":true}]',
+        );
+
+        $handler = $this->capturingHandler([
+            static fn (): ResponseInterface => self::jsonResponse(self::validCapabilitiesBody()),
+        ]);
+
+        $handler->handle($this->panelPost([
+            'action'       => 'test',
+            'base_url'     => 'https://extra.example',
+            'token'        => '',
+            'remove_token' => '1',
+        ]));
+
+        self::assertNotNull($handler->capturedConnection);
+        self::assertNull($handler->capturedConnection->token());
+    }
+
+    /**
      * The explicit remove-token flag forces an unauthenticated probe even when a token is persisted: the
      * probe connection carries no token.
      *
