@@ -26,14 +26,15 @@ final readonly class WorklistView
     /**
      * Constructor.
      *
-     * @param list<WorklistRowView>                                                       $rows          The page of rows.
-     * @param array{total: int, open: int, confirmed: int, rejected: int, uncertain: int} $counts        The per-status counts over the surviving rows.
-     * @param string                                                                      $statusFilter  The active status filter.
-     * @param string                                                                      $flagFilter    The active quality-flag filter (all/conflict/ambiguous).
-     * @param string                                                                      $sort          The active sort key (score/name/death).
-     * @param int                                                                         $page          The 1-based current page.
-     * @param int                                                                         $totalPages    The total page count (>= 1).
-     * @param int                                                                         $totalFiltered The total rows after filtering.
+     * @param list<WorklistRowView>                                                       $rows               The page of rows.
+     * @param array{total: int, open: int, confirmed: int, rejected: int, uncertain: int} $counts             The per-status counts over the surviving rows.
+     * @param string                                                                      $statusFilter       The active status filter.
+     * @param string                                                                      $flagFilter         The active quality-flag filter (all/conflict/ambiguous).
+     * @param string                                                                      $sort               The active sort key (score/name/death).
+     * @param int                                                                         $page               The 1-based current page.
+     * @param int                                                                         $totalPages         The total page count (>= 1).
+     * @param int                                                                         $totalFiltered      The total rows after filtering.
+     * @param bool                                                                        $hasMultipleOrigins Whether the surviving rows span more than one origin finder (§5.2f); the template shows the origin-finder column only then.
      */
     public function __construct(
         public array $rows,
@@ -44,6 +45,7 @@ final readonly class WorklistView
         public int $page,
         public int $totalPages,
         public int $totalFiltered,
+        public bool $hasMultipleOrigins = false,
     ) {
     }
 }

@@ -73,6 +73,7 @@ final class WorklistPresenterTest extends TestCase
         bool $ambiguous = false,
         ?string $deathDate = '2023-09-04',
         ?string $personName = null,
+        ?string $originFinderId = null,
     ): array {
         $match = [
             'personId'        => $id,
@@ -89,7 +90,7 @@ final class WorklistPresenterTest extends TestCase
         ];
 
         return [
-            'match'      => new StoredMatch($id, $match['obituaryUrl'], $status, $match),
+            'match'      => new StoredMatch($id, $match['obituaryUrl'], $status, $match, originFinderId: $originFinderId),
             'personName' => $personName ?? 'Person ' . $id,
             'personId'   => $id,
             'personUrl'  => '/p/' . $id,
@@ -112,6 +113,40 @@ final class WorklistPresenterTest extends TestCase
 
         /** @var ClassifiedMatchArray $payload */
         return $payload;
+    }
+
+    /**
+     * Each row carries the origin finder of its match (§5.2f), and the view flags multiple origins so the
+     * template shows the origin-finder column — but only when the surviving rows span MORE than one origin,
+     * so a single-finder tree (or one with no recorded origin) does not show a redundant column.
+     *
+     * @return void
+     */
+    #[Test]
+    public function multipleOriginsAreFlaggedAndCarriedOntoTheRows(): void
+    {
+        $twoOrigins = (new WorklistPresenter())->build([
+            $this->entry('I1', 90, MatchStatus::Pending, originFinderId: 'https://a.example'),
+            $this->entry('I2', 80, MatchStatus::Pending, originFinderId: 'https://b.example'),
+        ], 'all', 'all', 'score', 1);
+
+        self::assertTrue($twoOrigins->hasMultipleOrigins);
+        self::assertSame('https://a.example', $twoOrigins->rows[0]->originFinderId);
+        self::assertSame('https://b.example', $twoOrigins->rows[1]->originFinderId);
+
+        $oneOrigin = (new WorklistPresenter())->build([
+            $this->entry('I1', 90, MatchStatus::Pending, originFinderId: 'https://a.example'),
+            $this->entry('I2', 80, MatchStatus::Pending, originFinderId: 'https://a.example'),
+        ], 'all', 'all', 'score', 1);
+
+        self::assertFalse($oneOrigin->hasMultipleOrigins);
+
+        $noOrigin = (new WorklistPresenter())->build([
+            $this->entry('I1', 90, MatchStatus::Pending),
+        ], 'all', 'all', 'score', 1);
+
+        self::assertFalse($noOrigin->hasMultipleOrigins);
+        self::assertNull($noOrigin->rows[0]->originFinderId);
     }
 
     /**

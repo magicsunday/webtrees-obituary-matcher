@@ -53,6 +53,7 @@ final class WorklistViewTest extends TestCase
             '/tree/demo/obituary-review/I1/abc',
             null,
             'I1:abc',
+            'https://finder.example',
         );
 
         $view = new WorklistView(

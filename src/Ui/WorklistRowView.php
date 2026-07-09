@@ -42,6 +42,8 @@ final readonly class WorklistRowView
      * @param string|null $bulkRejectToken   The `personId:rowKey` selection token for the bulk-reject
      *                                       checkbox, set only on a non-terminal (Pending/Uncertain) row;
      *                                       null on a terminal row (no bulk-reject checkbox).
+     * @param string|null $originFinderId    The identity of the finder that produced this match (§5.2f),
+     *                                       or null for a single-finder / legacy row.
      */
     public function __construct(
         public string $personName,
@@ -56,6 +58,7 @@ final readonly class WorklistRowView
         public ?string $reviewUrl,
         public ?string $revertObituaryUrl,
         public ?string $bulkRejectToken,
+        public ?string $originFinderId,
     ) {
     }
 }

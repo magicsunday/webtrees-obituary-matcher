@@ -91,7 +91,43 @@ final readonly class WorklistPresenter
             $rows[] = $this->toRow($entry);
         }
 
-        return new WorklistView($rows, $counts, $filter, $flag, $order, $clampedPage, $totalPages, $totalFiltered);
+        return new WorklistView(
+            $rows,
+            $counts,
+            $filter,
+            $flag,
+            $order,
+            $clampedPage,
+            $totalPages,
+            $totalFiltered,
+            $this->hasMultipleOrigins($entries),
+        );
+    }
+
+    /**
+     * Whether the surviving rows span more than one origin finder (§5.2f), computed over ALL entries (not
+     * just the current page or filter) so the origin-finder column shows consistently. Rows without a
+     * recorded origin (single-finder / legacy) do not count towards the distinct total, so a tree whose
+     * matches all came from one finder — or from none recorded — hides the column rather than showing a
+     * redundant single value.
+     *
+     * @param list<array{match: StoredMatch, personName: string, personId: string, personUrl: string, reviewUrl: string|null}> $entries The surviving rows.
+     *
+     * @return bool Whether more than one distinct origin finder is present.
+     */
+    private function hasMultipleOrigins(array $entries): bool
+    {
+        $origins = [];
+
+        foreach ($entries as $entry) {
+            $origin = $entry['match']->originFinderId;
+
+            if ($origin !== null) {
+                $origins[$origin] = true;
+            }
+        }
+
+        return count($origins) > 1;
     }
 
     /**
@@ -315,6 +351,7 @@ final readonly class WorklistPresenter
             $entry['reviewUrl'],
             $match->status === MatchStatus::Confirmed ? $match->obituaryUrl : null,
             $bulkRejectToken,
+            $match->originFinderId,
         );
     }
 }

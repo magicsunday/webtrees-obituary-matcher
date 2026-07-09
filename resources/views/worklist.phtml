@@ -158,6 +158,9 @@ $navParams = [
                         <th><?= e(I18N::translate('Score')) ?></th>
                         <th><?= e(I18N::translate('Date of death')) ?></th>
                         <th><?= e(I18N::translate('Source')) ?></th>
+                        <?php if ($view->hasMultipleOrigins) : ?>
+                            <th><?= e(I18N::translate('Origin finder')) ?></th>
+                        <?php endif ?>
                         <th><?= e(I18N::translate('Status')) ?></th>
                         <th><span class="visually-hidden"><?= e(I18N::translate('Review')) ?></span></th>
                     </tr>
@@ -187,6 +190,9 @@ $navParams = [
                                     <?= e($row->sourceHost ?? '') ?>
                                 <?php endif ?>
                             </td>
+                            <?php if ($view->hasMultipleOrigins) : ?>
+                                <td class="om-origin"><?= e($row->originFinderId ?? '') ?></td>
+                            <?php endif ?>
                             <td class="om-status"><?= e($statusLabels[$row->statusKey] ?? $row->statusKey) ?></td>
                             <td class="om-review">
                                 <?php if ($row->reviewUrl !== null) : ?>
