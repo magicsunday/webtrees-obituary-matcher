@@ -1391,6 +1391,38 @@ final class ObituaryControlPanelHandlerTest extends AbstractEnqueueTestCase
     }
 
     /**
+     * A per-row test of a TOKENLESS additional finder probes it UNAUTHENTICATED and never borrows the
+     * primary token — production queries a tokenless additional finder with no credential, so borrowing
+     * the primary secret would both mislead the readout and leak that secret to an endpoint the admin
+     * left unauthenticated.
+     *
+     * @return void
+     */
+    #[Test]
+    public function testActionDoesNotBorrowThePrimaryTokenForATokenlessAdditionalFinder(): void
+    {
+        $this->module->setPreference('finder_token', 'primary-token');
+        $this->module->setPreference(
+            'finder_additional',
+            '[{"baseUrl":"https://extra.example","active":true}]',
+        );
+
+        $handler = $this->capturingHandler([
+            static fn (): ResponseInterface => self::jsonResponse(self::validCapabilitiesBody()),
+        ]);
+
+        $handler->handle($this->panelPost([
+            'action'      => 'test',
+            'test_target' => 'additional',
+            'base_url'    => 'https://extra.example',
+            'token'       => '',
+        ]));
+
+        self::assertNotNull($handler->capturedConnection);
+        self::assertNull($handler->capturedConnection->token());
+    }
+
+    /**
      * The explicit remove-token flag forces an unauthenticated probe even when a token is persisted: the
      * probe connection carries no token.
      *

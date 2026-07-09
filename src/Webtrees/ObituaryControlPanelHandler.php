@@ -478,16 +478,17 @@ class ObituaryControlPanelHandler implements RequestHandlerInterface
         // so the per-row test of an additional finder probes it with its own credential rather than the
         // primary's, while the primary test (and a brand-new URL) still reuses the primary token.
         $submittedBaseUrl = Validator::parsedBody($request)->string('base_url', '');
-        $fallbackToken    = $this->testFallbackToken($submittedBaseUrl);
+        $isAdditionalTest = Validator::parsedBody($request)->string('test_target', '') === 'additional';
+        $fallbackToken    = $this->testFallbackToken($submittedBaseUrl, $isAdditionalTest);
 
         [$baseUrl, , , $token] = $this->resolveFinderInput($request, $fallbackToken);
 
         // The finder PROBED is always the submitted base URL. What the primary base-URL FIELD echoes back
-        // differs by test target: a per-row additional-finder test (marked `test_target === 'additional'`)
-        // keeps the PERSISTED primary in that field, so probing an additional finder does not overwrite the
-        // primary input (which a later save would then persist as the primary, and reject as a duplicate of
-        // the additional row). A primary test echoes the submitted URL, preserving a typed-but-unsaved value.
-        $echoBaseUrl = Validator::parsedBody($request)->string('test_target', '') === 'additional'
+        // differs by test target: a per-row additional-finder test keeps the PERSISTED primary in that
+        // field, so probing an additional finder does not overwrite the primary input (which a later save
+        // would then persist as the primary, and reject as a duplicate of the additional row). A primary
+        // test echoes the submitted URL, preserving a typed-but-unsaved value.
+        $echoBaseUrl = $isAdditionalTest
             ? $this->module->getPreference('finder_base_url', '')
             : $baseUrl;
 
@@ -513,16 +514,19 @@ class ObituaryControlPanelHandler implements RequestHandlerInterface
     /**
      * Resolves the token a blank test-token field reuses for the finder at the submitted base URL: the
      * stored token of the configured ADDITIONAL finder with that base URL (matched by identity) when one
-     * carries a token, otherwise the primary finder's persisted token. So the per-row test of an existing
-     * additional finder probes it with its own credential, while the primary test — and a base URL that
-     * is not a configured additional finder — reuses the primary token as before. A typed token still wins
-     * upstream in {@see self::resolveFinderInput()}; this only supplies the blank-field fallback.
+     * carries a token. Otherwise the fallback depends on the test target — a per-row ADDITIONAL test never
+     * borrows the primary token (a tokenless or not-yet-saved additional finder is queried unauthenticated
+     * in the real fan-out, so borrowing the primary secret would both mislead the readout and leak that
+     * secret to an endpoint the admin left unauthenticated), whereas a PRIMARY test (or a base URL that is
+     * not a configured additional finder) reuses the primary token. A typed token still wins upstream in
+     * {@see self::resolveFinderInput()}; this only supplies the blank-field fallback.
      *
      * @param string $submittedBaseUrl The base URL the test targets.
+     * @param bool   $isAdditionalTest Whether the test targets a per-row additional finder.
      *
-     * @return string|null The fallback token, or null when neither finder carries one.
+     * @return string|null The fallback token, or null when none applies.
      */
-    private function testFallbackToken(string $submittedBaseUrl): ?string
+    private function testFallbackToken(string $submittedBaseUrl, bool $isAdditionalTest): ?string
     {
         $additionalToken = AdditionalFindersEditor::storedTokenFor(
             $this->module->getPreference('finder_additional', ''),
@@ -531,6 +535,13 @@ class ObituaryControlPanelHandler implements RequestHandlerInterface
 
         if ($additionalToken !== null) {
             return $additionalToken;
+        }
+
+        // A per-row additional test must never fall back to the primary secret: production queries each
+        // additional finder with its OWN token or none, so the probe stays faithful and the primary token
+        // is never sent to a different endpoint.
+        if ($isAdditionalTest) {
+            return null;
         }
 
         $primaryToken = $this->module->getPreference('finder_token', '');
