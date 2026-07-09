@@ -191,7 +191,7 @@ $navParams = [
                                 <?php endif ?>
                             </td>
                             <?php if ($view->hasMultipleOrigins) : ?>
-                                <td class="om-origin"><?= e($row->originFinderId ?? '') ?></td>
+                                <td class="om-origin text-break"><?= e($row->originFinderId ?? '') ?></td>
                             <?php endif ?>
                             <td class="om-status"><?= e($statusLabels[$row->statusKey] ?? $row->statusKey) ?></td>
                             <td class="om-review">
