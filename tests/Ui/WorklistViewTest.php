@@ -67,7 +67,18 @@ final class WorklistViewTest extends TestCase
             1,
         );
 
+        // Pin EVERY positional field to its distinct fixture value: the whole point of this shape
+        // test is to catch a constructor reorder, so a mid-constructor swap (e.g. the adjacent
+        // nullable-string pair sourceUrl@7 / sourceHost@8) must not be able to pass silently.
         self::assertSame('Max Mustermann', $view->rows[0]->personName);
+        self::assertSame('I1', $view->rows[0]->personId);
+        self::assertSame('/tree/demo/individual/I1', $view->rows[0]->personUrl);
+        self::assertSame('strong', $view->rows[0]->bandKey);
+        self::assertSame(92, $view->rows[0]->score);
+        self::assertSame('04.09.2023', $view->rows[0]->deathDate);
+        self::assertSame('https://obituary.example/a', $view->rows[0]->sourceUrl);
+        self::assertSame('obituary.example', $view->rows[0]->sourceHost);
+        self::assertSame('pending', $view->rows[0]->statusKey);
         self::assertSame('/tree/demo/obituary-review/I1/abc', $view->rows[0]->reviewUrl);
         self::assertNull($view->rows[0]->revertObituaryUrl);
         self::assertSame('I1:abc', $view->rows[0]->bulkRejectToken);
