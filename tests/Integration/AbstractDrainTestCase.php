@@ -89,20 +89,23 @@ abstract class AbstractDrainTestCase extends AbstractStoreTestCase
      *
      * @return DrainService
      */
-    protected function drainService(JobTransport $transport, ?MatchStore $storeOverride = null): DrainService
+    protected function drainService(JobTransport $transport, ?MatchStore $storeOverride = null, ?NegativeMemoryStore $negativeMemoryOverride = null): DrainService
     {
         $storeDir = $this->storeRoot;
 
-        return new class(new CandidateRepository(), IngestServiceFactory::create(), new TreeService(new GedcomImportService()), $transport, $storeDir, $storeOverride, self::TEST_FINDER_ID) extends DrainService {
+        return new class(new CandidateRepository(), IngestServiceFactory::create(), new TreeService(new GedcomImportService()), $transport, $storeDir, $storeOverride, self::TEST_FINDER_ID, $negativeMemoryOverride) extends DrainService {
             /**
-             * @param CandidateRepository $repository    The candidate repository.
-             * @param IngestService       $ingest        The enriched ingest pipeline.
-             * @param TreeService         $treeService   The tree lookup.
-             * @param JobTransport        $transport     The job transport.
-             * @param string              $storeRoot     The isolated per-tree store base directory.
-             * @param MatchStore|null     $storeOverride The store every storeForTree() call returns, or
-             *                                           null to build the isolated per-tree file store.
-             * @param string              $finderId      The finder identity the drain records under.
+             * @param CandidateRepository      $repository             The candidate repository.
+             * @param IngestService            $ingest                 The enriched ingest pipeline.
+             * @param TreeService              $treeService            The tree lookup.
+             * @param JobTransport             $transport              The job transport.
+             * @param string                   $storeRoot              The isolated per-tree store base directory.
+             * @param MatchStore|null          $storeOverride          The store every storeForTree() call returns, or
+             *                                                         null to build the isolated per-tree file store.
+             * @param string                   $finderId               The finder identity the drain records under.
+             * @param NegativeMemoryStore|null $negativeMemoryOverride The negative-memory store every
+             *                                                         negativeMemoryStoreForTree() call returns, or
+             *                                                         null to build the isolated per-tree file store.
              */
             public function __construct(
                 CandidateRepository $repository,
@@ -112,6 +115,7 @@ abstract class AbstractDrainTestCase extends AbstractStoreTestCase
                 private readonly string $storeRoot,
                 private readonly ?MatchStore $storeOverride,
                 string $finderId,
+                private readonly ?NegativeMemoryStore $negativeMemoryOverride,
             ) {
                 parent::__construct($repository, $ingest, $treeService, $transport, $finderId);
             }
@@ -154,7 +158,7 @@ abstract class AbstractDrainTestCase extends AbstractStoreTestCase
              */
             protected function negativeMemoryStoreForTree(Tree $tree): NegativeMemoryStore
             {
-                return new FileNegativeMemoryStore(
+                return $this->negativeMemoryOverride ?? new FileNegativeMemoryStore(
                     MatchStoreFactory::pathForTreeId($this->storeRoot . '/negative-memory', $tree->id())
                 );
             }
