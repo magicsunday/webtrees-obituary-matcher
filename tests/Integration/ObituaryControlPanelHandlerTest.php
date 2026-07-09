@@ -1216,6 +1216,39 @@ final class ObituaryControlPanelHandlerTest extends AbstractEnqueueTestCase
     }
 
     /**
+     * A per-row additional-finder test (marked `test_target=additional`) keeps the PERSISTED primary base
+     * URL in the primary field rather than echoing the tested additional URL into it — so probing an
+     * additional finder never clobbers the primary input (which a later save would otherwise persist as the
+     * primary and reject as a duplicate of the additional row). The tested URL still appears in its own row.
+     *
+     * @return void
+     */
+    #[Test]
+    public function testActionForAnAdditionalFinderKeepsThePersistedPrimaryInThePrimaryField(): void
+    {
+        $this->searchableTree('panel-additional-test', 1);
+        $this->module->setPreference('finder_base_url', 'https://primary.example');
+        $this->module->setPreference(
+            'finder_additional',
+            '[{"baseUrl":"https://extra.example","active":true}]',
+        );
+
+        $handler = $this->renderingProbeHandler([
+            static fn (): ResponseInterface => self::jsonResponse(self::validCapabilitiesBody()),
+        ]);
+
+        $html = (string) $handler->handle($this->panelPost([
+            'action'      => 'test',
+            'test_target' => 'additional',
+            'base_url'    => 'https://extra.example',
+            'token'       => '',
+        ]))->getBody();
+
+        self::assertStringContainsString('id="base_url" name="base_url" value="https://primary.example"', $html);
+        self::assertStringContainsString('name="additional[0][base_url]" value="https://extra.example"', $html);
+    }
+
+    /**
      * A probe-seam wiring fault (the {@see ObituaryControlPanelHandler::capabilitiesProbe()} seam throws)
      * degrades to an unreachable readout and STILL renders the panel rather than escaping handle() as an
      * unhandled 500 — pinning the action's `catch (Throwable)` defence.

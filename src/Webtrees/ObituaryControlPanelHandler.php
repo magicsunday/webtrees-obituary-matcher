@@ -482,12 +482,21 @@ class ObituaryControlPanelHandler implements RequestHandlerInterface
 
         [$baseUrl, , , $token] = $this->resolveFinderInput($request, $fallbackToken);
 
+        // The finder PROBED is always the submitted base URL. What the primary base-URL FIELD echoes back
+        // differs by test target: a per-row additional-finder test (marked `test_target === 'additional'`)
+        // keeps the PERSISTED primary in that field, so probing an additional finder does not overwrite the
+        // primary input (which a later save would then persist as the primary, and reject as a duplicate of
+        // the additional row). A primary test echoes the submitted URL, preserving a typed-but-unsaved value.
+        $echoBaseUrl = Validator::parsedBody($request)->string('test_target', '') === 'additional'
+            ? $this->module->getPreference('finder_base_url', '')
+            : $baseUrl;
+
         try {
             $connection = FinderConnection::rest($baseUrl, $token);
         } catch (InvalidArgumentException) {
             // A missing/malformed base URL or a control-character token is rejected at the single source
             // before any HTTP is attempted, so the readout reports the invalid configuration without probing.
-            return $this->renderTestResult($baseUrl, CapabilitiesProbeResult::invalid());
+            return $this->renderTestResult($echoBaseUrl, CapabilitiesProbeResult::invalid());
         }
 
         try {
@@ -498,7 +507,7 @@ class ObituaryControlPanelHandler implements RequestHandlerInterface
             $result = CapabilitiesProbeResult::unreachable();
         }
 
-        return $this->renderTestResult($baseUrl, $result);
+        return $this->renderTestResult($echoBaseUrl, $result);
     }
 
     /**

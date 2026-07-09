@@ -186,6 +186,9 @@ $statusLabels = [
 <form method="post" action="<?= e(route(ObituaryControlPanelHandler::ROUTE_NAME)) ?>" id="wt-obituary-additional-finder-test-form">
     <?= csrf_field() ?>
     <input type="hidden" name="action" value="test">
+    <?php // Marks this as a per-row additional-finder test, so the re-render keeps the persisted primary
+          // base URL in the primary field rather than echoing the tested additional URL into it. ?>
+    <input type="hidden" name="test_target" value="additional">
     <input type="hidden" name="base_url" id="wt-obituary-additional-test-base-url" value="">
     <input type="hidden" name="token" id="wt-obituary-additional-test-token" value="">
     <input type="hidden" name="remove_token" id="wt-obituary-additional-test-remove" value="">
