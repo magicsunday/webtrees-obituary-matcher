@@ -193,22 +193,33 @@ class DrainService
 
                 $coverageStore->record($personIdString, $portals);
 
-                // §5.2d negative memory: ONLY a genuine miss (every portal searched OK, nothing found)
-                // records that this person's current search came back empty; a portal outage
-                // (PortalFailed/Skipped) or a hit (Found) must not. Derived from the SAME coverage the
-                // UI reads, so the two never disagree. A person with no held candidate (deleted/private)
-                // has no signature to key the memory on, so it is skipped.
+                $outcome = SearchOutcome::fromCoverage($portals);
+
+                // §5.2d/§5.2f negative memory: ONLY a genuine miss (every portal searched OK, nothing
+                // found) records that THIS finder's current search came back empty; a portal outage
+                // (PortalFailed/Skipped) must not. Keyed per finder so one finder's miss never makes the
+                // matcher believe another finder already searched the person. Derived from the SAME
+                // coverage the UI reads, so the two never disagree. A person with no held candidate
+                // (deleted/private) has no signature to key the memory on, so it is skipped. The finder
+                // identity is the drain's baseUrlKey; a drain constructed without one falls back to the
+                // empty-string default finder, which the enqueue side mirrors.
                 if (
-                    (SearchOutcome::fromCoverage($portals) === SearchOutcome::NoNotices)
+                    ($outcome === SearchOutcome::NoNotices)
                     && array_key_exists($personIdString, $candidatesById)
                 ) {
                     $negativeMemoryStore->record(
                         $personIdString,
+                        $this->finderId ?? '',
                         new NegativeMemoryEntry(
                             SearchSignatureFactory::fromCandidate($candidatesById[$personIdString]),
                             $recordedAt,
                         ),
                     );
+                } elseif ($outcome === SearchOutcome::Found) {
+                    // Any finder finding a notice clears the person's WHOLE negative memory: a person
+                    // with a hit is no longer a nothing-found case, so a stale miss recorded by another
+                    // finder must not keep suppressing a re-search.
+                    $negativeMemoryStore->clear($personIdString);
                 }
             }
 

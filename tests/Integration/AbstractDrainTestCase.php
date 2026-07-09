@@ -57,6 +57,12 @@ abstract class AbstractDrainTestCase extends AbstractStoreTestCase
     protected const string PINNED_NOW = '2026-06-23T10:15:30+00:00';
 
     /**
+     * The finder identity the drain double is wired with, so a test asserts the negative memory the
+     * drain records under this finder's key (§5.2f), mirroring the CLI's per-finder baseUrlKey.
+     */
+    protected const string TEST_FINDER_ID = 'https://finder.test';
+
+    /**
      * {@inheritDoc}
      *
      * @return string
@@ -87,7 +93,7 @@ abstract class AbstractDrainTestCase extends AbstractStoreTestCase
     {
         $storeDir = $this->storeRoot;
 
-        return new class(new CandidateRepository(), IngestServiceFactory::create(), new TreeService(new GedcomImportService()), $transport, $storeDir, $storeOverride) extends DrainService {
+        return new class(new CandidateRepository(), IngestServiceFactory::create(), new TreeService(new GedcomImportService()), $transport, $storeDir, $storeOverride, self::TEST_FINDER_ID) extends DrainService {
             /**
              * @param CandidateRepository $repository    The candidate repository.
              * @param IngestService       $ingest        The enriched ingest pipeline.
@@ -96,6 +102,7 @@ abstract class AbstractDrainTestCase extends AbstractStoreTestCase
              * @param string              $storeRoot     The isolated per-tree store base directory.
              * @param MatchStore|null     $storeOverride The store every storeForTree() call returns, or
              *                                           null to build the isolated per-tree file store.
+             * @param string              $finderId      The finder identity the drain records under.
              */
             public function __construct(
                 CandidateRepository $repository,
@@ -104,8 +111,9 @@ abstract class AbstractDrainTestCase extends AbstractStoreTestCase
                 JobTransport $transport,
                 private readonly string $storeRoot,
                 private readonly ?MatchStore $storeOverride,
+                string $finderId,
             ) {
-                parent::__construct($repository, $ingest, $treeService, $transport);
+                parent::__construct($repository, $ingest, $treeService, $transport, $finderId);
             }
 
             /**

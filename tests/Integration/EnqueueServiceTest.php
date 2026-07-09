@@ -146,6 +146,7 @@ final class EnqueueServiceTest extends AbstractEnqueueTestCase
         $signature = SearchSignatureFactory::fromCandidate($candidates['I1']);
         $this->negativeMemoryStoreFor($tree)->record(
             'I1',
+            self::TEST_FINDER_ID,
             new NegativeMemoryEntry($signature, (new DateTimeImmutable(self::PINNED_NOW))->getTimestamp()),
         );
 
@@ -174,6 +175,43 @@ final class EnqueueServiceTest extends AbstractEnqueueTestCase
     }
 
     /**
+     * §5.2f: a fresh, same-signature miss recorded by a DIFFERENT finder does NOT suppress this finder's
+     * re-enqueue — each finder decides its own re-search from its own memory. This is the core multi-finder
+     * fix: finder A missing a person must never make finder B skip searching them.
+     *
+     * @return void
+     */
+    #[Test]
+    public function aMissRecordedByAnotherFinderDoesNotSuppressThisFinder(): void
+    {
+        $tree = $this->importFixtureTree(
+            "0 HEAD\n1 SOUR t\n1 GEDC\n2 VERS 5.5.1\n1 CHAR UTF-8\n"
+            . "0 @I1@ INDI\n1 NAME Otto /Searchable/\n2 GIVN Otto\n2 SURN Searchable\n1 SEX M\n1 BIRT\n2 DATE 17 MAR 1930\n0 TRLR\n",
+            'enqueue-negmem-otherfinder',
+        );
+
+        // Seed a fresh, same-signature miss under a DIFFERENT finder than the one this enqueue serves.
+        $candidates = (new CandidateRepository())->findByXrefs($tree, ['I1']);
+        self::assertArrayHasKey('I1', $candidates);
+        $this->negativeMemoryStoreFor($tree)->record(
+            'I1',
+            'https://finder.other',
+            new NegativeMemoryEntry(
+                SearchSignatureFactory::fromCandidate($candidates['I1']),
+                (new DateTimeImmutable(self::PINNED_NOW))->getTimestamp(),
+            ),
+        );
+
+        // This finder (TEST_FINDER_ID) has no miss on record for I1, so it enqueues the person normally.
+        $run = $this->enqueueService()->enqueue($tree->id(), 50, 90, 'de-DE', self::REFERENCE_YEAR);
+
+        self::assertNotNull($run->jobId);
+        self::assertSame(1, $run->candidates);
+        self::assertSame(0, $run->suppressed);
+        self::assertSame(['I1'], $this->queuedPersonIds($run->jobId));
+    }
+
+    /**
      * §5.2d: a suppressed candidate is skipped DURING selection, so it does not consume a --limit slot —
      * a lower-xref person with a fresh genuine miss must not starve a never-searched higher-xref person
      * when the cap is 1. With the suppression applied after the window filled, I1 would take the only
@@ -196,6 +234,7 @@ final class EnqueueServiceTest extends AbstractEnqueueTestCase
         self::assertArrayHasKey('I1', $candidates);
         $this->negativeMemoryStoreFor($tree)->record(
             'I1',
+            self::TEST_FINDER_ID,
             new NegativeMemoryEntry(SearchSignatureFactory::fromCandidate($candidates['I1']), (new DateTimeImmutable(self::PINNED_NOW))->getTimestamp()),
         );
 
