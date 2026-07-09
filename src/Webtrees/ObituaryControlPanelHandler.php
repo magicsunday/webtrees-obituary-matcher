@@ -539,10 +539,13 @@ class ObituaryControlPanelHandler implements RequestHandlerInterface
     }
 
     /**
-     * Builds the finder view echoing the SUBMITTED base URL plus the persisted token-is-set flag, maps
-     * the probe result to its plain readout and re-renders the panel.
+     * Builds the finder view echoing the given base URL into the primary field plus the persisted
+     * token-is-set flag, maps the probe result to its plain readout and re-renders the panel. The caller
+     * decides which URL to echo: the submitted one for a primary test (preserving a typed-but-unsaved
+     * value), or the persisted primary for a per-row additional-finder test (so probing an additional
+     * finder does not clobber the primary input).
      *
-     * @param string                  $baseUrl The submitted base URL, echoed back into the form.
+     * @param string                  $baseUrl The base URL to echo back into the primary field.
      * @param CapabilitiesProbeResult $result  The probe outcome to project into the readout.
      *
      * @return ResponseInterface The re-rendered panel.

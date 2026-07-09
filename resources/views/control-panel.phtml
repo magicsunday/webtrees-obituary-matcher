@@ -315,6 +315,13 @@ $statusLabels = [
         // never collides with an existing one.
         let nextIndex = Number(container.dataset.nextIndex);
 
+        // The per-row test needs the hidden test form and its three fields; bind the test button only when
+        // all are present, so a customized template that drops one cannot NPE on a `.value` write.
+        const canTest = (testForm !== null)
+            && (testBaseUrl !== null)
+            && (testToken !== null)
+            && (testRemove !== null);
+
         const bindRow = function (row) {
             const removeButton = row.querySelector("[data-remove-additional-finder]");
 
@@ -326,7 +333,7 @@ $statusLabels = [
 
             const testButton = row.querySelector("[data-test-additional-finder]");
 
-            if ((testButton !== null) && (testForm !== null)) {
+            if ((testButton !== null) && canTest) {
                 testButton.addEventListener("click", function () {
                     const baseUrlInput = row.querySelector("input[name$=\"[base_url]\"]");
                     const tokenInput = row.querySelector("input[name$=\"[token]\"]");
