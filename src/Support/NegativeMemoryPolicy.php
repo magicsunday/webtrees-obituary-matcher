@@ -15,12 +15,14 @@ use MagicSunday\ObituaryMatcher\Domain\NegativeMemoryEntry;
 use MagicSunday\ObituaryMatcher\Domain\SearchSignature;
 
 /**
- * The re-search policy (§5.2d): decides, from a person's recorded negative memory and the search that
- * would run now, whether re-searching should be suppressed. A search is suppressed only while a genuine
- * miss is BOTH still fresh (recorded within the TTL) AND still describes the same search (the recorded
- * signature matches the current one). Once the TTL elapses or the person's searchable data changes, the
- * person is eligible again — and an explicit operator override always bypasses this, which is expressed
- * by the caller simply not consulting the policy.
+ * The re-search policy (§5.2d/§5.2f): decides, from a single recorded negative memory and the search
+ * that would run now, whether re-searching should be suppressed. The memory is per (person × finder), so
+ * the caller passes the entry of the finder whose re-search is being decided and each finder is judged
+ * independently. A search is suppressed only while a genuine miss is BOTH still fresh (recorded within
+ * the TTL) AND still describes the same search (the recorded signature matches the current one). Once
+ * the TTL elapses or the person's searchable data changes, the person is eligible again — and an
+ * explicit operator override always bypasses this, which is expressed by the caller simply not
+ * consulting the policy.
  *
  * @author  Rico Sonntag <mail@ricosonntag.de>
  * @license https://opensource.org/licenses/GPL-3.0 GNU General Public License v3.0

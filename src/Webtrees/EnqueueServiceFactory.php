@@ -56,6 +56,7 @@ final class EnqueueServiceFactory
             new UrlHostNormalizer(),
             new TreeService(new GedcomImportService()),
             JobTransportFactory::create($connection, $restPendingRoot),
+            $connection->baseUrlKey(),
         );
     }
 }

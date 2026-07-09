@@ -178,9 +178,10 @@ class DrainService
             $result = $this->ingest->ingest($job->notices, $job->coverage, $candidatesById, $store, $this->finderId);
 
             // Persist each requested person's per-portal coverage so a later render can tell a genuine
-            // miss from a portal outage. Recorded BEFORE markIngested so a record failure falls through to
-            // the catch below and parks the job as failed (IngestFailed) rather than marking it ingested
-            // with its coverage silently dropped; record is idempotent last-write-wins.
+            // miss from a portal outage. Recorded BEFORE markIngested so a COVERAGE record failure falls
+            // through to the catch below and parks the job as failed (IngestFailed) rather than marking it
+            // ingested with its coverage silently dropped; record is idempotent last-write-wins. The
+            // negative-memory record/clear below is, by contrast, best-effort (see its own comment).
             $coverageStore       = $this->coverageStoreForTree($tree);
             $negativeMemoryStore = $this->negativeMemoryStoreForTree($tree);
             $recordedAt          = $this->now()->getTimestamp();
@@ -193,22 +194,44 @@ class DrainService
 
                 $coverageStore->record($personIdString, $portals);
 
-                // §5.2d negative memory: ONLY a genuine miss (every portal searched OK, nothing found)
-                // records that this person's current search came back empty; a portal outage
-                // (PortalFailed/Skipped) or a hit (Found) must not. Derived from the SAME coverage the
-                // UI reads, so the two never disagree. A person with no held candidate (deleted/private)
-                // has no signature to key the memory on, so it is skipped.
-                if (
-                    (SearchOutcome::fromCoverage($portals) === SearchOutcome::NoNotices)
-                    && array_key_exists($personIdString, $candidatesById)
-                ) {
-                    $negativeMemoryStore->record(
-                        $personIdString,
-                        new NegativeMemoryEntry(
-                            SearchSignatureFactory::fromCandidate($candidatesById[$personIdString]),
-                            $recordedAt,
-                        ),
-                    );
+                $outcome = SearchOutcome::fromCoverage($portals);
+
+                // §5.2d/§5.2f negative memory: ONLY a genuine miss (every portal searched OK, nothing
+                // found) records that THIS finder's current search came back empty; a portal outage
+                // (PortalFailed/Skipped) must not. Keyed per finder so one finder's miss never makes the
+                // matcher believe another finder already searched the person. Derived from the SAME
+                // coverage the UI reads, so the two never disagree. A person with no held candidate
+                // (deleted/private) has no signature to key the memory on, so it is skipped. The finder
+                // identity is the drain's baseUrlKey; a drain constructed without one falls back to
+                // NegativeMemoryStore::DEFAULT_FINDER_ID, which the enqueue side reads under the same key.
+                //
+                // Best-effort, UNLIKE the coverage record above: negative memory is advisory soft-cache
+                // state (a lost write costs at most one unnecessary re-search), so a transient failure —
+                // e.g. a concurrent drain's clear() removing this person's directory in the window between
+                // record()'s ensureDirectory and its write — must never park an otherwise-successful job
+                // (whose matches and coverage already committed) nor abort the coverage loop for the
+                // persons after this one. So it is scoped per-person and swallowed.
+                try {
+                    if (
+                        ($outcome === SearchOutcome::NoNotices)
+                        && array_key_exists($personIdString, $candidatesById)
+                    ) {
+                        $negativeMemoryStore->record(
+                            $personIdString,
+                            $this->finderId ?? NegativeMemoryStore::DEFAULT_FINDER_ID,
+                            new NegativeMemoryEntry(
+                                SearchSignatureFactory::fromCandidate($candidatesById[$personIdString]),
+                                $recordedAt,
+                            ),
+                        );
+                    } elseif ($outcome === SearchOutcome::Found) {
+                        // Any finder finding a notice clears the person's WHOLE negative memory: a person
+                        // with a hit is no longer a nothing-found case, so a stale miss recorded by another
+                        // finder must not keep suppressing a re-search.
+                        $negativeMemoryStore->clear($personIdString);
+                    }
+                } catch (Throwable) {
+                    // Deliberately swallowed: negative memory is a soft cache; see the comment above.
                 }
             }
 

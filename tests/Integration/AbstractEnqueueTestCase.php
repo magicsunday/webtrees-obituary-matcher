@@ -56,6 +56,12 @@ abstract class AbstractEnqueueTestCase extends AbstractStoreTestCase
     protected const string PINNED_NOW = '2026-06-23T10:15:30+00:00';
 
     /**
+     * The finder identity the enqueue double is wired with, so a test seeds a negative memory under this
+     * finder's key (§5.2f) and the re-search policy reads it back for the same finder.
+     */
+    protected const string TEST_FINDER_ID = 'https://finder.test';
+
+    /**
      * @var RecordingJobTransport The transport the last enqueueService() build was wired to, so a
      *                            scenario can read the submitted request back after the run.
      */
@@ -105,7 +111,7 @@ abstract class AbstractEnqueueTestCase extends AbstractStoreTestCase
 
         $storeDir = $this->storeRoot;
 
-        return new class(new CandidateRepository(), new FinderRequestFactory(new QueryGenerator()), new UrlHostNormalizer(), new TreeService(new GedcomImportService()), $this->transport, $storeDir) extends EnqueueService {
+        return new class(new CandidateRepository(), new FinderRequestFactory(new QueryGenerator()), new UrlHostNormalizer(), new TreeService(new GedcomImportService()), $this->transport, $storeDir, self::TEST_FINDER_ID) extends EnqueueService {
             /**
              * @param CandidateRepository  $repository     The candidate repository.
              * @param FinderRequestFactory $requestFactory The request assembler.
@@ -113,6 +119,7 @@ abstract class AbstractEnqueueTestCase extends AbstractStoreTestCase
              * @param TreeService          $treeService    The tree lookup.
              * @param JobTransport         $transport      The job transport.
              * @param string               $storeRoot      The isolated per-tree store base directory.
+             * @param string               $finderId       The finder identity the enqueue reads memory for.
              */
             public function __construct(
                 CandidateRepository $repository,
@@ -121,8 +128,9 @@ abstract class AbstractEnqueueTestCase extends AbstractStoreTestCase
                 TreeService $treeService,
                 JobTransport $transport,
                 private readonly string $storeRoot,
+                string $finderId,
             ) {
-                parent::__construct($repository, $requestFactory, $hostNormalizer, $treeService, $transport);
+                parent::__construct($repository, $requestFactory, $hostNormalizer, $treeService, $transport, $finderId);
             }
 
             /**

@@ -19,10 +19,12 @@ use Fisharebest\Webtrees\Tree;
 use MagicSunday\ObituaryMatcher\Domain\CoverageStatus;
 use MagicSunday\ObituaryMatcher\Domain\NegativeMemoryEntry;
 use MagicSunday\ObituaryMatcher\Domain\PortalCoverage;
+use MagicSunday\ObituaryMatcher\Domain\SearchSignature;
 use MagicSunday\ObituaryMatcher\Matching\FileCoverageStore;
 use MagicSunday\ObituaryMatcher\Matching\FileMatchStore;
 use MagicSunday\ObituaryMatcher\Matching\IngestService;
 use MagicSunday\ObituaryMatcher\Matching\MatchStore;
+use MagicSunday\ObituaryMatcher\Matching\NegativeMemoryStore;
 use MagicSunday\ObituaryMatcher\Matching\StoredMatch;
 use MagicSunday\ObituaryMatcher\Matching\WriteBack;
 use MagicSunday\ObituaryMatcher\Queue\FailedJob;
@@ -61,7 +63,7 @@ use RuntimeException;
 #[UsesClass(PortalCoverage::class)]
 #[UsesClass(CoverageStatus::class)]
 #[UsesClass(\MagicSunday\ObituaryMatcher\Domain\SearchOutcome::class)]
-#[UsesClass(\MagicSunday\ObituaryMatcher\Domain\SearchSignature::class)]
+#[UsesClass(SearchSignature::class)]
 #[UsesClass(NegativeMemoryEntry::class)]
 #[UsesClass(\MagicSunday\ObituaryMatcher\Support\SearchSignatureFactory::class)]
 #[UsesClass(\MagicSunday\ObituaryMatcher\Support\Normalizer::class)]
@@ -141,13 +143,88 @@ final class DrainServiceTest extends AbstractDrainTestCase
 
         $this->drainService($transport)->drain(null, 20);
 
-        $memory = $this->negativeMemoryStoreFor($tree)->find('I1');
+        $memory = $this->negativeMemoryStoreFor($tree)->find('I1', self::TEST_FINDER_ID);
 
         self::assertInstanceOf(NegativeMemoryEntry::class, $memory);
         self::assertSame(
             (new DateTimeImmutable(self::PINNED_NOW))->getTimestamp(),
             $memory->recordedAt,
         );
+    }
+
+    /**
+     * A hit (a portal searched OK with at least one notice) clears the person's negative memory (§5.2f):
+     * a person found by any finder is no longer a nothing-found case, so a miss another finder recorded
+     * earlier must not keep suppressing a re-search.
+     *
+     * @return void
+     */
+    #[Test]
+    public function theDrainClearsNegativeMemoryOnAFound(): void
+    {
+        $tree = $this->ottoTree('fixture-negmem-found');
+
+        // Seed a stale miss recorded by a DIFFERENT finder, as if that finder had searched and missed.
+        $this->negativeMemoryStoreFor($tree)->record(
+            'I1',
+            'https://finder.other',
+            new NegativeMemoryEntry(new SearchSignature('stale'), 1_000),
+        );
+
+        $transport = new RecordingJobTransport([
+            $this->completedJobWithCoverage('job-001', $tree->id(), 'I1', [
+                new PortalCoverage('trauer_anzeigen', CoverageStatus::Ok, 1, null),
+            ]),
+        ]);
+
+        $this->drainService($transport)->drain(null, 20);
+
+        self::assertNull($this->negativeMemoryStoreFor($tree)->find('I1', 'https://finder.other'));
+        self::assertNull($this->negativeMemoryStoreFor($tree)->find('I1', self::TEST_FINDER_ID));
+    }
+
+    /**
+     * A negative-memory write failure — e.g. a concurrent drain removing the person's directory in the
+     * window between the store's ensureDirectory and its write — must NOT park an otherwise-successful
+     * job: negative memory is a soft cache, so the drain records it best-effort. The job whose matches
+     * and coverage already committed is still finalised as ingested, not failed.
+     *
+     * @return void
+     */
+    #[Test]
+    public function aNegativeMemoryWriteFailureDoesNotParkTheJob(): void
+    {
+        $tree = $this->ottoTree('fixture-negmem-writefail');
+
+        // A store whose record() always throws, standing in for the transient concurrent-removal failure.
+        $throwingStore = new class implements NegativeMemoryStore {
+            public function record(string $personId, string $finderId, NegativeMemoryEntry $entry): void
+            {
+                throw new RuntimeException('simulated concurrent directory removal');
+            }
+
+            public function find(string $personId, string $finderId): ?NegativeMemoryEntry
+            {
+                return null;
+            }
+
+            public function clear(string $personId): void
+            {
+            }
+        };
+
+        // A genuine miss (portal searched OK, zero notices) is exactly the path that records negative
+        // memory, so the throwing store is hit.
+        $transport = new RecordingJobTransport([
+            $this->completedJobWithCoverage('job-001', $tree->id(), 'I1', [
+                new PortalCoverage('trauer_anzeigen', CoverageStatus::Ok, 0, null),
+            ]),
+        ]);
+
+        $summary = $this->drainService($transport, null, $throwingStore)->drain(null, 20);
+
+        self::assertSame(1, $summary->ingested);
+        self::assertSame(0, $summary->failed);
     }
 
     /**
@@ -168,7 +245,7 @@ final class DrainServiceTest extends AbstractDrainTestCase
 
         $this->drainService($transport)->drain(null, 20);
 
-        self::assertNull($this->negativeMemoryStoreFor($tree)->find('I1'));
+        self::assertNull($this->negativeMemoryStoreFor($tree)->find('I1', self::TEST_FINDER_ID));
     }
 
     /**

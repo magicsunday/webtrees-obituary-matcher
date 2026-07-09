@@ -56,6 +56,10 @@ class EnqueueService
      * @param UrlHostNormalizer    $hostNormalizer The canonical-host helper for excludedHosts.
      * @param TreeService          $treeService    The webtrees tree lookup (throws on an unknown id).
      * @param JobTransport         $transport      The transport that submits the job and exposes the in-flight set.
+     * @param string|null          $finderId       The identity of the finder this enqueue serves (§5.2f),
+     *                                             used to read THIS finder's negative memory; null falls
+     *                                             back to NegativeMemoryStore::DEFAULT_FINDER_ID, the same
+     *                                             key the drain records under.
      */
     public function __construct(
         private readonly CandidateRepository $repository,
@@ -63,6 +67,7 @@ class EnqueueService
         private readonly UrlHostNormalizer $hostNormalizer,
         private readonly TreeService $treeService,
         private readonly JobTransport $transport,
+        private readonly ?string $finderId = null,
     ) {
     }
 
@@ -307,9 +312,11 @@ class EnqueueService
     }
 
     /**
-     * Whether the given candidate's re-search should be suppressed by the §5.2d policy: a fresh,
-     * same-signature genuine miss on record. Shared by the bulk {@see self::enqueue()} selection loop and
-     * the single-person {@see self::enqueueOne()} so both apply the policy identically.
+     * Whether the given candidate's re-search should be suppressed by the §5.2d/§5.2f policy: a fresh,
+     * same-signature genuine miss recorded by THIS finder. Keyed per finder so a miss recorded by another
+     * finder never suppresses this one — each finder decides its own re-search independently. Shared by the
+     * bulk {@see self::enqueue()} selection loop and the single-person {@see self::enqueueOne()} so both
+     * apply the policy identically.
      *
      * @param NegativeMemoryStore  $store     The tree-scoped negative-memory store to read.
      * @param NegativeMemoryPolicy $policy    The re-search policy (its TTL).
@@ -321,7 +328,7 @@ class EnqueueService
     private function isSuppressed(NegativeMemoryStore $store, NegativeMemoryPolicy $policy, PersonCandidate $candidate, int $nowStamp): bool
     {
         return $policy->suppresses(
-            $store->find($candidate->id),
+            $store->find($candidate->id, $this->finderId ?? NegativeMemoryStore::DEFAULT_FINDER_ID),
             SearchSignatureFactory::fromCandidate($candidate),
             $nowStamp,
         );
