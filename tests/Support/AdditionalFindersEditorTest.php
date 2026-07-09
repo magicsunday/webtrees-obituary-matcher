@@ -15,6 +15,7 @@ use InvalidArgumentException;
 use MagicSunday\ObituaryMatcher\Support\AdditionalFindersEditor;
 use MagicSunday\ObituaryMatcher\Support\FinderConnection;
 use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\Attributes\UsesClass;
 use PHPUnit\Framework\TestCase;
@@ -66,7 +67,7 @@ final class AdditionalFindersEditorTest extends TestCase
      *
      * @param string $json The editor output.
      *
-     * @return list<array<string, mixed>>
+     * @return list<array<string, string|bool>>
      */
     private static function decode(string $json): array
     {
@@ -74,7 +75,7 @@ final class AdditionalFindersEditorTest extends TestCase
             return [];
         }
 
-        /** @var list<array<string, mixed>> $decoded */
+        /** @var list<array<string, string|bool>> $decoded */
         $decoded = json_decode($json, true, flags: JSON_THROW_ON_ERROR);
 
         return $decoded;
@@ -380,15 +381,57 @@ final class AdditionalFindersEditorTest extends TestCase
     }
 
     /**
-     * An empty preference projects to no display rows, and a corrupt document is tolerated as empty
-     * rather than crashing the render.
+     * Every defensive drop-branch of the shared decoder is tolerated as an empty projection rather than
+     * crashing the render: an empty preference, invalid JSON, a non-list document, a non-object row, a row
+     * without a base URL, and a row with an empty base URL are each dropped.
+     *
+     * @param string $json The preference value to project.
      *
      * @return void
      */
     #[Test]
-    public function storedRowsAreEmptyForAnEmptyOrCorruptPreference(): void
+    #[DataProvider('emptyStoredRowsProvider')]
+    public function storedRowsAreEmptyForAnEmptyOrCorruptPreference(string $json): void
     {
-        self::assertSame([], AdditionalFindersEditor::storedRows(''));
-        self::assertSame([], AdditionalFindersEditor::storedRows('{not json'));
+        self::assertSame([], AdditionalFindersEditor::storedRows($json));
+    }
+
+    /**
+     * The preference values the display decoder must drop to an empty projection — one row per defensive
+     * branch of decodeStored().
+     *
+     * @return array<string, array{string}>
+     */
+    public static function emptyStoredRowsProvider(): array
+    {
+        return [
+            'empty string'               => [''],
+            'invalid JSON'               => ['{not json'],
+            'non-list document'          => ['123'],
+            'non-object row'             => ['[123]'],
+            'row without a base URL'     => ['[{"active":true}]'],
+            'row with an empty base URL' => ['[{"baseUrl":"","active":true}]'],
+        ];
+    }
+
+    /**
+     * A stored additional finder whose token is an empty string contributes no token to the keep-map, so a
+     * blank submitted token for that finder resolves to an unauthenticated connection rather than an empty
+     * token — pinning the empty-token skip branch of the keep lookup.
+     *
+     * @return void
+     */
+    #[Test]
+    public function aBlankTokenDoesNotKeepAnEmptyStoredToken(): void
+    {
+        $existing = '[{"baseUrl":"https://a.example","token":"","active":true}]';
+
+        $json = AdditionalFindersEditor::toJson([
+            self::row('https://a.example', '', true),
+        ], $existing);
+
+        $rows = self::decode($json);
+
+        self::assertArrayNotHasKey('token', $rows[0]);
     }
 }

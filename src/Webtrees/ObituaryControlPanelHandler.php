@@ -472,11 +472,15 @@ class ObituaryControlPanelHandler implements RequestHandlerInterface
      */
     private function testConnection(ServerRequestInterface $request): ResponseInterface
     {
-        // A blank token field falls back to the persisted token so the admin can re-test the stored
-        // connection without re-entering the secret.
-        $persisted = $this->module->getPreference('finder_token', '');
+        // A blank token field falls back to the STORED token of the finder being tested so the admin can
+        // re-test without re-entering the secret. When the submitted base URL matches a configured
+        // additional finder by identity, its OWN stored token is reused; otherwise the primary token is —
+        // so the per-row test of an additional finder probes it with its own credential rather than the
+        // primary's, while the primary test (and a brand-new URL) still reuses the primary token.
+        $submittedBaseUrl = Validator::parsedBody($request)->string('base_url', '');
+        $fallbackToken    = $this->testFallbackToken($submittedBaseUrl);
 
-        [$baseUrl, , , $token] = $this->resolveFinderInput($request, $persisted === '' ? null : $persisted);
+        [$baseUrl, , , $token] = $this->resolveFinderInput($request, $fallbackToken);
 
         try {
             $connection = FinderConnection::rest($baseUrl, $token);
@@ -495,6 +499,34 @@ class ObituaryControlPanelHandler implements RequestHandlerInterface
         }
 
         return $this->renderTestResult($baseUrl, $result);
+    }
+
+    /**
+     * Resolves the token a blank test-token field reuses for the finder at the submitted base URL: the
+     * stored token of the configured ADDITIONAL finder with that base URL (matched by identity) when one
+     * carries a token, otherwise the primary finder's persisted token. So the per-row test of an existing
+     * additional finder probes it with its own credential, while the primary test — and a base URL that
+     * is not a configured additional finder — reuses the primary token as before. A typed token still wins
+     * upstream in {@see self::resolveFinderInput()}; this only supplies the blank-field fallback.
+     *
+     * @param string $submittedBaseUrl The base URL the test targets.
+     *
+     * @return string|null The fallback token, or null when neither finder carries one.
+     */
+    private function testFallbackToken(string $submittedBaseUrl): ?string
+    {
+        $additionalToken = AdditionalFindersEditor::storedTokenFor(
+            $this->module->getPreference('finder_additional', ''),
+            $submittedBaseUrl,
+        );
+
+        if ($additionalToken !== null) {
+            return $additionalToken;
+        }
+
+        $primaryToken = $this->module->getPreference('finder_token', '');
+
+        return $primaryToken === '' ? null : $primaryToken;
     }
 
     /**

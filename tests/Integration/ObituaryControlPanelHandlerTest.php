@@ -1296,6 +1296,36 @@ final class ObituaryControlPanelHandlerTest extends AbstractEnqueueTestCase
     }
 
     /**
+     * The per-row test of an EXISTING additional finder with a blank token field reuses that finder's OWN
+     * stored token (matched by base-URL identity), NOT the primary's — so the probe carries the credential
+     * a real fan-out would use for that finder, not a misleading one.
+     *
+     * @return void
+     */
+    #[Test]
+    public function testActionReusesTheAdditionalFindersOwnStoredTokenNotThePrimary(): void
+    {
+        $this->module->setPreference('finder_token', 'primary-token');
+        $this->module->setPreference(
+            'finder_additional',
+            '[{"baseUrl":"https://extra.example","token":"extra-token","active":true}]',
+        );
+
+        $handler = $this->capturingHandler([
+            static fn (): ResponseInterface => self::jsonResponse(self::validCapabilitiesBody()),
+        ]);
+
+        $handler->handle($this->panelPost([
+            'action'   => 'test',
+            'base_url' => 'https://extra.example',
+            'token'    => '',
+        ]));
+
+        self::assertNotNull($handler->capturedConnection);
+        self::assertSame('extra-token', $handler->capturedConnection->token());
+    }
+
+    /**
      * The explicit remove-token flag forces an unauthenticated probe even when a token is persisted: the
      * probe connection carries no token.
      *

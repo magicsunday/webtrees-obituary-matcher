@@ -68,6 +68,7 @@ final class AdditionalFindersEditor
      *                                  encoded; the 1-based row position is named in the message.
      */
     public static function toJson(
+        #[SensitiveParameter]
         array $submitted,
         #[SensitiveParameter]
         string $existingJson,
@@ -178,6 +179,26 @@ final class AdditionalFindersEditor
         }
 
         return $rows;
+    }
+
+    /**
+     * Returns the token stored for the additional finder whose base URL matches the given one by identity,
+     * or null when no such finder is configured or it carries no token. The control panel uses this to
+     * probe an EXISTING additional finder with ITS OWN stored token when the admin does not re-enter the
+     * secret, rather than falling back to the primary finder's token. The token VALUE never leaves this
+     * method except as the return value (consumed only as the probe's Authorization header).
+     *
+     * @param string $json    The persisted `finder_additional` JSON.
+     * @param string $baseUrl The base URL whose stored token to resolve.
+     *
+     * @return string|null The stored token for that finder, or null when none applies.
+     */
+    public static function storedTokenFor(
+        #[SensitiveParameter]
+        string $json,
+        string $baseUrl,
+    ): ?string {
+        return self::storedTokensByKey($json)[FinderConnection::baseUrlKeyFor($baseUrl)] ?? null;
     }
 
     /**

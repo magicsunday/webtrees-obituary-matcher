@@ -179,8 +179,9 @@ $statusLabels = [
 
 <?php
 // A dedicated hidden form the per-row "Test connection" button submits: the script copies the row's
-// base URL and token into it and posts the existing `test` action, so an additional finder is probed
-// exactly like the primary without disturbing the main save form.
+// base URL and token into it and posts the existing `test` action, without disturbing the main save
+// form. A blank token field reuses that additional finder's own stored token (the handler matches it by
+// base-URL identity), so an existing finder is probed with its own credential.
 ?>
 <form method="post" action="<?= e(route(ObituaryControlPanelHandler::ROUTE_NAME)) ?>" id="wt-obituary-additional-finder-test-form">
     <?= csrf_field() ?>
