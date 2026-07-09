@@ -116,11 +116,12 @@ final class AdditionalFindersEditor
             try {
                 $connection = FinderConnection::rest($baseUrl, $token);
             } catch (InvalidArgumentException $exception) {
-                // Append the specific validation reason (a fixed, secret-free message from the single
-                // FinderConnection::rest() source — it never echoes the URL or token) so the operator sees
-                // WHY the row was rejected, not just its position. The original is also chained as previous.
+                // The specific FinderConnection::rest() failure is chained as `previous` for debugging; the
+                // thrown message stays a fixed, position-only category. The sole caller (the control-panel
+                // save) shows its own generic translated flash and does not surface this message, so a
+                // per-reason (and translatable) message is not warranted for this rare invalid-row case.
                 throw new InvalidArgumentException(
-                    sprintf('Additional finder %d is not a valid connection: %s', $position, $exception->getMessage()),
+                    sprintf('Additional finder %d is not a valid connection.', $position),
                     0,
                     $exception,
                 );
