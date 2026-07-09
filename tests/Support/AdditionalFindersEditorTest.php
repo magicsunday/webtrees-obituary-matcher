@@ -352,4 +352,43 @@ final class AdditionalFindersEditorTest extends TestCase
         self::assertSame('https://b.example', $rows[1]['baseUrl']);
         self::assertFalse($rows[1]['active']);
     }
+
+    /**
+     * The stored preference projects to display rows carrying EVERY finder (active and inactive), each
+     * with its base URL, a token-is-set boolean (never the value) and its active flag — the control panel
+     * must show every configured finder so the admin can edit or re-activate it.
+     *
+     * @return void
+     */
+    #[Test]
+    public function storedRowsProjectEveryFinderWithTokenIsSetAndActive(): void
+    {
+        $json = '[{"baseUrl":"https://a.example","token":"secret","active":true},'
+            . '{"baseUrl":"https://b.example","active":false}]';
+
+        $rows = AdditionalFindersEditor::storedRows($json);
+
+        self::assertCount(2, $rows);
+
+        self::assertSame('https://a.example', $rows[0]['baseUrl']);
+        self::assertTrue($rows[0]['tokenIsSet']);
+        self::assertTrue($rows[0]['active']);
+
+        self::assertSame('https://b.example', $rows[1]['baseUrl']);
+        self::assertFalse($rows[1]['tokenIsSet']);
+        self::assertFalse($rows[1]['active']);
+    }
+
+    /**
+     * An empty preference projects to no display rows, and a corrupt document is tolerated as empty
+     * rather than crashing the render.
+     *
+     * @return void
+     */
+    #[Test]
+    public function storedRowsAreEmptyForAnEmptyOrCorruptPreference(): void
+    {
+        self::assertSame([], AdditionalFindersEditor::storedRows(''));
+        self::assertSame([], AdditionalFindersEditor::storedRows('{not json'));
+    }
 }

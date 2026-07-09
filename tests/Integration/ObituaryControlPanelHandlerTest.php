@@ -41,12 +41,14 @@ use MagicSunday\ObituaryMatcher\Queue\FinderPortal;
 use MagicSunday\ObituaryMatcher\Queue\ProbeStatus;
 use MagicSunday\ObituaryMatcher\Queue\QueueLimits;
 use MagicSunday\ObituaryMatcher\Queue\RestPendingLedger;
+use MagicSunday\ObituaryMatcher\Support\AdditionalFindersEditor;
 use MagicSunday\ObituaryMatcher\Support\FinderConnection;
 use MagicSunday\ObituaryMatcher\Support\FinderConnectionResolver;
 use MagicSunday\ObituaryMatcher\Support\FinderRequestFactory;
 use MagicSunday\ObituaryMatcher\Support\QueryGenerator;
 use MagicSunday\ObituaryMatcher\Support\UrlHostNormalizer;
 use MagicSunday\ObituaryMatcher\Test\Queue\ScriptablePsr18Client;
+use MagicSunday\ObituaryMatcher\Ui\AdditionalFinderRowView;
 use MagicSunday\ObituaryMatcher\Ui\ControlPanelPresenter;
 use MagicSunday\ObituaryMatcher\Ui\ControlPanelView;
 use MagicSunday\ObituaryMatcher\Ui\FinderConnectionView;
@@ -104,6 +106,8 @@ use const JSON_THROW_ON_ERROR;
 #[UsesClass(BandThreshold::class)]
 #[UsesClass(FinderConnection::class)]
 #[UsesClass(FinderConnectionView::class)]
+#[UsesClass(AdditionalFinderRowView::class)]
+#[UsesClass(AdditionalFindersEditor::class)]
 #[UsesClass(ProbeReadoutView::class)]
 #[UsesClass(CapabilitiesProbeResult::class)]
 #[UsesClass(ProbeStatus::class)]
@@ -1050,6 +1054,53 @@ final class ObituaryControlPanelHandlerTest extends AbstractEnqueueTestCase
 
         self::assertSame('', $this->module->getPreference('finder_base_url'));
         self::assertSame('', $this->module->getPreference('finder_additional'));
+    }
+
+    /**
+     * A GET render projects the persisted additional finders (§5.2f increment 2) into the finder view
+     * model, so the panel can render one editable row per configured finder — active and inactive alike,
+     * each carrying its base URL, token-is-set flag and active state (never the token value).
+     *
+     * @return void
+     */
+    #[Test]
+    public function getRenderCarriesTheAdditionalFindersInTheView(): void
+    {
+        $this->module->setPreference(
+            'finder_additional',
+            '[{"baseUrl":"https://extra-a.example","token":"secret","active":true},'
+            . '{"baseUrl":"https://extra-b.example","active":false}]',
+        );
+
+        $handler = new class($this->module) extends ObituaryControlPanelHandler {
+            /**
+             * @var FinderConnectionView|null The finder view the render received, captured for assertion.
+             */
+            public ?FinderConnectionView $capturedFinder = null;
+
+            protected function renderPanelWith(FinderConnectionView $finder): ResponseInterface
+            {
+                $this->capturedFinder = $finder;
+
+                return new Response(StatusCodeInterface::STATUS_OK);
+            }
+        };
+
+        $handler->handle($this->panelRequest(RequestMethodInterface::METHOD_GET));
+
+        self::assertInstanceOf(FinderConnectionView::class, $handler->capturedFinder);
+
+        $additional = $handler->capturedFinder->additional;
+
+        self::assertCount(2, $additional);
+
+        self::assertSame('https://extra-a.example', $additional[0]->baseUrl);
+        self::assertTrue($additional[0]->tokenIsSet);
+        self::assertTrue($additional[0]->active);
+
+        self::assertSame('https://extra-b.example', $additional[1]->baseUrl);
+        self::assertFalse($additional[1]->tokenIsSet);
+        self::assertFalse($additional[1]->active);
     }
 
     /**

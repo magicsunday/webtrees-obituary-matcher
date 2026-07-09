@@ -154,10 +154,36 @@ final class AdditionalFindersEditor
     }
 
     /**
+     * Projects the persisted `finder_additional` JSON into the display rows the control panel re-renders:
+     * EVERY stored finder (active and inactive), each as its base URL, whether a token is set (the value
+     * is never exposed) and its active flag. This is the read-back counterpart of {@see self::toJson()} —
+     * unlike {@see FinderConnectionResolver::listFromConfig()} (which keeps only the ACTIVE, valid
+     * connections for the fan-out), the panel must show every configured finder so the admin can edit or
+     * re-activate it. The token VALUE never leaves this method; only a `tokenIsSet` boolean does.
+     *
+     * @param string $json The persisted `finder_additional` JSON, or an empty string.
+     *
+     * @return list<array{baseUrl: string, tokenIsSet: bool, active: bool}> The stored finders for display.
+     */
+    public static function storedRows(#[SensitiveParameter] string $json): array
+    {
+        $rows = [];
+
+        foreach (self::decodeStored($json) as $row) {
+            $rows[] = [
+                'baseUrl'    => $row['baseUrl'],
+                'tokenIsSet' => $row['token'] !== '',
+                'active'     => $row['active'],
+            ];
+        }
+
+        return $rows;
+    }
+
+    /**
      * Builds the base-URL-identity → token map from the persisted `finder_additional` JSON, so a blank
-     * token field can keep the token already stored for that finder. Defensive: invalid JSON, a non-list
-     * document, a non-object row, or a row without a non-empty string base URL and token is dropped —
-     * mirroring the resolver's tolerant decode, so a corrupt preference never crashes a save.
+     * token field can keep the token already stored for that finder. Only rows carrying a non-empty token
+     * contribute.
      *
      * @param string $existingJson The persisted `finder_additional` JSON, or an empty string.
      *
@@ -167,12 +193,38 @@ final class AdditionalFindersEditor
         #[SensitiveParameter]
         string $existingJson,
     ): array {
-        if ($existingJson === '') {
+        $tokens = [];
+
+        foreach (self::decodeStored($existingJson) as $row) {
+            if ($row['token'] === '') {
+                continue;
+            }
+
+            $tokens[FinderConnection::baseUrlKeyFor($row['baseUrl'])] = $row['token'];
+        }
+
+        return $tokens;
+    }
+
+    /**
+     * Defensively decodes the persisted `finder_additional` JSON into narrowed rows — the single shared
+     * decode both {@see self::storedRows()} and {@see self::storedTokensByKey()} build on. Invalid JSON, a
+     * non-list document, a non-object row, or a row without a non-empty string base URL is dropped
+     * (mirroring the resolver's tolerant decode), so a corrupt preference never crashes a save or render.
+     * A missing/non-string token narrows to an empty string; the active flag is strict `=== true`.
+     *
+     * @param string $json The persisted `finder_additional` JSON, or an empty string.
+     *
+     * @return list<array{baseUrl: string, token: string, active: bool}> The narrowed stored rows.
+     */
+    private static function decodeStored(#[SensitiveParameter] string $json): array
+    {
+        if ($json === '') {
             return [];
         }
 
         try {
-            $decoded = json_decode($existingJson, true, flags: JSON_THROW_ON_ERROR);
+            $decoded = json_decode($json, true, flags: JSON_THROW_ON_ERROR);
         } catch (JsonException) {
             return [];
         }
@@ -181,7 +233,7 @@ final class AdditionalFindersEditor
             return [];
         }
 
-        $tokens = [];
+        $rows = [];
 
         foreach ($decoded as $row) {
             if (!is_array($row)) {
@@ -189,7 +241,6 @@ final class AdditionalFindersEditor
             }
 
             $baseUrl = $row['baseUrl'] ?? null;
-            $token   = $row['token'] ?? null;
 
             if (!is_string($baseUrl)) {
                 continue;
@@ -199,17 +250,15 @@ final class AdditionalFindersEditor
                 continue;
             }
 
-            if (!is_string($token)) {
-                continue;
-            }
+            $token = $row['token'] ?? null;
 
-            if ($token === '') {
-                continue;
-            }
-
-            $tokens[FinderConnection::baseUrlKeyFor($baseUrl)] = $token;
+            $rows[] = [
+                'baseUrl' => $baseUrl,
+                'token'   => is_string($token) ? $token : '',
+                'active'  => ($row['active'] ?? null) === true,
+            ];
         }
 
-        return $tokens;
+        return $rows;
     }
 }

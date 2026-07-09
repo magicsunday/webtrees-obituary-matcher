@@ -35,6 +35,7 @@ use MagicSunday\ObituaryMatcher\Support\AdditionalFindersEditor;
 use MagicSunday\ObituaryMatcher\Support\FinderConnection;
 use MagicSunday\ObituaryMatcher\Support\FinderConnectionResolver;
 use MagicSunday\ObituaryMatcher\Support\WebtreesInstallLocator;
+use MagicSunday\ObituaryMatcher\Ui\AdditionalFinderRowView;
 use MagicSunday\ObituaryMatcher\Ui\ControlPanelPresenter;
 use MagicSunday\ObituaryMatcher\Ui\FinderConnectionView;
 use MagicSunday\ObituaryMatcher\Ui\ProbeReadoutView;
@@ -511,6 +512,7 @@ class ObituaryControlPanelHandler implements RequestHandlerInterface
             $baseUrl,
             $this->module->getPreference('finder_token', '') !== '',
             $this->probeReadout($result),
+            $this->additionalFinderViews(),
         ));
     }
 
@@ -717,7 +719,27 @@ class ObituaryControlPanelHandler implements RequestHandlerInterface
             $this->module->getPreference('finder_base_url', ''),
             $this->module->getPreference('finder_token', '') !== '',
             null,
+            $this->additionalFinderViews(),
         );
+    }
+
+    /**
+     * Projects the persisted additional finders (§5.2f increment 2) into the view models the panel renders
+     * — EVERY stored finder (active and inactive), so the admin can edit or re-activate each. The token
+     * VALUE never reaches the view: {@see AdditionalFindersEditor::storedRows()} exposes only a
+     * `tokenIsSet` boolean, mapped one-to-one onto {@see AdditionalFinderRowView} here.
+     *
+     * @return list<AdditionalFinderRowView> The additional-finder view models.
+     */
+    private function additionalFinderViews(): array
+    {
+        $views = [];
+
+        foreach (AdditionalFindersEditor::storedRows($this->module->getPreference('finder_additional', '')) as $row) {
+            $views[] = new AdditionalFinderRowView($row['baseUrl'], $row['tokenIsSet'], $row['active']);
+        }
+
+        return $views;
     }
 
     /**
