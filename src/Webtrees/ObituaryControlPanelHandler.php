@@ -31,9 +31,11 @@ use MagicSunday\ObituaryMatcher\Queue\FinderCapabilities;
 use MagicSunday\ObituaryMatcher\Queue\FinderCapabilitiesProbe;
 use MagicSunday\ObituaryMatcher\Queue\ProbeStatus;
 use MagicSunday\ObituaryMatcher\Queue\RestPendingLedger;
+use MagicSunday\ObituaryMatcher\Support\AdditionalFindersEditor;
 use MagicSunday\ObituaryMatcher\Support\FinderConnection;
 use MagicSunday\ObituaryMatcher\Support\FinderConnectionResolver;
 use MagicSunday\ObituaryMatcher\Support\WebtreesInstallLocator;
+use MagicSunday\ObituaryMatcher\Ui\AdditionalFinderRowView;
 use MagicSunday\ObituaryMatcher\Ui\ControlPanelPresenter;
 use MagicSunday\ObituaryMatcher\Ui\FinderConnectionView;
 use MagicSunday\ObituaryMatcher\Ui\ProbeReadoutView;
@@ -43,6 +45,8 @@ use Psr\Http\Server\RequestHandlerInterface;
 use Throwable;
 
 use function ctype_digit;
+use function is_array;
+use function is_string;
 use function redirect;
 use function route;
 use function strip_tags;
@@ -294,6 +298,12 @@ class ObituaryControlPanelHandler implements RequestHandlerInterface
      * save NEVER leaves REST active against a half-written credential set, for an already-active install
      * just as for a dormant legacy `'file'` one. Always PRG-redirects.
      *
+     * The submitted ADDITIONAL finders (§5.2f increment 2) are validated and normalised by
+     * {@see AdditionalFindersEditor::toJson()} inside the SAME all-or-nothing gate: an invalid or
+     * duplicate additional row rejects the whole save (primary included), and the resulting
+     * `finder_additional` JSON is persisted during the deactivated window alongside the primary
+     * credentials, so the whole connection activates atomically.
+     *
      * @param ServerRequestInterface $request The incoming POST request.
      *
      * @return ResponseInterface The redirect response.
@@ -304,10 +314,24 @@ class ObituaryControlPanelHandler implements RequestHandlerInterface
         // here (nothing new to validate); the existing token stays untouched below.
         [$baseUrl, $tokenRaw, $remove, $token] = $this->resolveFinderInput($request, null);
 
+        $submittedAdditional = $this->submittedAdditionalFinders($request);
+
         try {
             // Validate the base URL and the resolved token's control characters in one go; the returned
             // object is not needed because persistence stores the flat preferences.
             FinderConnection::rest($baseUrl, $token);
+
+            // §5.2f: validate and normalise the additional finders in the SAME all-or-nothing gate. The
+            // primary's base-URL identity is reserved so an additional finder can never duplicate it, and
+            // the currently-stored list feeds the keep-by-identity token resolution (a blank additional
+            // token keeps the finder's stored secret). The first invalid/duplicate row throws, rejecting
+            // the whole save before anything is persisted — the same both-or-neither contract the primary
+            // uses. The returned JSON is persisted below.
+            $additionalJson = AdditionalFindersEditor::toJson(
+                $submittedAdditional,
+                $this->module->getPreference('finder_additional', ''),
+                [FinderConnection::baseUrlKeyFor($baseUrl)],
+            );
         } catch (InvalidArgumentException) {
             FlashMessages::addMessage(I18N::translate('Finder connection could not be saved.'), 'danger');
 
@@ -331,6 +355,12 @@ class ObituaryControlPanelHandler implements RequestHandlerInterface
         } elseif ($tokenRaw !== '') {
             $this->module->setPreference('finder_token', $tokenRaw);
         }
+
+        // Persist the additional finders while REST is still deactivated: the resolver reads
+        // `finder_additional` only under the `finder_transport === 'rest'` gate, so writing it before the
+        // reactivation below keeps the whole connection (primary + additional) inert until the save
+        // completes — an empty string clears the list when none were submitted.
+        $this->module->setPreference('finder_additional', $additionalJson);
 
         // REACTIVATE the consent marker LAST, only after every connection field has been committed. This
         // lifts the migration gate in self::finderConnection() atomically — a legacy file-mode install
@@ -375,6 +405,55 @@ class ObituaryControlPanelHandler implements RequestHandlerInterface
     }
 
     /**
+     * Reads the submitted additional-finder rows (§5.2f increment 2) from the parsed body into the flat
+     * shape {@see AdditionalFindersEditor::toJson()} consumes. The rows arrive as a nested `additional`
+     * array (one entry per list row, each with `base_url`, `token` and the checkbox flags `active` /
+     * `remove_token`). The body is narrowed defensively — a missing `additional`, a non-array row, or a
+     * non-string field never throws — so an entirely absent list (the single-finder case) yields an empty
+     * list and a malformed field degrades to its empty default rather than a TypeError. The checkbox flags
+     * are read by PRESENCE (an unchecked checkbox is simply not submitted), matching the plain
+     * value-carrying checkboxes the template renders.
+     *
+     * @param ServerRequestInterface $request The incoming POST request.
+     *
+     * @return list<array{baseUrl: string, token: string, active: bool, removeToken: bool}> The submitted rows.
+     */
+    private function submittedAdditionalFinders(ServerRequestInterface $request): array
+    {
+        $parsedBody = $request->getParsedBody();
+
+        if (!is_array($parsedBody)) {
+            return [];
+        }
+
+        $rawRows = $parsedBody['additional'] ?? null;
+
+        if (!is_array($rawRows)) {
+            return [];
+        }
+
+        $rows = [];
+
+        foreach ($rawRows as $rawRow) {
+            if (!is_array($rawRow)) {
+                continue;
+            }
+
+            $baseUrl = $rawRow['base_url'] ?? null;
+            $token   = $rawRow['token'] ?? null;
+
+            $rows[] = [
+                'baseUrl'     => is_string($baseUrl) ? $baseUrl : '',
+                'token'       => is_string($token) ? $token : '',
+                'active'      => isset($rawRow['active']),
+                'removeToken' => isset($rawRow['remove_token']),
+            ];
+        }
+
+        return $rows;
+    }
+
+    /**
      * Runs a read-only capabilities probe against the SUBMITTED (not necessarily persisted) finder
      * connection and RE-RENDERS the panel with a transient readout — the deliberate exception to the
      * POST-redirect-GET contract, because a reachability test produces a result to show, not a state
@@ -393,18 +472,32 @@ class ObituaryControlPanelHandler implements RequestHandlerInterface
      */
     private function testConnection(ServerRequestInterface $request): ResponseInterface
     {
-        // A blank token field falls back to the persisted token so the admin can re-test the stored
-        // connection without re-entering the secret.
-        $persisted = $this->module->getPreference('finder_token', '');
+        // A blank token field falls back to the STORED token of the finder being tested so the admin can
+        // re-test without re-entering the secret. When the submitted base URL matches a configured
+        // additional finder by identity, its OWN stored token is reused; otherwise the primary token is —
+        // so the per-row test of an additional finder probes it with its own credential rather than the
+        // primary's, while the primary test (and a brand-new URL) still reuses the primary token.
+        $submittedBaseUrl = Validator::parsedBody($request)->string('base_url', '');
+        $isAdditionalTest = Validator::parsedBody($request)->string('test_target', '') === 'additional';
+        $fallbackToken    = $this->testFallbackToken($submittedBaseUrl, $isAdditionalTest);
 
-        [$baseUrl, , , $token] = $this->resolveFinderInput($request, $persisted === '' ? null : $persisted);
+        [$baseUrl, , , $token] = $this->resolveFinderInput($request, $fallbackToken);
+
+        // The finder PROBED is always the submitted base URL. What the primary base-URL FIELD echoes back
+        // differs by test target: a per-row additional-finder test keeps the PERSISTED primary in that
+        // field, so probing an additional finder does not overwrite the primary input (which a later save
+        // would then persist as the primary, and reject as a duplicate of the additional row). A primary
+        // test echoes the submitted URL, preserving a typed-but-unsaved value.
+        $echoBaseUrl = $isAdditionalTest
+            ? $this->module->getPreference('finder_base_url', '')
+            : $baseUrl;
 
         try {
             $connection = FinderConnection::rest($baseUrl, $token);
         } catch (InvalidArgumentException) {
             // A missing/malformed base URL or a control-character token is rejected at the single source
             // before any HTTP is attempted, so the readout reports the invalid configuration without probing.
-            return $this->renderTestResult($baseUrl, CapabilitiesProbeResult::invalid());
+            return $this->renderTestResult($echoBaseUrl, CapabilitiesProbeResult::invalid());
         }
 
         try {
@@ -415,14 +508,55 @@ class ObituaryControlPanelHandler implements RequestHandlerInterface
             $result = CapabilitiesProbeResult::unreachable();
         }
 
-        return $this->renderTestResult($baseUrl, $result);
+        return $this->renderTestResult($echoBaseUrl, $result);
     }
 
     /**
-     * Builds the finder view echoing the SUBMITTED base URL plus the persisted token-is-set flag, maps
-     * the probe result to its plain readout and re-renders the panel.
+     * Resolves the token a blank test-token field reuses for the finder at the submitted base URL: the
+     * stored token of the configured ADDITIONAL finder with that base URL (matched by identity) when one
+     * carries a token. Otherwise the fallback depends on the test target — a per-row ADDITIONAL test never
+     * borrows the primary token (a tokenless or not-yet-saved additional finder is queried unauthenticated
+     * in the real fan-out, so borrowing the primary secret would both mislead the readout and leak that
+     * secret to an endpoint the admin left unauthenticated), whereas a PRIMARY test (or a base URL that is
+     * not a configured additional finder) reuses the primary token. A typed token still wins upstream in
+     * {@see self::resolveFinderInput()}; this only supplies the blank-field fallback.
      *
-     * @param string                  $baseUrl The submitted base URL, echoed back into the form.
+     * @param string $submittedBaseUrl The base URL the test targets.
+     * @param bool   $isAdditionalTest Whether the test targets a per-row additional finder.
+     *
+     * @return string|null The fallback token, or null when none applies.
+     */
+    private function testFallbackToken(string $submittedBaseUrl, bool $isAdditionalTest): ?string
+    {
+        $additionalToken = AdditionalFindersEditor::storedTokenFor(
+            $this->module->getPreference('finder_additional', ''),
+            $submittedBaseUrl,
+        );
+
+        if ($additionalToken !== null) {
+            return $additionalToken;
+        }
+
+        // A per-row additional test must never fall back to the primary secret: production queries each
+        // additional finder with its OWN token or none, so the probe stays faithful and the primary token
+        // is never sent to a different endpoint.
+        if ($isAdditionalTest) {
+            return null;
+        }
+
+        $primaryToken = $this->module->getPreference('finder_token', '');
+
+        return $primaryToken === '' ? null : $primaryToken;
+    }
+
+    /**
+     * Builds the finder view echoing the given base URL into the primary field plus the persisted
+     * token-is-set flag, maps the probe result to its plain readout and re-renders the panel. The caller
+     * decides which URL to echo: the submitted one for a primary test (preserving a typed-but-unsaved
+     * value), or the persisted primary for a per-row additional-finder test (so probing an additional
+     * finder does not clobber the primary input).
+     *
+     * @param string                  $baseUrl The base URL to echo back into the primary field.
      * @param CapabilitiesProbeResult $result  The probe outcome to project into the readout.
      *
      * @return ResponseInterface The re-rendered panel.
@@ -433,6 +567,7 @@ class ObituaryControlPanelHandler implements RequestHandlerInterface
             $baseUrl,
             $this->module->getPreference('finder_token', '') !== '',
             $this->probeReadout($result),
+            $this->additionalFinderViews(),
         ));
     }
 
@@ -639,7 +774,27 @@ class ObituaryControlPanelHandler implements RequestHandlerInterface
             $this->module->getPreference('finder_base_url', ''),
             $this->module->getPreference('finder_token', '') !== '',
             null,
+            $this->additionalFinderViews(),
         );
+    }
+
+    /**
+     * Projects the persisted additional finders (§5.2f increment 2) into the view models the panel renders
+     * — EVERY stored finder (active and inactive), so the admin can edit or re-activate each. The token
+     * VALUE never reaches the view: {@see AdditionalFindersEditor::storedRows()} exposes only a
+     * `tokenIsSet` boolean, mapped one-to-one onto {@see AdditionalFinderRowView} here.
+     *
+     * @return list<AdditionalFinderRowView> The additional-finder view models.
+     */
+    private function additionalFinderViews(): array
+    {
+        $views = [];
+
+        foreach (AdditionalFindersEditor::storedRows($this->module->getPreference('finder_additional', '')) as $row) {
+            $views[] = new AdditionalFinderRowView($row['baseUrl'], $row['tokenIsSet'], $row['active']);
+        }
+
+        return $views;
     }
 
     /**

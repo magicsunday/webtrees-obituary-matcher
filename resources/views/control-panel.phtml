@@ -111,10 +111,87 @@ $statusLabels = [
             <input type="checkbox" name="remove_token" value="1">
             <?= e(I18N::translate('Remove token')) ?>
         </label>
-
-        <button type="submit" name="action" value="test"><?= e(I18N::translate('Test connection')) ?></button>
-        <button type="submit" name="action" value="save-finder"><?= e(I18N::translate('Save finder connection')) ?></button>
     </fieldset>
+
+    <fieldset>
+        <legend><?= e(I18N::translate('Additional finders')) ?></legend>
+        <p><?= e(I18N::translate('Search additional finder services alongside the primary connection. Each finder is queried independently and its results are merged.')) ?></p>
+
+        <div id="wt-obituary-additional-finders" data-next-index="<?= e((string) count($finder->additional)) ?>">
+            <?php foreach ($finder->additional as $index => $additionalFinder) : ?>
+                <div class="wt-obituary-additional-finder" data-additional-finder-row>
+                    <label><?= e(I18N::translate('REST base URL')) ?>
+                        <input type="text" name="additional[<?= e((string) $index) ?>][base_url]" value="<?= e($additionalFinder->baseUrl) ?>">
+                    </label>
+
+                    <label><?= e(I18N::translate('Access token')) ?>
+                        <input type="password" name="additional[<?= e((string) $index) ?>][token]" autocomplete="new-password">
+                    </label>
+                    <span><?= $additionalFinder->tokenIsSet ? e(I18N::translate('A token is set.')) : e(I18N::translate('No token set.')) ?></span>
+
+                    <label>
+                        <input type="checkbox" name="additional[<?= e((string) $index) ?>][remove_token]" value="1">
+                        <?= e(I18N::translate('Remove token')) ?>
+                    </label>
+
+                    <label>
+                        <input type="checkbox" name="additional[<?= e((string) $index) ?>][active]" value="1"<?= $additionalFinder->active ? ' checked' : '' ?>>
+                        <?= e(I18N::translate('Active')) ?>
+                    </label>
+
+                    <button type="button" data-test-additional-finder><?= e(I18N::translate('Test connection')) ?></button>
+                    <button type="button" data-remove-additional-finder><?= e(I18N::translate('Remove finder')) ?></button>
+                </div>
+            <?php endforeach ?>
+        </div>
+
+        <button type="button" id="wt-obituary-add-finder"><?= e(I18N::translate('Add finder')) ?></button>
+    </fieldset>
+
+    <button type="submit" name="action" value="test"><?= e(I18N::translate('Test connection')) ?></button>
+    <button type="submit" name="action" value="save-finder"><?= e(I18N::translate('Save finder connection')) ?></button>
+</form>
+
+<?php
+// The blank row cloned by the "Add finder" script; `__INDEX__` is replaced with the next free index
+// when a row is added. A new finder never has a stored token, so the row carries no remove-token
+// control. Rendered inside a <template> so it stays inert until cloned.
+?>
+<template id="wt-obituary-additional-finder-template">
+    <div class="wt-obituary-additional-finder" data-additional-finder-row>
+        <label><?= e(I18N::translate('REST base URL')) ?>
+            <input type="text" name="additional[__INDEX__][base_url]" value="">
+        </label>
+
+        <label><?= e(I18N::translate('Access token')) ?>
+            <input type="password" name="additional[__INDEX__][token]" autocomplete="new-password">
+        </label>
+
+        <label>
+            <input type="checkbox" name="additional[__INDEX__][active]" value="1" checked>
+            <?= e(I18N::translate('Active')) ?>
+        </label>
+
+        <button type="button" data-test-additional-finder><?= e(I18N::translate('Test connection')) ?></button>
+        <button type="button" data-remove-additional-finder><?= e(I18N::translate('Remove finder')) ?></button>
+    </div>
+</template>
+
+<?php
+// A dedicated hidden form the per-row "Test connection" button submits: the script copies the row's
+// base URL and token into it and posts the existing `test` action, without disturbing the main save
+// form. A blank token field reuses that additional finder's own stored token (the handler matches it by
+// base-URL identity), so an existing finder is probed with its own credential.
+?>
+<form method="post" action="<?= e(route(ObituaryControlPanelHandler::ROUTE_NAME)) ?>" id="wt-obituary-additional-finder-test-form">
+    <?= csrf_field() ?>
+    <input type="hidden" name="action" value="test">
+    <?php // Marks this as a per-row additional-finder test, so the re-render keeps the persisted primary
+          // base URL in the primary field rather than echoing the tested additional URL into it. ?>
+    <input type="hidden" name="test_target" value="additional">
+    <input type="hidden" name="base_url" id="wt-obituary-additional-test-base-url" value="">
+    <input type="hidden" name="token" id="wt-obituary-additional-test-token" value="">
+    <input type="hidden" name="remove_token" id="wt-obituary-additional-test-remove" value="">
 </form>
 
 <?php if ($finder->probe !== null) : ?>
@@ -213,3 +290,85 @@ $statusLabels = [
         )) ?>
     </p>
 <?php endif ?>
+
+<script>
+    // Progressive enhancement for the additional-finders list (§5.2f increment 2): add and remove rows
+    // client-side, and probe a single row via the hidden test form. The list works without this script —
+    // the server-rendered rows are fully editable and saveable; only add/remove/per-row-test need it.
+    (function () {
+        "use strict";
+
+        const container = document.getElementById("wt-obituary-additional-finders");
+
+        if (container === null) {
+            return;
+        }
+
+        const template = document.getElementById("wt-obituary-additional-finder-template");
+        const addButton = document.getElementById("wt-obituary-add-finder");
+        const testForm = document.getElementById("wt-obituary-additional-finder-test-form");
+        const testBaseUrl = document.getElementById("wt-obituary-additional-test-base-url");
+        const testToken = document.getElementById("wt-obituary-additional-test-token");
+        const testRemove = document.getElementById("wt-obituary-additional-test-remove");
+
+        // The next free row index, seeded from the count of server-rendered rows so a newly added row
+        // never collides with an existing one.
+        let nextIndex = Number(container.dataset.nextIndex);
+
+        // The per-row test needs the hidden test form and its three fields; bind the test button only when
+        // all are present, so a customized template that drops one cannot NPE on a `.value` write.
+        const canTest = (testForm !== null)
+            && (testBaseUrl !== null)
+            && (testToken !== null)
+            && (testRemove !== null);
+
+        const bindRow = function (row) {
+            const removeButton = row.querySelector("[data-remove-additional-finder]");
+
+            if (removeButton !== null) {
+                removeButton.addEventListener("click", function () {
+                    row.remove();
+                });
+            }
+
+            const testButton = row.querySelector("[data-test-additional-finder]");
+
+            if ((testButton !== null) && canTest) {
+                testButton.addEventListener("click", function () {
+                    const baseUrlInput = row.querySelector("input[name$=\"[base_url]\"]");
+                    const tokenInput = row.querySelector("input[name$=\"[token]\"]");
+                    const removeInput = row.querySelector("input[name$=\"[remove_token]\"]");
+
+                    testBaseUrl.value = baseUrlInput === null ? "" : baseUrlInput.value;
+                    testToken.value = tokenInput === null ? "" : tokenInput.value;
+
+                    // Forward the row's remove-token intent so remove-wins holds: probing a row whose
+                    // "Remove token" box is ticked tests it unauthenticated, matching what a save persists.
+                    testRemove.value = ((removeInput !== null) && removeInput.checked) ? "1" : "";
+                    testForm.submit();
+                });
+            }
+        };
+
+        container.querySelectorAll("[data-additional-finder-row]").forEach(bindRow);
+
+        if ((addButton !== null) && (template !== null)) {
+            addButton.addEventListener("click", function () {
+                const markup = template.innerHTML.replace(/__INDEX__/g, String(nextIndex));
+                nextIndex += 1;
+
+                const wrapper = document.createElement("div");
+                wrapper.innerHTML = markup;
+
+                const row = wrapper.firstElementChild;
+
+                if (row === null) {
+                    return;
+                }
+
+                container.appendChild(row);
+                bindRow(row);
+            });
+        }
+    })();
+</script>

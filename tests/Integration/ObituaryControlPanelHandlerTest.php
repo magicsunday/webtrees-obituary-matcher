@@ -41,11 +41,14 @@ use MagicSunday\ObituaryMatcher\Queue\FinderPortal;
 use MagicSunday\ObituaryMatcher\Queue\ProbeStatus;
 use MagicSunday\ObituaryMatcher\Queue\QueueLimits;
 use MagicSunday\ObituaryMatcher\Queue\RestPendingLedger;
+use MagicSunday\ObituaryMatcher\Support\AdditionalFindersEditor;
 use MagicSunday\ObituaryMatcher\Support\FinderConnection;
+use MagicSunday\ObituaryMatcher\Support\FinderConnectionResolver;
 use MagicSunday\ObituaryMatcher\Support\FinderRequestFactory;
 use MagicSunday\ObituaryMatcher\Support\QueryGenerator;
 use MagicSunday\ObituaryMatcher\Support\UrlHostNormalizer;
 use MagicSunday\ObituaryMatcher\Test\Queue\ScriptablePsr18Client;
+use MagicSunday\ObituaryMatcher\Ui\AdditionalFinderRowView;
 use MagicSunday\ObituaryMatcher\Ui\ControlPanelPresenter;
 use MagicSunday\ObituaryMatcher\Ui\ControlPanelView;
 use MagicSunday\ObituaryMatcher\Ui\FinderConnectionView;
@@ -103,6 +106,8 @@ use const JSON_THROW_ON_ERROR;
 #[UsesClass(BandThreshold::class)]
 #[UsesClass(FinderConnection::class)]
 #[UsesClass(FinderConnectionView::class)]
+#[UsesClass(AdditionalFinderRowView::class)]
+#[UsesClass(AdditionalFindersEditor::class)]
 #[UsesClass(ProbeReadoutView::class)]
 #[UsesClass(CapabilitiesProbeResult::class)]
 #[UsesClass(ProbeStatus::class)]
@@ -918,6 +923,210 @@ final class ObituaryControlPanelHandlerTest extends AbstractEnqueueTestCase
     }
 
     /**
+     * A save-finder run persists the submitted additional finders (§5.2f increment 2) into the
+     * `finder_additional` preference alongside the primary, so the fan-out resolver reads them back.
+     *
+     * @return void
+     */
+    #[Test]
+    public function saveFinderPersistsTheSubmittedAdditionalFinders(): void
+    {
+        $this->handler()->handle($this->panelPost([
+            'action'     => 'save-finder',
+            'base_url'   => 'https://primary.example',
+            'token'      => 'primary-token',
+            'additional' => [
+                ['base_url' => 'https://extra.example', 'token' => 'extra-token', 'active' => '1'],
+            ],
+        ]));
+
+        $connections = FinderConnectionResolver::listFromConfig(
+            'rest',
+            'https://primary.example',
+            'primary-token',
+            $this->module->getPreference('finder_additional'),
+        );
+
+        self::assertCount(2, $connections);
+        self::assertSame('https://primary.example', $connections[0]->baseUrl());
+        self::assertSame('https://extra.example', $connections[1]->baseUrl());
+        self::assertSame('extra-token', $connections[1]->token());
+    }
+
+    /**
+     * An invalid additional finder rejects the WHOLE save (all-or-nothing): neither the primary nor the
+     * additional finders are written, matching the single-finder both-or-neither contract.
+     *
+     * @return void
+     */
+    #[Test]
+    public function saveFinderRejectsTheWholeSaveWhenAnAdditionalFinderIsInvalid(): void
+    {
+        $response = $this->handler()->handle($this->panelPost([
+            'action'     => 'save-finder',
+            'base_url'   => 'https://primary.example',
+            'token'      => 'primary-token',
+            'additional' => [
+                ['base_url' => 'ftp://nope', 'token' => '', 'active' => '1'],
+            ],
+        ]));
+
+        self::assertSame(StatusCodeInterface::STATUS_FOUND, $response->getStatusCode());
+        self::assertSame('', $this->module->getPreference('finder_base_url'));
+        self::assertSame('', $this->module->getPreference('finder_additional'));
+        self::assertNotSame('rest', $this->module->getPreference('finder_transport'));
+    }
+
+    /**
+     * Submitting no additional finders clears a previously stored list, so removing every extra finder in
+     * the UI persists as "no additional finders".
+     *
+     * @return void
+     */
+    #[Test]
+    public function saveFinderClearsTheAdditionalFindersWhenNoneAreSubmitted(): void
+    {
+        $this->module->setPreference(
+            'finder_additional',
+            '[{"baseUrl":"https://extra.example","token":"t","active":true}]',
+        );
+
+        $this->handler()->handle($this->panelPost([
+            'action'   => 'save-finder',
+            'base_url' => 'https://primary.example',
+            'token'    => 'primary-token',
+        ]));
+
+        self::assertSame('', $this->module->getPreference('finder_additional'));
+    }
+
+    /**
+     * A blank token on an additional finder keeps the token already stored for that finder (matched by
+     * base-URL identity), so a settings save that does not re-enter the secret does not wipe it.
+     *
+     * @return void
+     */
+    #[Test]
+    public function saveFinderKeepsAnAdditionalFindersStoredTokenOnBlank(): void
+    {
+        $this->module->setPreference(
+            'finder_additional',
+            '[{"baseUrl":"https://extra.example","token":"stored-extra","active":true}]',
+        );
+
+        $this->handler()->handle($this->panelPost([
+            'action'     => 'save-finder',
+            'base_url'   => 'https://primary.example',
+            'token'      => 'primary-token',
+            'additional' => [
+                ['base_url' => 'https://extra.example', 'token' => '', 'active' => '1'],
+            ],
+        ]));
+
+        $connections = FinderConnectionResolver::listFromConfig(
+            'rest',
+            'https://primary.example',
+            'primary-token',
+            $this->module->getPreference('finder_additional'),
+        );
+
+        self::assertCount(2, $connections);
+        self::assertSame('stored-extra', $connections[1]->token());
+    }
+
+    /**
+     * An additional finder duplicating the PRIMARY base URL rejects the whole save: the primary is a
+     * reserved identity, so an additional finder can never duplicate it.
+     *
+     * @return void
+     */
+    #[Test]
+    public function saveFinderRejectsAnAdditionalFinderDuplicatingThePrimary(): void
+    {
+        $this->handler()->handle($this->panelPost([
+            'action'     => 'save-finder',
+            'base_url'   => 'https://primary.example',
+            'token'      => 'primary-token',
+            'additional' => [
+                ['base_url' => 'https://primary.example/', 'token' => '', 'active' => '1'],
+            ],
+        ]));
+
+        self::assertSame('', $this->module->getPreference('finder_base_url'));
+        self::assertSame('', $this->module->getPreference('finder_additional'));
+    }
+
+    /**
+     * A GET render projects the persisted additional finders (§5.2f increment 2) into the finder view
+     * model, so the panel can render one editable row per configured finder — active and inactive alike,
+     * each carrying its base URL, token-is-set flag and active state (never the token value).
+     *
+     * @return void
+     */
+    #[Test]
+    public function getRenderCarriesTheAdditionalFindersInTheView(): void
+    {
+        $this->module->setPreference(
+            'finder_additional',
+            '[{"baseUrl":"https://extra-a.example","token":"secret","active":true},'
+            . '{"baseUrl":"https://extra-b.example","active":false}]',
+        );
+
+        $handler = new class($this->module) extends ObituaryControlPanelHandler {
+            /**
+             * @var FinderConnectionView|null The finder view the render received, captured for assertion.
+             */
+            public ?FinderConnectionView $capturedFinder = null;
+
+            protected function renderPanelWith(FinderConnectionView $finder): ResponseInterface
+            {
+                $this->capturedFinder = $finder;
+
+                return new Response(StatusCodeInterface::STATUS_OK);
+            }
+        };
+
+        $handler->handle($this->panelRequest(RequestMethodInterface::METHOD_GET));
+
+        self::assertInstanceOf(FinderConnectionView::class, $handler->capturedFinder);
+
+        $additional = $handler->capturedFinder->additional;
+
+        self::assertCount(2, $additional);
+
+        self::assertSame('https://extra-a.example', $additional[0]->baseUrl);
+        self::assertTrue($additional[0]->tokenIsSet);
+        self::assertTrue($additional[0]->active);
+
+        self::assertSame('https://extra-b.example', $additional[1]->baseUrl);
+        self::assertFalse($additional[1]->tokenIsSet);
+        self::assertFalse($additional[1]->active);
+    }
+
+    /**
+     * The real template renders one additional-finder row per stored finder — the base URL is echoed into
+     * the row's input — while the token VALUE never reaches the HTML (only a token-is-set indicator does),
+     * upholding the never-expose-the-secret invariant in the multi-finder list.
+     *
+     * @return void
+     */
+    #[Test]
+    public function getRenderRendersTheAdditionalFinderRowsWithoutLeakingTheToken(): void
+    {
+        $this->module->setPreference(
+            'finder_additional',
+            '[{"baseUrl":"https://extra.example","token":"top-secret-token","active":true}]',
+        );
+
+        $html = (string) $this->handler()->handle($this->panelRequest(RequestMethodInterface::METHOD_GET))->getBody();
+
+        self::assertStringContainsString('Additional finders', $html);
+        self::assertStringContainsString('value="https://extra.example"', $html);
+        self::assertStringContainsString('A token is set.', $html);
+        self::assertStringNotContainsString('top-secret-token', $html);
+    }
+
+    /**
      * The `test` action probes a valid REST finder and re-renders (NOT redirects) with a reachable
      * readout carrying the advertised finder id: the scripted client answers the capabilities request
      * with a valid document, and the captured finder view carries the mapped readout.
@@ -1007,6 +1216,39 @@ final class ObituaryControlPanelHandlerTest extends AbstractEnqueueTestCase
     }
 
     /**
+     * A per-row additional-finder test (marked `test_target=additional`) keeps the PERSISTED primary base
+     * URL in the primary field rather than echoing the tested additional URL into it — so probing an
+     * additional finder never clobbers the primary input (which a later save would otherwise persist as the
+     * primary and reject as a duplicate of the additional row). The tested URL still appears in its own row.
+     *
+     * @return void
+     */
+    #[Test]
+    public function testActionForAnAdditionalFinderKeepsThePersistedPrimaryInThePrimaryField(): void
+    {
+        $this->searchableTree('panel-additional-test', 1);
+        $this->module->setPreference('finder_base_url', 'https://primary.example');
+        $this->module->setPreference(
+            'finder_additional',
+            '[{"baseUrl":"https://extra.example","active":true}]',
+        );
+
+        $handler = $this->renderingProbeHandler([
+            static fn (): ResponseInterface => self::jsonResponse(self::validCapabilitiesBody()),
+        ]);
+
+        $html = (string) $handler->handle($this->panelPost([
+            'action'      => 'test',
+            'test_target' => 'additional',
+            'base_url'    => 'https://extra.example',
+            'token'       => '',
+        ]))->getBody();
+
+        self::assertStringContainsString('id="base_url" name="base_url" value="https://primary.example"', $html);
+        self::assertStringContainsString('name="additional[0][base_url]" value="https://extra.example"', $html);
+    }
+
+    /**
      * A probe-seam wiring fault (the {@see ObituaryControlPanelHandler::capabilitiesProbe()} seam throws)
      * degrades to an unreachable readout and STILL renders the panel rather than escaping handle() as an
      * unhandled 500 — pinning the action's `catch (Throwable)` defence.
@@ -1084,6 +1326,100 @@ final class ObituaryControlPanelHandlerTest extends AbstractEnqueueTestCase
 
         self::assertNotNull($handler->capturedConnection);
         self::assertSame('saved', $handler->capturedConnection->token());
+    }
+
+    /**
+     * The per-row test of an EXISTING additional finder with a blank token field reuses that finder's OWN
+     * stored token (matched by base-URL identity), NOT the primary's — so the probe carries the credential
+     * a real fan-out would use for that finder, not a misleading one.
+     *
+     * @return void
+     */
+    #[Test]
+    public function testActionReusesTheAdditionalFindersOwnStoredTokenNotThePrimary(): void
+    {
+        $this->module->setPreference('finder_token', 'primary-token');
+        $this->module->setPreference(
+            'finder_additional',
+            '[{"baseUrl":"https://extra.example","token":"extra-token","active":true}]',
+        );
+
+        $handler = $this->capturingHandler([
+            static fn (): ResponseInterface => self::jsonResponse(self::validCapabilitiesBody()),
+        ]);
+
+        $handler->handle($this->panelPost([
+            'action'   => 'test',
+            'base_url' => 'https://extra.example',
+            'token'    => '',
+        ]));
+
+        self::assertNotNull($handler->capturedConnection);
+        self::assertSame('extra-token', $handler->capturedConnection->token());
+    }
+
+    /**
+     * Remove wins over the additional-finder token fallback: a per-row test whose remove-token flag is set
+     * probes the additional finder UNAUTHENTICATED, even though that finder has a stored token — matching
+     * what a save persists. This pins the server contract the per-row test script relies on when it
+     * forwards the row's remove-token state.
+     *
+     * @return void
+     */
+    #[Test]
+    public function testActionRemoveWinsOverTheAdditionalFindersStoredToken(): void
+    {
+        $this->module->setPreference('finder_token', 'primary-token');
+        $this->module->setPreference(
+            'finder_additional',
+            '[{"baseUrl":"https://extra.example","token":"extra-token","active":true}]',
+        );
+
+        $handler = $this->capturingHandler([
+            static fn (): ResponseInterface => self::jsonResponse(self::validCapabilitiesBody()),
+        ]);
+
+        $handler->handle($this->panelPost([
+            'action'       => 'test',
+            'base_url'     => 'https://extra.example',
+            'token'        => '',
+            'remove_token' => '1',
+        ]));
+
+        self::assertNotNull($handler->capturedConnection);
+        self::assertNull($handler->capturedConnection->token());
+    }
+
+    /**
+     * A per-row test of a TOKENLESS additional finder probes it UNAUTHENTICATED and never borrows the
+     * primary token — production queries a tokenless additional finder with no credential, so borrowing
+     * the primary secret would both mislead the readout and leak that secret to an endpoint the admin
+     * left unauthenticated.
+     *
+     * @return void
+     */
+    #[Test]
+    public function testActionDoesNotBorrowThePrimaryTokenForATokenlessAdditionalFinder(): void
+    {
+        $this->module->setPreference('finder_token', 'primary-token');
+        $this->module->setPreference(
+            'finder_additional',
+            '[{"baseUrl":"https://extra.example","active":true}]',
+        );
+
+        $handler = $this->capturingHandler([
+            static fn (): ResponseInterface => self::jsonResponse(self::validCapabilitiesBody()),
+        ]);
+
+        $handler->handle($this->panelPost([
+            'action'      => 'test',
+            'test_target' => 'additional',
+            'base_url'    => 'https://extra.example',
+            'token'       => '',
+        ]));
+
+        self::assertNotNull($handler->capturedConnection);
+        self::assertNull($handler->capturedConnection->token());
     }
 
     /**
@@ -1512,7 +1848,9 @@ final class ObituaryControlPanelHandlerTest extends AbstractEnqueueTestCase
      * Builds a POST request for the panel route carrying the given parsed body, authenticated as the
      * setUp administrator.
      *
-     * @param array<string, string> $body The form body.
+     * @param array<string, string|list<array<string, string>>> $body The form body (a value is a scalar
+     *                                                                field, or the nested additional-finder
+     *                                                                rows for the `additional` key).
      *
      * @return ServerRequestInterface The request the handler consumes.
      */
