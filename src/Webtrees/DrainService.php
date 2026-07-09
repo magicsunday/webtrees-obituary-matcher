@@ -178,9 +178,10 @@ class DrainService
             $result = $this->ingest->ingest($job->notices, $job->coverage, $candidatesById, $store, $this->finderId);
 
             // Persist each requested person's per-portal coverage so a later render can tell a genuine
-            // miss from a portal outage. Recorded BEFORE markIngested so a COVERAGE record failure falls
-            // through to the catch below and parks the job as failed (IngestFailed) rather than marking it
-            // ingested with its coverage silently dropped; record is idempotent last-write-wins. The
+            // miss from a portal outage. Recorded under THIS finder's identity (§5.2c) so it never
+            // clobbers another finder's coverage — a read unions them. Recorded BEFORE markIngested so a
+            // COVERAGE record failure falls through to the catch below and parks the job as failed
+            // (IngestFailed) rather than marking it ingested with its coverage silently dropped. The
             // negative-memory record/clear below is, by contrast, best-effort (see its own comment).
             $coverageStore       = $this->coverageStoreForTree($tree);
             $negativeMemoryStore = $this->negativeMemoryStoreForTree($tree);
@@ -192,7 +193,7 @@ class DrainService
                 // declare(strict_types=1) — without the cast a numeric-xref person throws a TypeError.
                 $personIdString = (string) $personId;
 
-                $coverageStore->record($personIdString, $portals);
+                $coverageStore->record($personIdString, $this->finderId ?? CoverageStore::DEFAULT_FINDER_ID, $portals);
 
                 $outcome = SearchOutcome::fromCoverage($portals);
 

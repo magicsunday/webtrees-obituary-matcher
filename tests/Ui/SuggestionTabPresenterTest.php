@@ -200,14 +200,16 @@ final class SuggestionTabPresenterTest extends TestCase
             }
 
             /**
-             * Records the per-portal coverage for a person (no-op read model in this fake).
+             * Records the per-portal coverage for a person (read model in this fake; the tests seed via
+             * the constructor, so the finder id is not modelled here).
              *
              * @param string               $personId The requested person the coverage belongs to.
+             * @param string               $finderId The identity of the finder that reported this coverage.
              * @param list<PortalCoverage> $coverage The per-portal coverage for that person.
              *
              * @return void
              */
-            public function record(string $personId, array $coverage): void
+            public function record(string $personId, string $finderId, array $coverage): void
             {
                 $this->byPerson[$personId] = $coverage;
             }
