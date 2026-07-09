@@ -1104,6 +1104,29 @@ final class ObituaryControlPanelHandlerTest extends AbstractEnqueueTestCase
     }
 
     /**
+     * The real template renders one additional-finder row per stored finder — the base URL is echoed into
+     * the row's input — while the token VALUE never reaches the HTML (only a token-is-set indicator does),
+     * upholding the never-expose-the-secret invariant in the multi-finder list.
+     *
+     * @return void
+     */
+    #[Test]
+    public function getRenderRendersTheAdditionalFinderRowsWithoutLeakingTheToken(): void
+    {
+        $this->module->setPreference(
+            'finder_additional',
+            '[{"baseUrl":"https://extra.example","token":"top-secret-token","active":true}]',
+        );
+
+        $html = (string) $this->handler()->handle($this->panelRequest(RequestMethodInterface::METHOD_GET))->getBody();
+
+        self::assertStringContainsString('Additional finders', $html);
+        self::assertStringContainsString('value="https://extra.example"', $html);
+        self::assertStringContainsString('A token is set.', $html);
+        self::assertStringNotContainsString('top-secret-token', $html);
+    }
+
+    /**
      * The `test` action probes a valid REST finder and re-renders (NOT redirects) with a reachable
      * readout carrying the advertised finder id: the scripted client answers the capabilities request
      * with a valid document, and the captured finder view carries the mapped readout.
