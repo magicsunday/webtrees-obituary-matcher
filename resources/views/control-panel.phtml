@@ -354,7 +354,7 @@ $statusLabels = [
 
         if ((addButton !== null) && (template !== null)) {
             addButton.addEventListener("click", function () {
-                const markup = template.innerHTML.replaceAll("__INDEX__", String(nextIndex));
+                const markup = template.innerHTML.replace(/__INDEX__/g, String(nextIndex));
                 nextIndex += 1;
 
                 const wrapper = document.createElement("div");
