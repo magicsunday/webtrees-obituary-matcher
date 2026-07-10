@@ -237,10 +237,20 @@ final class AtomicFile
             );
         }
 
+        // Swallow a read/close warning for the SAME reason as the open above: a post-open read fault
+        // (a genuine I/O error, or the concurrent truncation the open guard survives) makes
+        // stream_get_contents raise an E_WARNING and return false, and fclose can warn too. Without this
+        // scoped handler webtrees' handler would convert that warning into a thrown ErrorException FROM
+        // the call — bypassing the "$contents === false" recovery below AND every caller's fail-soft
+        // catch (RuntimeException), crashing the render/drain path. fclose stays inside the handler so a
+        // close warning is swallowed as well; it runs before the handler is restored.
+        set_error_handler(static fn (): bool => true);
+
         try {
             $contents = stream_get_contents($handle, $maxBytes + 1);
         } finally {
             fclose($handle);
+            restore_error_handler();
         }
 
         if ($contents === false) {

@@ -515,4 +515,54 @@ final class AtomicFileTest extends TempDirTestCase
             VanishingReadStreamWrapper::unregister();
         }
     }
+
+    /**
+     * A file that opens cleanly but whose READ then faults — a post-open I/O error or a concurrent
+     * truncation on the descriptor — is rejected with a RuntimeException even under a webtrees-style
+     * handler that converts the read E_WARNING into a thrown exception. Without extending readJsonCapped's
+     * scoped handler over the read (and close), the converted ErrorException would be thrown FROM the
+     * read, bypassing the "$contents === false" recovery AND every caller's `catch (RuntimeException)`
+     * fail-soft guard — crashing the tab-render/drain path on a benign read fault. A FaultyReadStreamWrapper
+     * drives the fault deterministically: the open succeeds, the first read faults.
+     */
+    #[Test]
+    public function readJsonCappedRejectsAFileWhoseReadFaultsAfterOpen(): void
+    {
+        FaultyReadStreamWrapper::register();
+
+        set_error_handler(static function (int $severity, string $message): never {
+            throw new ErrorException($message, 0, $severity);
+        });
+
+        try {
+            $this->expectException(RuntimeException::class);
+            AtomicFile::readJsonCapped(FaultyReadStreamWrapper::SCHEME . '://faulty.json', 1024);
+        } finally {
+            restore_error_handler();
+            FaultyReadStreamWrapper::unregister();
+        }
+    }
+
+    /**
+     * The fail-soft section read maps a post-open read fault to null as well, so a read that faults after
+     * a clean open never lets the converted warning escape onto the render or drain path.
+     */
+    #[Test]
+    public function readJsonSectionReturnsNullWhenTheReadFaultsAfterOpen(): void
+    {
+        FaultyReadStreamWrapper::register();
+
+        set_error_handler(static function (int $severity, string $message): never {
+            throw new ErrorException($message, 0, $severity);
+        });
+
+        try {
+            self::assertNull(
+                AtomicFile::readJsonSection(FaultyReadStreamWrapper::SCHEME . '://faulty.json', 1024, 'coverage')
+            );
+        } finally {
+            restore_error_handler();
+            FaultyReadStreamWrapper::unregister();
+        }
+    }
 }
