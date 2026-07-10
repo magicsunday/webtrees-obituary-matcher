@@ -271,4 +271,34 @@ final class AtomicFile
         /** @var array<string, mixed> $data */
         return $data;
     }
+
+    /**
+     * Fail-soft read of one top-level array section of a JSON document: returns the array stored at
+     * $key, or null when the file is absent, a symlink, unreadable, oversize, not valid JSON, or the
+     * section is missing or not an array. This is the shared "safe capped read of one JSON sub-key"
+     * primitive the per-person file stores read their own persisted state through, so the fail-soft
+     * contract lives in exactly one place. A programming error is NOT swallowed — only the
+     * decode/IO-corruption class {@see self::readJsonCapped} raises as a RuntimeException is treated as
+     * "no section".
+     *
+     * @param string $path     The absolute path to read.
+     * @param int    $maxBytes The maximum accepted file size in bytes.
+     * @param string $key      The top-level key whose array value is returned.
+     *
+     * @return array<array-key, mixed>|null The section, or null when it is absent or unreadable.
+     */
+    public static function readJsonSection(string $path, int $maxBytes, string $key): ?array
+    {
+        if (!is_file($path)) {
+            return null;
+        }
+
+        try {
+            $section = self::readJsonCapped($path, $maxBytes)[$key] ?? null;
+        } catch (RuntimeException) {
+            return null;
+        }
+
+        return is_array($section) ? $section : null;
+    }
 }

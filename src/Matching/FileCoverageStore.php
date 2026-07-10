@@ -11,19 +11,20 @@ declare(strict_types=1);
 
 namespace MagicSunday\ObituaryMatcher\Matching;
 
+use FilesystemIterator;
 use MagicSunday\ObituaryMatcher\Domain\PortalCoverage;
 use MagicSunday\ObituaryMatcher\Queue\AtomicFile;
 use MagicSunday\ObituaryMatcher\Support\CoverageMerge;
-use RuntimeException;
+use SplFileInfo;
+use UnexpectedValueException;
 
 use function array_map;
 use function hash;
 use function is_array;
-use function is_dir;
-use function is_file;
-use function scandir;
+use function pathinfo;
 use function sprintf;
-use function str_ends_with;
+
+use const PATHINFO_EXTENSION;
 
 /**
  * A file-backed {@see CoverageStore} keyed per (person × finder) (§5.2c): one JSON document per (person,
@@ -101,28 +102,35 @@ final readonly class FileCoverageStore implements CoverageStore
      */
     public function findByPerson(string $personId): array
     {
-        $dir = $this->dirFor($personId);
-
-        if (!is_dir($dir)) {
-            return [];
-        }
-
-        $entries = scandir($dir);
-
-        if ($entries === false) {
+        // A FilesystemIterator (not scandir) so an existing-but-unreadable person directory throws a
+        // TYPED UnexpectedValueException HERE — rather than an E_WARNING the webtrees error handler would
+        // convert into an exception that escapes this render path and crashes the individual tab — and so
+        // a glob metacharacter in the base store path can never mis-scan. Mirrors FileMatchStore::scanDir,
+        // the established fail-soft render-scan idiom.
+        try {
+            $iterator = new FilesystemIterator($this->dirFor($personId), FilesystemIterator::SKIP_DOTS);
+        } catch (UnexpectedValueException) {
+            // The person's sub-directory does not exist yet, or is unreadable: no coverage recorded.
             return [];
         }
 
         $rows = [];
 
-        // Union every finder's coverage document for this person (scandir lists the literal directory, so
-        // a base store path containing a glob metacharacter can never make the listing miss a finder).
-        foreach ($entries as $entry) {
-            if (!str_ends_with($entry, '.json')) {
+        // Union every finder's coverage document for this person.
+        foreach ($iterator as $fileInfo) {
+            if (!$fileInfo instanceof SplFileInfo) {
                 continue;
             }
 
-            foreach ($this->readCoverageFile($dir . '/' . $entry) as $row) {
+            $path = $fileInfo->getPathname();
+
+            // Keep only "*.json" documents: an in-flight atomic temp file is "<hash>.json.tmp.<uniqid>",
+            // whose extension is the uniqid (not "json"), so it is excluded.
+            if (pathinfo($path, PATHINFO_EXTENSION) !== 'json') {
+                continue;
+            }
+
+            foreach ($this->readCoverageFile($path) as $row) {
                 $rows[] = $row;
             }
         }
@@ -131,9 +139,10 @@ final readonly class FileCoverageStore implements CoverageStore
     }
 
     /**
-     * Reads one finder's coverage document, tolerating an absent, corrupt or oversize file by returning
-     * an empty list and dropping any individual row that no longer rebuilds. Reading the store's OWN
-     * persisted format, so this is a defensive read rather than untrusted-input narrowing.
+     * Reads one finder's coverage document, tolerating an absent, corrupt or oversize file (via the
+     * shared {@see AtomicFile::readJsonSection} fail-soft primitive) by returning an empty list and
+     * dropping any individual row that no longer rebuilds. Reading the store's OWN persisted format, so
+     * this is a defensive read rather than untrusted-input narrowing.
      *
      * @param string $path The absolute document path.
      *
@@ -141,21 +150,9 @@ final readonly class FileCoverageStore implements CoverageStore
      */
     private function readCoverageFile(string $path): array
     {
-        if (!is_file($path)) {
-            return [];
-        }
+        $rows = AtomicFile::readJsonSection($path, self::MAX_BYTES, 'coverage');
 
-        try {
-            $rows = AtomicFile::readJsonCapped($path, self::MAX_BYTES)['coverage'] ?? null;
-        } catch (RuntimeException) {
-            // Honour the fail-soft contract (and mirror the negative-memory store): the whole
-            // decode/IO corruption class — a truncated or non-JSON file, a symlinked or oversize file —
-            // surfaces as a RuntimeException from readJsonCapped and is treated as "no coverage recorded"
-            // rather than breaking the person's tab render. A programming error is not swallowed.
-            return [];
-        }
-
-        if (!is_array($rows)) {
+        if ($rows === null) {
             return [];
         }
 

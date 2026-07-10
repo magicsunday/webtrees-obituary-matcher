@@ -13,11 +13,9 @@ namespace MagicSunday\ObituaryMatcher\Matching;
 
 use MagicSunday\ObituaryMatcher\Domain\NegativeMemoryEntry;
 use MagicSunday\ObituaryMatcher\Queue\AtomicFile;
-use RuntimeException;
 use Throwable;
 
 use function hash;
-use function is_array;
 use function is_dir;
 use function is_file;
 use function rmdir;
@@ -98,22 +96,12 @@ final readonly class FileNegativeMemoryStore implements NegativeMemoryStore
      */
     public function find(string $personId, string $finderId): ?NegativeMemoryEntry
     {
-        $path = $this->pathFor($personId, $finderId);
+        // The shared fail-soft primitive: an absent/truncated/non-JSON/oversize/symlinked file (or a
+        // legacy single-document layout with no `memory` object) reads back as null and self-heals on
+        // the next drain, rather than breaking the enqueue path. A programming error is not swallowed.
+        $row = AtomicFile::readJsonSection($this->pathFor($personId, $finderId), self::MAX_BYTES, 'memory');
 
-        if (!is_file($path)) {
-            return null;
-        }
-
-        try {
-            $row = AtomicFile::readJsonCapped($path, self::MAX_BYTES)['memory'] ?? null;
-        } catch (RuntimeException) {
-            // Fail-soft (mirroring the coverage store): a truncated/non-JSON/oversize/symlinked file
-            // surfaces as a RuntimeException from readJsonCapped and is treated as "no memory" rather
-            // than breaking the enqueue path. A programming error is not swallowed (no catch (Throwable)).
-            return null;
-        }
-
-        if (!is_array($row)) {
+        if ($row === null) {
             return null;
         }
 
