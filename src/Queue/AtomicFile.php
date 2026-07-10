@@ -216,7 +216,20 @@ final class AtomicFile
         // filesize() value comes from the stat cache (it can be stale) and leaves a size TOCTOU
         // between the stat and the read. Reading $maxBytes + 1 bytes lets the cap be enforced on the
         // bytes actually read.
-        $handle = fopen($path, 'rb');
+        //
+        // Swallow the fopen warning (a file removed or made unreadable by a concurrent clear/unlink
+        // BETWEEN the preflight checks above and this open raises "failed to open stream") so fopen
+        // returns false and the false-branch below raises a RuntimeException — rather than webtrees'
+        // error handler converting the warning into a thrown ErrorException FROM fopen(), which does
+        // NOT extend RuntimeException and would bypass this branch AND every caller's fail-soft
+        // catch (RuntimeException), crashing the tab-render/drain path on a benign read race.
+        set_error_handler(static fn (): bool => true);
+
+        try {
+            $handle = fopen($path, 'rb');
+        } finally {
+            restore_error_handler();
+        }
 
         if ($handle === false) {
             throw new RuntimeException(

@@ -462,4 +462,57 @@ final class AtomicFileTest extends TempDirTestCase
 
         self::assertNull(AtomicFile::readJsonSection($path, 1024, 'coverage'));
     }
+
+    /**
+     * A file that passes the preflight stat checks but cannot be OPENED — a read-side TOCTOU race where
+     * the file is removed or made unreadable between the `is_file`/`is_readable` checks and the fopen —
+     * is rejected with a RuntimeException even under a webtrees-style handler that converts the fopen
+     * E_WARNING into a thrown exception. Without readJsonCapped's own scoped handler the converted
+     * ErrorException (which does NOT extend RuntimeException) would be thrown FROM fopen(), bypassing
+     * the "$handle === false" branch and escaping every caller's `catch (RuntimeException)` fail-soft
+     * guard — crashing the tab render / drain path. A VanishingReadStreamWrapper drives that race
+     * deterministically: url_stat reports a readable regular file, but stream_open fails.
+     */
+    #[Test]
+    public function readJsonCappedRejectsAFileThatVanishesBetweenTheStatAndTheOpen(): void
+    {
+        VanishingReadStreamWrapper::register();
+
+        set_error_handler(static function (int $severity, string $message): never {
+            throw new ErrorException($message, 0, $severity);
+        });
+
+        try {
+            $this->expectException(RuntimeException::class);
+            AtomicFile::readJsonCapped(VanishingReadStreamWrapper::SCHEME . '://gone.json', 1024);
+        } finally {
+            restore_error_handler();
+            VanishingReadStreamWrapper::unregister();
+        }
+    }
+
+    /**
+     * The fail-soft section read maps the same read-side open race to null rather than letting the
+     * converted fopen warning escape: a coverage/memory document that vanishes between the preflight
+     * stat and the open must degrade to "no section", so a concurrent clear/unlink never crashes the
+     * render or drain path.
+     */
+    #[Test]
+    public function readJsonSectionReturnsNullWhenTheFileVanishesBetweenTheStatAndTheOpen(): void
+    {
+        VanishingReadStreamWrapper::register();
+
+        set_error_handler(static function (int $severity, string $message): never {
+            throw new ErrorException($message, 0, $severity);
+        });
+
+        try {
+            self::assertNull(
+                AtomicFile::readJsonSection(VanishingReadStreamWrapper::SCHEME . '://gone.json', 1024, 'coverage')
+            );
+        } finally {
+            restore_error_handler();
+            VanishingReadStreamWrapper::unregister();
+        }
+    }
 }
