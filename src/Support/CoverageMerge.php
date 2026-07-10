@@ -96,9 +96,10 @@ final class CoverageMerge
             } elseif ($row->status === CoverageStatus::Failed) {
                 $anyFailed = true;
 
-                if (($failedMessage === null) && ($row->message !== null)) {
-                    $failedMessage = $row->message;
-                }
+                // Keep the first non-null failure message: ??= only assigns while $failedMessage is
+                // still null, and a null $row->message assigns null (a no-op), so an earlier
+                // message-less failure never clobbers a later one.
+                $failedMessage ??= $row->message;
             }
         }
 

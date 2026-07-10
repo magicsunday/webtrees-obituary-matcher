@@ -74,6 +74,28 @@ final class CoverageMergeTest extends TestCase
     }
 
     /**
+     * The merged failure message is the FIRST non-null one across the failed finders: an earlier failed
+     * row that carried no message must not clobber the merge to null, and a later non-null message must
+     * not overwrite an earlier one. Pins the message-capture invariant so the null-tolerant collapse
+     * stays correct.
+     *
+     * @return void
+     */
+    #[Test]
+    public function failedKeepsTheFirstNonNullMessageAcrossFinders(): void
+    {
+        $merged = CoverageMerge::union([
+            new PortalCoverage('trauer', CoverageStatus::Failed, null, null),
+            new PortalCoverage('trauer', CoverageStatus::Failed, null, 'timeout'),
+            new PortalCoverage('trauer', CoverageStatus::Failed, null, '503'),
+        ]);
+
+        self::assertCount(1, $merged);
+        self::assertSame(CoverageStatus::Failed, $merged[0]->status);
+        self::assertSame('timeout', $merged[0]->message);
+    }
+
+    /**
      * `ok` wins over `skipped`: a portal one finder searched OK and another skipped merges to `ok`.
      *
      * @return void
