@@ -216,7 +216,20 @@ final class AtomicFile
         // filesize() value comes from the stat cache (it can be stale) and leaves a size TOCTOU
         // between the stat and the read. Reading $maxBytes + 1 bytes lets the cap be enforced on the
         // bytes actually read.
-        $handle = fopen($path, 'rb');
+        //
+        // Swallow the fopen warning (a file removed or made unreadable by a concurrent clear/unlink
+        // BETWEEN the preflight checks above and this open raises "failed to open stream") so fopen
+        // returns false and the false-branch below raises a RuntimeException — rather than webtrees'
+        // error handler converting the warning into a thrown ErrorException FROM fopen(), which does
+        // NOT extend RuntimeException and would bypass this branch AND every caller's fail-soft
+        // catch (RuntimeException), crashing the tab-render/drain path on a benign read race.
+        set_error_handler(static fn (): bool => true);
+
+        try {
+            $handle = fopen($path, 'rb');
+        } finally {
+            restore_error_handler();
+        }
 
         if ($handle === false) {
             throw new RuntimeException(
@@ -224,12 +237,29 @@ final class AtomicFile
             );
         }
 
+        // Swallow a read/close warning for the SAME reason as the open above: a post-open read fault
+        // (a genuine I/O error, or the concurrent truncation the open guard survives) makes
+        // stream_get_contents raise an E_WARNING, and fclose can warn too. Without this scoped handler
+        // webtrees' handler would convert that warning into a thrown ErrorException FROM the call —
+        // bypassing the read-failure recovery below (the swallowed read surfaces as "" and is rejected
+        // by the JSON-decode guard) AND every caller's fail-soft catch (RuntimeException), crashing the
+        // render/drain path. fclose stays inside the handler so a close warning is swallowed as well; it
+        // runs before the handler is restored.
+        set_error_handler(static fn (): bool => true);
+
         try {
             $contents = stream_get_contents($handle, $maxBytes + 1);
         } finally {
             fclose($handle);
+            restore_error_handler();
         }
 
+        // stream_get_contents is typed string|false, so this branch handles the declared false for
+        // type-safety (the strlen and json_decode below require a string). It is defensive against the
+        // return type rather than a runtime-reachable path at THIS call site: passing a length but no
+        // offset, the read has no seek to fail, so an empty or failed read surfaces as "" (rejected one
+        // step later by the JSON-decode guard), never a literal false — and a userspace wrapper's
+        // stream_read returning false likewise reads back as "".
         if ($contents === false) {
             throw new RuntimeException(
                 sprintf('Failed to read queue file: %s', $path)
@@ -270,5 +300,35 @@ final class AtomicFile
 
         /** @var array<string, mixed> $data */
         return $data;
+    }
+
+    /**
+     * Fail-soft read of one top-level array section of a JSON document: returns the array stored at
+     * $key, or null when the file is absent, a symlink, unreadable, oversize, not valid JSON, or the
+     * section is missing or not an array. This is the shared "safe capped read of one JSON sub-key"
+     * primitive the per-person file stores read their own persisted state through, so the fail-soft
+     * contract lives in exactly one place. A programming error is NOT swallowed — only the
+     * decode/IO-corruption class {@see self::readJsonCapped} raises as a RuntimeException is treated as
+     * "no section".
+     *
+     * @param string $path     The absolute path to read.
+     * @param int    $maxBytes The maximum accepted file size in bytes.
+     * @param string $key      The top-level key whose array value is returned.
+     *
+     * @return array<array-key, mixed>|null The section, or null when it is absent or unreadable.
+     */
+    public static function readJsonSection(string $path, int $maxBytes, string $key): ?array
+    {
+        if (!is_file($path)) {
+            return null;
+        }
+
+        try {
+            $section = self::readJsonCapped($path, $maxBytes)[$key] ?? null;
+        } catch (RuntimeException) {
+            return null;
+        }
+
+        return is_array($section) ? $section : null;
     }
 }

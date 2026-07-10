@@ -410,4 +410,162 @@ final class AtomicFileTest extends TempDirTestCase
         $this->expectException(RuntimeException::class);
         AtomicFile::readJsonCapped($path, 1024);
     }
+
+    /**
+     * readJsonSection returns the array stored at the requested key of a valid document — the happy
+     * path the per-person file stores read their own persisted state through.
+     */
+    #[Test]
+    public function readJsonSectionReturnsTheRequestedSection(): void
+    {
+        $path = $this->tmp . '/section.json';
+        AtomicFile::writeJson($path, ['coverage' => [['portal' => 'a']], 'other' => 1]);
+
+        self::assertSame([['portal' => 'a']], AtomicFile::readJsonSection($path, 1024, 'coverage'));
+    }
+
+    /**
+     * readJsonSection returns null for an absent file — the branch the "unrecorded person" and legacy
+     * layouts route through (the new reader never opens the legacy path, so it sees no file).
+     */
+    #[Test]
+    public function readJsonSectionReturnsNullForAnAbsentFile(): void
+    {
+        self::assertNull(AtomicFile::readJsonSection($this->tmp . '/missing.json', 1024, 'coverage'));
+    }
+
+    /**
+     * readJsonSection returns null when the file is a valid JSON object but the requested key is
+     * missing entirely — the "no section" branch. This is the exact shape a legacy single-document
+     * (personId + a differently-named payload key) would present if it ever sat at the reader's path,
+     * so the fail-soft contract must map it to null, not surface a partial read.
+     */
+    #[Test]
+    public function readJsonSectionReturnsNullWhenTheKeyIsMissing(): void
+    {
+        $path = $this->tmp . '/no-key.json';
+        AtomicFile::writeJson($path, ['personId' => 'I1', 'somethingElse' => []]);
+
+        self::assertNull(AtomicFile::readJsonSection($path, 1024, 'coverage'));
+    }
+
+    /**
+     * readJsonSection returns null when the requested key exists but its value is a scalar rather than
+     * an array — the non-array-section branch. A corrupt document whose section was overwritten with a
+     * scalar must read back as "no section" rather than being handed to a caller that expects a list.
+     */
+    #[Test]
+    public function readJsonSectionReturnsNullWhenTheSectionIsNotAnArray(): void
+    {
+        $path = $this->tmp . '/scalar-section.json';
+        AtomicFile::writeJson($path, ['coverage' => 'not-an-array']);
+
+        self::assertNull(AtomicFile::readJsonSection($path, 1024, 'coverage'));
+    }
+
+    /**
+     * A file that passes the preflight stat checks but cannot be OPENED — a read-side TOCTOU race where
+     * the file is removed or made unreadable between the `is_file`/`is_readable` checks and the fopen —
+     * is rejected with a RuntimeException even under a webtrees-style handler that converts the fopen
+     * E_WARNING into a thrown exception. Without readJsonCapped's own scoped handler the converted
+     * ErrorException (which does NOT extend RuntimeException) would be thrown FROM fopen(), bypassing
+     * the "$handle === false" branch and escaping every caller's `catch (RuntimeException)` fail-soft
+     * guard — crashing the tab render / drain path. A VanishingReadStreamWrapper drives that race
+     * deterministically: url_stat reports a readable regular file, but stream_open fails.
+     */
+    #[Test]
+    public function readJsonCappedRejectsAFileThatVanishesBetweenTheStatAndTheOpen(): void
+    {
+        VanishingReadStreamWrapper::register();
+
+        set_error_handler(static function (int $severity, string $message): never {
+            throw new ErrorException($message, 0, $severity);
+        });
+
+        try {
+            $this->expectException(RuntimeException::class);
+            AtomicFile::readJsonCapped(VanishingReadStreamWrapper::SCHEME . '://gone.json', 1024);
+        } finally {
+            restore_error_handler();
+            VanishingReadStreamWrapper::unregister();
+        }
+    }
+
+    /**
+     * The fail-soft section read maps the same read-side open race to null rather than letting the
+     * converted fopen warning escape: a coverage/memory document that vanishes between the preflight
+     * stat and the open must degrade to "no section", so a concurrent clear/unlink never crashes the
+     * render or drain path.
+     */
+    #[Test]
+    public function readJsonSectionReturnsNullWhenTheFileVanishesBetweenTheStatAndTheOpen(): void
+    {
+        VanishingReadStreamWrapper::register();
+
+        set_error_handler(static function (int $severity, string $message): never {
+            throw new ErrorException($message, 0, $severity);
+        });
+
+        try {
+            self::assertNull(
+                AtomicFile::readJsonSection(VanishingReadStreamWrapper::SCHEME . '://gone.json', 1024, 'coverage')
+            );
+        } finally {
+            restore_error_handler();
+            VanishingReadStreamWrapper::unregister();
+        }
+    }
+
+    /**
+     * A file that opens cleanly but whose READ then faults — a post-open I/O error or a concurrent
+     * truncation on the descriptor — is rejected with a RuntimeException even under a webtrees-style
+     * handler that converts the read E_WARNING into a thrown exception. Without extending readJsonCapped's
+     * scoped handler over the read (and close), the converted ErrorException would be thrown FROM the
+     * read and escape every caller's `catch (RuntimeException)` fail-soft guard, crashing the
+     * tab-render/drain path on a benign read fault. With the guard the warning is swallowed, the faulting
+     * read yields an empty payload, and the JSON-decode recovery rejects it as a RuntimeException. (This
+     * userspace-wrapper fault surfaces the empty read via the decode path, not the `$contents === false`
+     * branch — a userspace stream_read returning false reads back as "", not false.) A FaultyReadStreamWrapper
+     * drives the fault deterministically: the open succeeds, the first read faults.
+     */
+    #[Test]
+    public function readJsonCappedRejectsAFileWhoseReadFaultsAfterOpen(): void
+    {
+        FaultyReadStreamWrapper::register();
+
+        set_error_handler(static function (int $severity, string $message): never {
+            throw new ErrorException($message, 0, $severity);
+        });
+
+        try {
+            $this->expectException(RuntimeException::class);
+            AtomicFile::readJsonCapped(FaultyReadStreamWrapper::SCHEME . '://faulty.json', 1024);
+        } finally {
+            restore_error_handler();
+            FaultyReadStreamWrapper::unregister();
+        }
+    }
+
+    /**
+     * The fail-soft section read maps a post-open read fault to null as well, so a read that faults after
+     * a clean open never lets the converted warning escape onto the render or drain path.
+     */
+    #[Test]
+    public function readJsonSectionReturnsNullWhenTheReadFaultsAfterOpen(): void
+    {
+        FaultyReadStreamWrapper::register();
+
+        set_error_handler(static function (int $severity, string $message): never {
+            throw new ErrorException($message, 0, $severity);
+        });
+
+        try {
+            self::assertNull(
+                AtomicFile::readJsonSection(FaultyReadStreamWrapper::SCHEME . '://faulty.json', 1024, 'coverage')
+            );
+        } finally {
+            restore_error_handler();
+            FaultyReadStreamWrapper::unregister();
+        }
+    }
 }
