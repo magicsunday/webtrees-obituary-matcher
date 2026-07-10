@@ -410,4 +410,56 @@ final class AtomicFileTest extends TempDirTestCase
         $this->expectException(RuntimeException::class);
         AtomicFile::readJsonCapped($path, 1024);
     }
+
+    /**
+     * readJsonSection returns the array stored at the requested key of a valid document — the happy
+     * path the per-person file stores read their own persisted state through.
+     */
+    #[Test]
+    public function readJsonSectionReturnsTheRequestedSection(): void
+    {
+        $path = $this->tmp . '/section.json';
+        AtomicFile::writeJson($path, ['coverage' => [['portal' => 'a']], 'other' => 1]);
+
+        self::assertSame([['portal' => 'a']], AtomicFile::readJsonSection($path, 1024, 'coverage'));
+    }
+
+    /**
+     * readJsonSection returns null for an absent file — the branch the "unrecorded person" and legacy
+     * layouts route through (the new reader never opens the legacy path, so it sees no file).
+     */
+    #[Test]
+    public function readJsonSectionReturnsNullForAnAbsentFile(): void
+    {
+        self::assertNull(AtomicFile::readJsonSection($this->tmp . '/missing.json', 1024, 'coverage'));
+    }
+
+    /**
+     * readJsonSection returns null when the file is a valid JSON object but the requested key is
+     * missing entirely — the "no section" branch. This is the exact shape a legacy single-document
+     * (personId + a differently-named payload key) would present if it ever sat at the reader's path,
+     * so the fail-soft contract must map it to null, not surface a partial read.
+     */
+    #[Test]
+    public function readJsonSectionReturnsNullWhenTheKeyIsMissing(): void
+    {
+        $path = $this->tmp . '/no-key.json';
+        AtomicFile::writeJson($path, ['personId' => 'I1', 'somethingElse' => []]);
+
+        self::assertNull(AtomicFile::readJsonSection($path, 1024, 'coverage'));
+    }
+
+    /**
+     * readJsonSection returns null when the requested key exists but its value is a scalar rather than
+     * an array — the non-array-section branch. A corrupt document whose section was overwritten with a
+     * scalar must read back as "no section" rather than being handed to a caller that expects a list.
+     */
+    #[Test]
+    public function readJsonSectionReturnsNullWhenTheSectionIsNotAnArray(): void
+    {
+        $path = $this->tmp . '/scalar-section.json';
+        AtomicFile::writeJson($path, ['coverage' => 'not-an-array']);
+
+        self::assertNull(AtomicFile::readJsonSection($path, 1024, 'coverage'));
+    }
 }
