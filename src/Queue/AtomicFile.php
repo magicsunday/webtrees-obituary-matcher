@@ -253,6 +253,11 @@ final class AtomicFile
             restore_error_handler();
         }
 
+        // stream_get_contents is documented to return false on a read failure; with the warning now
+        // swallowed, a genuine C-level read fault on a real file stream surfaces here as that false
+        // return rather than an escaping ErrorException. (A userspace stream wrapper cannot reproduce a
+        // literal false — its stream_read returning false reads back as "", caught one step later by the
+        // JSON-decode guard — so this defensive branch guards the documented real-stream contract.)
         if ($contents === false) {
             throw new RuntimeException(
                 sprintf('Failed to read queue file: %s', $path)

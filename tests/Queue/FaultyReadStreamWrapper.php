@@ -33,10 +33,12 @@ use function unlink;
  * error handler is active.
  *
  * Under a webtrees-style handler that converts every E_WARNING into a thrown ErrorException, that warning
- * would be thrown FROM the read BEFORE readJsonCapped's `$contents === false` recovery could run;
- * ErrorException does not extend RuntimeException, so it would escape every caller's fail-soft
- * catch (RuntimeException) — unless readJsonCapped's scoped handler spans the read (and the close) too.
- * This wrapper drives exactly that path deterministically.
+ * would be thrown FROM the read and escape readJsonCapped as an ErrorException, which does not extend
+ * RuntimeException and so would bypass every caller's fail-soft catch (RuntimeException) — unless
+ * readJsonCapped's scoped handler spans the read (and the close) too. This wrapper drives exactly that
+ * path deterministically. (A userspace stream_read returning false reads back as "" rather than false,
+ * so the swallowed empty read is rejected by readJsonCapped's JSON-decode recovery, not its
+ * `$contents === false` branch.)
  *
  * @author  Rico Sonntag <mail@ricosonntag.de>
  * @license https://opensource.org/licenses/GPL-3.0 GNU General Public License v3.0

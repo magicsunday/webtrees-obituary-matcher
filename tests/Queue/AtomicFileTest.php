@@ -521,8 +521,11 @@ final class AtomicFileTest extends TempDirTestCase
      * truncation on the descriptor — is rejected with a RuntimeException even under a webtrees-style
      * handler that converts the read E_WARNING into a thrown exception. Without extending readJsonCapped's
      * scoped handler over the read (and close), the converted ErrorException would be thrown FROM the
-     * read, bypassing the "$contents === false" recovery AND every caller's `catch (RuntimeException)`
-     * fail-soft guard — crashing the tab-render/drain path on a benign read fault. A FaultyReadStreamWrapper
+     * read and escape every caller's `catch (RuntimeException)` fail-soft guard, crashing the
+     * tab-render/drain path on a benign read fault. With the guard the warning is swallowed, the faulting
+     * read yields an empty payload, and the JSON-decode recovery rejects it as a RuntimeException. (This
+     * userspace-wrapper fault surfaces the empty read via the decode path, not the `$contents === false`
+     * branch — a userspace stream_read returning false reads back as "", not false.) A FaultyReadStreamWrapper
      * drives the fault deterministically: the open succeeds, the first read faults.
      */
     #[Test]
