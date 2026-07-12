@@ -26,6 +26,8 @@ use function dirname;
 use function file_put_contents;
 use function hash;
 use function iterator_to_array;
+use function restore_error_handler;
+use function set_error_handler;
 use function sprintf;
 use function str_repeat;
 use function symlink;
@@ -321,9 +323,9 @@ final class FileCoverageStoreTest extends TempDirTestCase
     public function eachDropsADocumentWithoutPersonIdWhileFindByPersonStillUnionsIt(): void
     {
         $dir = $this->tmp . '/coverage';
-        // A finder document carrying coverage but NO personId key (a legacy/corrupt shape); the empty
+        // A finder document carrying coverage but NO personId key (a legacy/corrupt shape); a null
         // bodyPersonId omits the key.
-        $this->writeDoc($dir, 'I1', 'https://finder.a', new PortalCoverage('alpha', CoverageStatus::Ok, 1, null), '');
+        $this->writeDoc($dir, 'I1', 'https://finder.a', new PortalCoverage('alpha', CoverageStatus::Ok, 1, null), null);
 
         $store = new FileCoverageStore($dir);
 
@@ -385,6 +387,29 @@ final class FileCoverageStoreTest extends TempDirTestCase
     }
 
     /**
+     * findByPerson also drops a misplaced document whose stored personId belongs to ANOTHER person (it
+     * hashed into the requested person's directory by corruption), while still unioning the requested
+     * person's own document — so the per-person read and the tree-wide each() agree under corruption. A
+     * null-personId document stays tolerated (covered separately); this pins the MISMATCHED half.
+     *
+     * @return void
+     */
+    #[Test]
+    public function findByPersonDropsAMisplacedForeignPersonIdDocument(): void
+    {
+        $dir = $this->tmp . '/coverage';
+        // I1's own document (union it) plus a misplaced I2-bodied document in I1's directory (drop it).
+        $this->writeDoc($dir, 'I1', 'https://finder.a', new PortalCoverage('alpha', CoverageStatus::Ok, 1, null), 'I1');
+        $this->writeDoc($dir, 'I1', 'https://finder.b', new PortalCoverage('zebra', CoverageStatus::Ok, 1, null), 'I2');
+
+        $coverage = (new FileCoverageStore($dir))->findByPerson('I1');
+
+        // Only I1's own coverage survives — the misplaced I2 document is not attributed to I1.
+        self::assertCount(1, $coverage);
+        self::assertSame('alpha', $coverage[0]->portal);
+    }
+
+    /**
      * A directory whose ONLY document is misplaced (its personId hashes elsewhere) yields nothing from
      * each() — there is no valid resident to attribute the coverage to.
      *
@@ -440,7 +465,17 @@ final class FileCoverageStoreTest extends TempDirTestCase
 
         $link = sprintf('%s/%s', $dir, hash('sha256', 'I1'));
 
-        if (!@symlink(sprintf('%s/%s', $outside, hash('sha256', 'I1')), $link)) {
+        // Probe symlink support without the banned @-suppression: a scoped handler swallows the E_WARNING
+        // symlink() emits when the platform cannot create one, so the return value drives the skip.
+        set_error_handler(static fn (): bool => true);
+
+        try {
+            $linked = symlink(sprintf('%s/%s', $outside, hash('sha256', 'I1')), $link);
+        } finally {
+            restore_error_handler();
+        }
+
+        if (!$linked) {
             self::markTestSkipped('The platform does not support creating symlinks.');
         }
 
@@ -458,18 +493,18 @@ final class FileCoverageStoreTest extends TempDirTestCase
      * @param string         $ownerPerson  The person whose sub-directory the document lands in.
      * @param string         $finderId     The finder the document belongs to.
      * @param PortalCoverage $coverage     The document's single coverage row.
-     * @param string         $bodyPersonId The personId written into the body, or "" to omit the key.
+     * @param string|null    $bodyPersonId The personId written into the body, or null to omit the key.
      *
      * @return void
      */
-    private function writeDoc(string $dir, string $ownerPerson, string $finderId, PortalCoverage $coverage, string $bodyPersonId): void
+    private function writeDoc(string $dir, string $ownerPerson, string $finderId, PortalCoverage $coverage, ?string $bodyPersonId): void
     {
         $subdir = sprintf('%s/%s', $dir, hash('sha256', $ownerPerson));
         AtomicFile::ensureDirectory($subdir);
 
         $body = ['finderId' => $finderId, 'coverage' => [$coverage->toArray()]];
 
-        if ($bodyPersonId !== '') {
+        if ($bodyPersonId !== null) {
             $body['personId'] = $bodyPersonId;
         }
 

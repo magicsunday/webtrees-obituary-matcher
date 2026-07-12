@@ -118,8 +118,12 @@ final readonly class FileCoverageStore implements CoverageStore
         $rows = [];
 
         // Union every finder's coverage document for this person. The caller handed us the id and we scan
-        // exactly that person's directory, so we tolerantly union every document's rows and never read the
-        // stored personId back (no misattribution is possible when the id is an input, not content).
+        // exactly that person's directory, so most documents belong to $personId by construction. As
+        // defence-in-depth against a misplaced/corrupt document that hashed into this directory carrying
+        // ANOTHER person's id, we drop a document whose stored personId differs from $personId — so the
+        // per-person read and the tree-wide each() agree on a person's coverage under corruption (each()
+        // applies the equivalent hash-to-directory guard). A null personId (a legacy/id-less shape) is
+        // tolerated: it cannot misattribute.
         foreach ($iterator as $fileInfo) {
             if (!$fileInfo instanceof SplFileInfo) {
                 continue;
@@ -128,6 +132,10 @@ final readonly class FileCoverageStore implements CoverageStore
             $result = $this->readCoverageDoc($fileInfo);
 
             if ($result === null) {
+                continue;
+            }
+
+            if (($result['personId'] !== null) && ($result['personId'] !== $personId)) {
                 continue;
             }
 
@@ -142,7 +150,7 @@ final readonly class FileCoverageStore implements CoverageStore
     /**
      * {@inheritDoc}
      *
-     * @return iterable<string, list<PortalCoverage>> personId => the person's merged per-portal coverage.
+     * @return iterable<string, list<PortalCoverage>> Each searched personId mapped to their merged per-portal coverage.
      */
     public function each(): iterable
     {
