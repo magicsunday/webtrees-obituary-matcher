@@ -14,8 +14,9 @@ namespace MagicSunday\ObituaryMatcher\Ui;
 /**
  * A read-only, view-ready projection of a page of stored matches for the tree-wide worklist screen.
  * It carries the projected rows, the per-status counts over the surviving rows, the active status
- * filter and the paging fields. Every value is plain/untrusted; the worklist template escapes each
- * sink once with e().
+ * filter and the paging fields, plus the "repeat search needed" surface (§6.4 point 2): the
+ * portal-outage people who have no match row of their own. Every value is plain/untrusted; the
+ * worklist template escapes each sink once with e().
  *
  * @author  Rico Sonntag <mail@ricosonntag.de>
  * @license https://opensource.org/licenses/GPL-3.0 GNU General Public License v3.0
@@ -35,6 +36,8 @@ final readonly class WorklistView
      * @param int                                                                         $totalPages         The total page count (>= 1).
      * @param int                                                                         $totalFiltered      The total rows after filtering.
      * @param bool                                                                        $hasMultipleOrigins Whether the surviving rows span more than one origin finder (§5.2f); the template shows the origin-finder column only then.
+     * @param list<RetryRowView>                                                          $retryNeeded        The capped list of portal-outage people needing a repeat search (§6.4 point 2); empty when there was no outage.
+     * @param int                                                                         $retryNeededTotal   The pre-cap count of portal-outage people, so the template can note how many were not rendered ("and N more").
      */
     public function __construct(
         public array $rows,
@@ -46,6 +49,8 @@ final readonly class WorklistView
         public int $totalPages,
         public int $totalFiltered,
         public bool $hasMultipleOrigins = false,
+        public array $retryNeeded = [],
+        public int $retryNeededTotal = 0,
     ) {
     }
 }
