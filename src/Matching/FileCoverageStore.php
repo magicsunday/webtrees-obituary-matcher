@@ -21,6 +21,7 @@ use UnexpectedValueException;
 use function array_map;
 use function hash;
 use function is_array;
+use function is_link;
 use function is_string;
 use function pathinfo;
 use function sprintf;
@@ -103,13 +104,25 @@ final readonly class FileCoverageStore implements CoverageStore
      */
     public function findByPerson(string $personId): array
     {
+        $dir = $this->dirFor($personId);
+
+        // Refuse a symlinked person directory (never follow it out of the store), mirroring the
+        // symlinked-subdirectory guard each() applies while iterating the store root — so a corrupted
+        // store layout cannot make the per-person read and the tree-wide read disagree, and cannot read
+        // documents outside the store through a symlinked parent (readCoverageDoc rejects a symlinked
+        // *file* but not a regular file reached through a symlinked *directory*). is_link() is a quiet
+        // stat predicate: false, no E_WARNING, on a missing path.
+        if (is_link($dir)) {
+            return [];
+        }
+
         // A FilesystemIterator (not scandir) so an existing-but-unreadable person directory throws a
         // TYPED UnexpectedValueException HERE — rather than an E_WARNING the webtrees error handler would
         // convert into an exception that escapes this render path and crashes the individual tab — and so
         // a glob metacharacter in the base store path can never mis-scan. Mirrors FileMatchStore::scanDir,
         // the established fail-soft render-scan idiom.
         try {
-            $iterator = new FilesystemIterator($this->dirFor($personId), FilesystemIterator::SKIP_DOTS);
+            $iterator = new FilesystemIterator($dir, FilesystemIterator::SKIP_DOTS);
         } catch (UnexpectedValueException) {
             // The person's sub-directory does not exist yet, or is unreadable: no coverage recorded.
             return [];
