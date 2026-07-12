@@ -628,4 +628,35 @@ final class WorklistPresenterTest extends TestCase
         self::assertSame(1, $view->retryNeededTotal);
         self::assertSame('I2', $view->retryNeeded[0]->personId);
     }
+
+    /**
+     * The de-dup is against the FULL match entries, not the filtered/paged rows: a matched person filtered
+     * OFF the current page still suppresses their retry entry, so switching the status filter can never
+     * make a matched person reappear in the retry surface. Pins the "independent of the active filter"
+     * half of the de-dup contract that the all-filter case cannot distinguish.
+     *
+     * @return void
+     */
+    #[Test]
+    public function retryDedupIsAgainstTheFullMatchEntriesNotTheFilteredPage(): void
+    {
+        $view = (new WorklistPresenter())->build(
+            // The only match is Confirmed; the "open" filter drops it from the visible rows entirely.
+            [$this->entry('I1', 90, MatchStatus::Confirmed)],
+            'open',
+            'all',
+            'score',
+            1,
+            [
+                $this->retryEntry('I1', 'Has A Match'),
+                $this->retryEntry('I2', 'No Match'),
+            ],
+        );
+
+        // I1 is filtered OFF the page (no visible rows), yet it is still de-duped from the retry surface
+        // because the de-dup reads the unfiltered $entries.
+        self::assertSame([], $view->rows);
+        self::assertCount(1, $view->retryNeeded);
+        self::assertSame('I2', $view->retryNeeded[0]->personId);
+    }
 }

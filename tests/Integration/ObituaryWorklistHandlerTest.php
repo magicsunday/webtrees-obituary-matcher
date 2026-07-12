@@ -464,8 +464,10 @@ final class ObituaryWorklistHandlerTest extends IntegrationTestCase
 
         self::assertStringContainsString('class="om-retry-needed"', $html);
         self::assertStringContainsString('om-retry-needed-more', $html);
-        // Two rendered of five total → "and 3 more".
-        self::assertStringContainsString('3', $html);
+        // Two rendered of five total → the note reports the exact remainder "and 3 more".
+        self::assertStringContainsString('and 3 more', $html);
+        // The capped head is rendered too (not just the note).
+        self::assertStringContainsString('Anna Beispiel', $html);
     }
 
     /**

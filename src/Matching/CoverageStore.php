@@ -65,7 +65,7 @@ interface CoverageStore
      * carrying no personId, or one whose stored personId does not match its location) is omitted rather
      * than surfaced under a wrong identity.
      *
-     * @return iterable<string, list<PortalCoverage>> personId => the person's merged per-portal coverage.
+     * @return iterable<string, list<PortalCoverage>> Each searched personId mapped to their merged per-portal coverage.
      */
     public function each(): iterable;
 }
