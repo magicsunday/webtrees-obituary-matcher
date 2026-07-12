@@ -470,11 +470,41 @@ final class FileCoverageStoreTest extends TempDirTestCase
     #[Test]
     public function eachDoesNotDescendASymlinkedSubdirectory(): void
     {
+        $dir = $this->symlinkedPersonStore();
+
+        self::assertSame([], iterator_to_array((new FileCoverageStore($dir))->each()));
+    }
+
+    /**
+     * findByPerson also refuses a symlinked person directory: if the person's hashed directory is replaced
+     * with a symlink to a directory holding a VALID matching-personId document, findByPerson returns []
+     * rather than following the link out of the store — mirroring each()'s symlinked-subdirectory policy so
+     * the per-person read and the tree-wide read agree under a corrupted store layout. Skipped where the
+     * platform cannot create a symlink.
+     *
+     * @return void
+     */
+    #[Test]
+    public function findByPersonRefusesASymlinkedPersonDirectory(): void
+    {
+        $dir = $this->symlinkedPersonStore();
+
+        self::assertSame([], (new FileCoverageStore($dir))->findByPerson('I1'));
+    }
+
+    /**
+     * Builds the corrupted-layout fixture both symlink guards must refuse: a VALID, matching-personId
+     * document for I1 placed OUTSIDE the store, with I1's hashed directory inside the store replaced by a
+     * symlink to it (so a reader that followed the link would leak the outside document). Skips the test on
+     * a platform that cannot create a symlink. Returns the store directory.
+     *
+     * @return string The store directory whose I1 sub-directory is a symlink pointing outside.
+     */
+    private function symlinkedPersonStore(): string
+    {
         $dir     = $this->tmp . '/coverage';
         $outside = $this->tmp . '/outside';
         AtomicFile::ensureDirectory($dir);
-        // A real, VALID coverage document outside the store, in a directory named as if it were person I1's
-        // (so a symlink from the store to it would otherwise pass the hash guard and leak).
         $this->writeDoc($outside, 'I1', 'https://finder.a', new PortalCoverage('alpha', CoverageStatus::Ok, 1, null), 'I1');
 
         $link = sprintf('%s/%s', $dir, hash('sha256', 'I1'));
@@ -493,42 +523,7 @@ final class FileCoverageStoreTest extends TempDirTestCase
             self::markTestSkipped('The platform does not support creating symlinks.');
         }
 
-        self::assertSame([], iterator_to_array((new FileCoverageStore($dir))->each()));
-    }
-
-    /**
-     * findByPerson also refuses a symlinked person directory: if the person's hashed directory is replaced
-     * with a symlink to a directory holding a VALID matching-personId document, findByPerson returns []
-     * rather than following the link out of the store — mirroring each()'s symlinked-subdirectory policy so
-     * the per-person read and the tree-wide read agree under a corrupted store layout. Skipped where the
-     * platform cannot create a symlink.
-     *
-     * @return void
-     */
-    #[Test]
-    public function findByPersonRefusesASymlinkedPersonDirectory(): void
-    {
-        $dir     = $this->tmp . '/coverage';
-        $outside = $this->tmp . '/outside';
-        AtomicFile::ensureDirectory($dir);
-        // A valid, matching-personId document outside the store, in a directory named as if it were I1's.
-        $this->writeDoc($outside, 'I1', 'https://finder.a', new PortalCoverage('alpha', CoverageStatus::Ok, 1, null), 'I1');
-
-        $link = sprintf('%s/%s', $dir, hash('sha256', 'I1'));
-
-        set_error_handler(static fn (): bool => true);
-
-        try {
-            $linked = symlink(sprintf('%s/%s', $outside, hash('sha256', 'I1')), $link);
-        } finally {
-            restore_error_handler();
-        }
-
-        if (!$linked) {
-            self::markTestSkipped('The platform does not support creating symlinks.');
-        }
-
-        self::assertSame([], (new FileCoverageStore($dir))->findByPerson('I1'));
+        return $dir;
     }
 
     /**

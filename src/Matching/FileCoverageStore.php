@@ -144,7 +144,11 @@ final readonly class FileCoverageStore implements CoverageStore
 
             $result = $this->readCoverageDoc($fileInfo);
 
-            if (($result === null) || ($result['personId'] !== $personId)) {
+            if ($result === null) {
+                continue;
+            }
+
+            if ($result['personId'] !== $personId) {
                 continue;
             }
 
