@@ -117,13 +117,13 @@ final readonly class FileCoverageStore implements CoverageStore
 
         $rows = [];
 
-        // Union every finder's coverage document for this person. The caller handed us the id and we scan
-        // exactly that person's directory, so most documents belong to $personId by construction. As
-        // defence-in-depth against a misplaced/corrupt document that hashed into this directory carrying
-        // ANOTHER person's id, we drop a document whose stored personId differs from $personId — so the
-        // per-person read and the tree-wide each() agree on a person's coverage under corruption (each()
-        // applies the equivalent hash-to-directory guard). A null personId (a legacy/id-less shape) is
-        // tolerated: it cannot misattribute.
+        // Union every finder's coverage document for this person, requiring each document's own stored
+        // personId to equal $personId (readCoverageDoc normalises an absent, empty or non-string id to
+        // null, which never equals a real xref, so it too is dropped). This is the exact per-person
+        // equivalent of the hash-to-directory guard each() applies — record() always writes the correct
+        // personId, so a document that fails this check hashed into the directory by corruption and must
+        // not be attributed to $personId. Keeping both reads on the same strict rule guarantees the
+        // individual tab and the tree-wide worklist agree on a person's coverage under corruption.
         foreach ($iterator as $fileInfo) {
             if (!$fileInfo instanceof SplFileInfo) {
                 continue;
@@ -131,11 +131,7 @@ final readonly class FileCoverageStore implements CoverageStore
 
             $result = $this->readCoverageDoc($fileInfo);
 
-            if ($result === null) {
-                continue;
-            }
-
-            if (($result['personId'] !== null) && ($result['personId'] !== $personId)) {
+            if (($result === null) || ($result['personId'] !== $personId)) {
                 continue;
             }
 
