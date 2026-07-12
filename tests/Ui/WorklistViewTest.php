@@ -11,7 +11,6 @@ declare(strict_types=1);
 
 namespace MagicSunday\ObituaryMatcher\Test\Ui;
 
-use MagicSunday\ObituaryMatcher\Ui\RetryRowView;
 use MagicSunday\ObituaryMatcher\Ui\WorklistRowView;
 use MagicSunday\ObituaryMatcher\Ui\WorklistView;
 use PHPUnit\Framework\Attributes\CoversClass;
@@ -30,7 +29,6 @@ use PHPUnit\Framework\TestCase;
  */
 #[CoversClass(WorklistView::class)]
 #[UsesClass(WorklistRowView::class)]
-#[UsesClass(RetryRowView::class)]
 final class WorklistViewTest extends TestCase
 {
     /**
@@ -92,24 +90,10 @@ final class WorklistViewTest extends TestCase
 
         // The retry surface defaults to empty when the (trailing, defaulted) args are omitted — an
         // 8-arg construction stays valid, so the existing callers and this shape test do not break.
+        // RetryRowView's positional field mapping is pinned discriminatingly by
+        // WorklistPresenterTest::retryEntriesAreProjectedSortedByName (distinct personId/personName values
+        // built positionally), so no separate construct-and-read shape test is needed here.
         self::assertSame([], $view->retryNeeded);
         self::assertSame(0, $view->retryNeededTotal);
-    }
-
-    /**
-     * A RetryRowView maps its three positional arguments (name, id, URL) to the matching named
-     * properties — the shape the worklist template's retry section reads. Pins the VO contract without
-     * a getter-only test (a reorder of the promoted fields would mis-map every retry link).
-     *
-     * @return void
-     */
-    #[Test]
-    public function retryRowViewMapsItsPositionalArguments(): void
-    {
-        $row = new RetryRowView('Erika Mustermann', 'I7', '/tree/demo/individual/I7');
-
-        self::assertSame('Erika Mustermann', $row->personName);
-        self::assertSame('I7', $row->personId);
-        self::assertSame('/tree/demo/individual/I7', $row->personUrl);
     }
 }
