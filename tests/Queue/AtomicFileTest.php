@@ -568,4 +568,117 @@ final class AtomicFileTest extends TempDirTestCase
             FaultyReadStreamWrapper::unregister();
         }
     }
+
+    /**
+     * readJsonDocument returns the whole decoded top-level array for a valid capped file — the shared
+     * fail-soft whole-document read the per-person stores build their section and enumeration reads on.
+     */
+    #[Test]
+    public function readJsonDocumentReturnsTheDecodedTopLevelArray(): void
+    {
+        $path = $this->tmp . '/document.json';
+        AtomicFile::writeJson($path, ['personId' => 'I1', 'coverage' => [['portal' => 'a']]]);
+
+        self::assertSame(
+            ['personId' => 'I1', 'coverage' => [['portal' => 'a']]],
+            AtomicFile::readJsonDocument($path, 1024),
+        );
+    }
+
+    /**
+     * readJsonDocument returns null for an absent file — the "unrecorded person" / never-searched branch.
+     */
+    #[Test]
+    public function readJsonDocumentReturnsNullForAnAbsentFile(): void
+    {
+        self::assertNull(AtomicFile::readJsonDocument($this->tmp . '/missing.json', 1024));
+    }
+
+    /**
+     * readJsonDocument returns null for an oversize file — the same byte cap readJsonCapped enforces,
+     * mapped to fail-soft "no document" rather than a thrown RuntimeException.
+     */
+    #[Test]
+    public function readJsonDocumentReturnsNullForAnOversizeFile(): void
+    {
+        $path = $this->tmp . '/big.json';
+        file_put_contents($path, '{"a":"' . str_repeat('x', 200) . '"}');
+
+        self::assertNull(AtomicFile::readJsonDocument($path, 50));
+    }
+
+    /**
+     * readJsonDocument returns null for a file whose contents are not valid JSON — a truncated or
+     * hand-corrupted document degrades to "no document" instead of escaping the decode exception.
+     */
+    #[Test]
+    public function readJsonDocumentReturnsNullForBrokenJson(): void
+    {
+        $path = $this->tmp . '/broken.json';
+        file_put_contents($path, '{"a": ');
+
+        self::assertNull(AtomicFile::readJsonDocument($path, 1024));
+    }
+
+    /**
+     * readJsonDocument returns null when the valid-JSON top level is a scalar/null rather than an array —
+     * the non-array-document branch (readJsonCapped raises a RuntimeException, which the reader swallows).
+     */
+    #[Test]
+    #[DataProvider('topLevelNonArrayPayloads')]
+    public function readJsonDocumentReturnsNullForATopLevelNonArrayPayload(string $payload): void
+    {
+        $path = $this->tmp . '/scalar-document.json';
+        file_put_contents($path, $payload);
+
+        self::assertNull(AtomicFile::readJsonDocument($path, 1024));
+    }
+
+    /**
+     * readJsonDocument maps the read-side open race (a file removed/made unreadable between the preflight
+     * stat and the fopen) to null even under a webtrees-style handler that converts the fopen E_WARNING
+     * into a thrown exception — proving Part C's scoped-handler guard survives the delegation the new
+     * reader factors out, so the coverage store can switch onto it without regressing the fail-soft read.
+     */
+    #[Test]
+    public function readJsonDocumentReturnsNullWhenTheFileVanishesBetweenTheStatAndTheOpen(): void
+    {
+        VanishingReadStreamWrapper::register();
+
+        set_error_handler(static function (int $severity, string $message): never {
+            throw new ErrorException($message, 0, $severity);
+        });
+
+        try {
+            self::assertNull(
+                AtomicFile::readJsonDocument(VanishingReadStreamWrapper::SCHEME . '://gone.json', 1024)
+            );
+        } finally {
+            restore_error_handler();
+            VanishingReadStreamWrapper::unregister();
+        }
+    }
+
+    /**
+     * readJsonDocument maps a post-open read fault to null as well, so a read that faults after a clean
+     * open never lets the converted warning escape onto the render or drain path through the new reader.
+     */
+    #[Test]
+    public function readJsonDocumentReturnsNullWhenTheReadFaultsAfterOpen(): void
+    {
+        FaultyReadStreamWrapper::register();
+
+        set_error_handler(static function (int $severity, string $message): never {
+            throw new ErrorException($message, 0, $severity);
+        });
+
+        try {
+            self::assertNull(
+                AtomicFile::readJsonDocument(FaultyReadStreamWrapper::SCHEME . '://faulty.json', 1024)
+            );
+        } finally {
+            restore_error_handler();
+            FaultyReadStreamWrapper::unregister();
+        }
+    }
 }
