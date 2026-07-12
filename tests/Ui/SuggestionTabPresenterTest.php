@@ -225,6 +225,16 @@ final class SuggestionTabPresenterTest extends TestCase
             {
                 return $this->byPerson[$personId] ?? [];
             }
+
+            /**
+             * Yields every seeded person's coverage, keyed by XREF — the tree-wide enumeration seam.
+             *
+             * @return iterable<string, list<PortalCoverage>> The per-person coverage.
+             */
+            public function each(): iterable
+            {
+                yield from $this->byPerson;
+            }
         };
     }
 

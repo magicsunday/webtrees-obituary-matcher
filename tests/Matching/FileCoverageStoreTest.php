@@ -25,8 +25,10 @@ use RuntimeException;
 use function dirname;
 use function file_put_contents;
 use function hash;
+use function iterator_to_array;
 use function sprintf;
 use function str_repeat;
+use function symlink;
 
 /**
  * Tests the file-backed coverage store, now keyed per (person × finder) (§5.2c): each finder's coverage
@@ -240,5 +242,238 @@ final class FileCoverageStoreTest extends TempDirTestCase
         $this->expectException(RuntimeException::class);
 
         $store->record('I1', 'https://finder.a', $oversize);
+    }
+
+    /**
+     * each() enumerates every searched person, keyed by personId, with the coverage UNIONED across that
+     * person's finders (the same merge findByPerson applies) — the tree-wide read the worklist retry
+     * surface consumes.
+     *
+     * @return void
+     */
+    #[Test]
+    public function eachYieldsEverySearchedPersonWithMergedCoverage(): void
+    {
+        $store = new FileCoverageStore($this->tmp . '/coverage');
+
+        $store->record('I1', 'https://finder.a', [new PortalCoverage('trauer_anzeigen', CoverageStatus::Failed, null, 'timeout')]);
+        $store->record('I1', 'https://finder.b', [new PortalCoverage('trauer_anzeigen', CoverageStatus::Ok, 1, null)]);
+        $store->record('I2', 'https://finder.a', [new PortalCoverage('freiepresse', CoverageStatus::Failed, null, null)]);
+
+        $byPerson = iterator_to_array($store->each());
+
+        self::assertCount(2, $byPerson);
+        self::assertArrayHasKey('I1', $byPerson);
+        self::assertArrayHasKey('I2', $byPerson);
+
+        // I1's portal was failed by finder.a and ok by finder.b → union reads ok (one row).
+        self::assertCount(1, $byPerson['I1']);
+        self::assertSame('trauer_anzeigen', $byPerson['I1'][0]->portal);
+        self::assertSame(CoverageStatus::Ok, $byPerson['I1'][0]->status);
+
+        // I2 has a single failed portal.
+        self::assertCount(1, $byPerson['I2']);
+        self::assertSame(CoverageStatus::Failed, $byPerson['I2'][0]->status);
+    }
+
+    /**
+     * each() ignores an in-flight atomic temp file (`<hash>.json.tmp.<uniqid>`, whose extension is the
+     * uniqid, not "json") so a concurrent record mid-write never yields a half-written person.
+     *
+     * @return void
+     */
+    #[Test]
+    public function eachSkipsInFlightTempFiles(): void
+    {
+        $dir    = $this->tmp . '/coverage';
+        $subdir = sprintf('%s/%s', $dir, hash('sha256', 'I1'));
+        AtomicFile::ensureDirectory($subdir);
+        AtomicFile::writeJson(
+            sprintf('%s/%s.json', $subdir, hash('sha256', 'https://finder.a')),
+            ['personId' => 'I1', 'finderId' => 'https://finder.a', 'coverage' => [(new PortalCoverage('alpha', CoverageStatus::Ok, 1, null))->toArray()]]
+        );
+        file_put_contents(sprintf('%s/%s.json.tmp.abc123', $subdir, hash('sha256', 'https://finder.b')), '{ half written');
+
+        $byPerson = iterator_to_array((new FileCoverageStore($dir))->each());
+
+        self::assertCount(1, $byPerson);
+        self::assertArrayHasKey('I1', $byPerson);
+        self::assertCount(1, $byPerson['I1']);
+        self::assertSame('alpha', $byPerson['I1'][0]->portal);
+    }
+
+    /**
+     * each() over an absent store directory yields nothing (the store was never written to) rather than
+     * throwing — the fail-soft render-scan contract for a tree that has never been searched.
+     *
+     * @return void
+     */
+    #[Test]
+    public function eachYieldsNothingForAnAbsentStoreDir(): void
+    {
+        self::assertSame([], iterator_to_array((new FileCoverageStore($this->tmp . '/never'))->each()));
+    }
+
+    /**
+     * A document carrying no personId is dropped by each() (it cannot be addressed tree-wide), but
+     * findByPerson STILL tolerantly unions its coverage — the per-person path is handed the id and never
+     * reads it from content, so it must not regress.
+     *
+     * @return void
+     */
+    #[Test]
+    public function eachDropsADocumentWithoutPersonIdWhileFindByPersonStillUnionsIt(): void
+    {
+        $dir    = $this->tmp . '/coverage';
+        $subdir = sprintf('%s/%s', $dir, hash('sha256', 'I1'));
+        AtomicFile::ensureDirectory($subdir);
+        // A finder document carrying coverage but NO personId key (a legacy/corrupt shape).
+        AtomicFile::writeJson(
+            sprintf('%s/%s.json', $subdir, hash('sha256', 'https://finder.a')),
+            ['coverage' => [(new PortalCoverage('alpha', CoverageStatus::Ok, 1, null))->toArray()]]
+        );
+
+        $store = new FileCoverageStore($dir);
+
+        // each() cannot attribute it to a person → not yielded.
+        self::assertSame([], iterator_to_array($store->each()));
+
+        // findByPerson('I1') is asked for I1 and scans I1's dir → still unions the coverage.
+        $coverage = $store->findByPerson('I1');
+        self::assertCount(1, $coverage);
+        self::assertSame('alpha', $coverage[0]->portal);
+    }
+
+    /**
+     * each() skips a corrupt (non-JSON) document in a person's directory while still unioning a sibling
+     * valid document — the fail-soft posture must hold in the tree-wide scan, not just the per-person read.
+     *
+     * @return void
+     */
+    #[Test]
+    public function eachSkipsACorruptDocumentWhileUnioningASiblingValidOne(): void
+    {
+        $dir    = $this->tmp . '/coverage';
+        $subdir = sprintf('%s/%s', $dir, hash('sha256', 'I1'));
+        AtomicFile::ensureDirectory($subdir);
+        AtomicFile::writeJson(
+            sprintf('%s/%s.json', $subdir, hash('sha256', 'https://finder.a')),
+            ['personId' => 'I1', 'finderId' => 'https://finder.a', 'coverage' => [(new PortalCoverage('alpha', CoverageStatus::Ok, 1, null))->toArray()]]
+        );
+        file_put_contents(sprintf('%s/%s.json', $subdir, hash('sha256', 'https://finder.b')), '{ not json');
+
+        $byPerson = iterator_to_array((new FileCoverageStore($dir))->each());
+
+        self::assertCount(1, $byPerson);
+        self::assertSame('alpha', $byPerson['I1'][0]->portal);
+    }
+
+    /**
+     * each() validates the personId of EACH document against its containing directory (dir === sha256(id)):
+     * a misplaced document (correct JSON, but a personId that hashes to a different directory) is dropped
+     * and its coverage is NOT unioned into the resident person — regardless of iterator order — so a corrupt
+     * or misplaced record can never misattribute one person's coverage to another (whom the handler would
+     * then link). The valid resident document still yields the person with only its own coverage.
+     *
+     * @return void
+     */
+    #[Test]
+    public function eachValidatesPersonIdPerDocumentAgainstTheDirectory(): void
+    {
+        $dir    = $this->tmp . '/coverage';
+        $subdir = sprintf('%s/%s', $dir, hash('sha256', 'I1'));
+        AtomicFile::ensureDirectory($subdir);
+        // Resident, valid: personId I1 in I1's directory.
+        AtomicFile::writeJson(
+            sprintf('%s/%s.json', $subdir, hash('sha256', 'https://finder.a')),
+            ['personId' => 'I1', 'finderId' => 'https://finder.a', 'coverage' => [(new PortalCoverage('alpha', CoverageStatus::Ok, 1, null))->toArray()]]
+        );
+        // Misplaced: a document whose personId is I2, sitting in I1's directory.
+        AtomicFile::writeJson(
+            sprintf('%s/%s.json', $subdir, hash('sha256', 'https://finder.b')),
+            ['personId' => 'I2', 'finderId' => 'https://finder.b', 'coverage' => [(new PortalCoverage('zebra', CoverageStatus::Ok, 1, null))->toArray()]]
+        );
+
+        $byPerson = iterator_to_array((new FileCoverageStore($dir))->each());
+
+        self::assertCount(1, $byPerson);
+        self::assertArrayHasKey('I1', $byPerson);
+        self::assertArrayNotHasKey('I2', $byPerson);
+        // Only the resident I1 document's coverage — the misplaced I2 document is dropped, not unioned.
+        self::assertCount(1, $byPerson['I1']);
+        self::assertSame('alpha', $byPerson['I1'][0]->portal);
+    }
+
+    /**
+     * A directory whose ONLY document is misplaced (its personId hashes elsewhere) yields nothing from
+     * each() — there is no valid resident to attribute the coverage to.
+     *
+     * @return void
+     */
+    #[Test]
+    public function eachYieldsNothingForADirectoryOfOnlyMisplacedDocuments(): void
+    {
+        $dir    = $this->tmp . '/coverage';
+        $subdir = sprintf('%s/%s', $dir, hash('sha256', 'I2'));
+        AtomicFile::ensureDirectory($subdir);
+        // A document claiming personId I3, sitting in I2's directory.
+        AtomicFile::writeJson(
+            sprintf('%s/%s.json', $subdir, hash('sha256', 'https://finder.a')),
+            ['personId' => 'I3', 'finderId' => 'https://finder.a', 'coverage' => [(new PortalCoverage('alpha', CoverageStatus::Ok, 1, null))->toArray()]]
+        );
+
+        self::assertSame([], iterator_to_array((new FileCoverageStore($dir))->each()));
+    }
+
+    /**
+     * each() skips a legacy pre-§5.2c root-level document (`<dir>/<sha(personId)>.json`, a FILE at the
+     * store root rather than a per-person sub-directory): it is not a directory, so the scan skips it
+     * before the hash guard and it is never surfaced tree-wide — matching findByPerson's legacy tolerance.
+     *
+     * @return void
+     */
+    #[Test]
+    public function eachSkipsALegacyRootLevelDocument(): void
+    {
+        $dir = $this->tmp . '/coverage';
+        AtomicFile::ensureDirectory($dir);
+        AtomicFile::writeJson(
+            sprintf('%s/%s.json', $dir, hash('sha256', 'I1')),
+            ['personId' => 'I1', 'coverage' => [(new PortalCoverage('alpha', CoverageStatus::Ok, 1, null))->toArray()]]
+        );
+
+        self::assertSame([], iterator_to_array((new FileCoverageStore($dir))->each()));
+    }
+
+    /**
+     * each() does not descend a symlinked sub-directory even when isDir() reports true through the link,
+     * so the tree-wide scan can never follow a symlink out of the store and read coverage documents
+     * elsewhere on disk (mirrors FileMatchStore::allRows). Skipped where the platform cannot create a
+     * symlink.
+     *
+     * @return void
+     */
+    #[Test]
+    public function eachDoesNotDescendASymlinkedSubdirectory(): void
+    {
+        $dir     = $this->tmp . '/coverage';
+        $outside = $this->tmp . '/outside';
+        AtomicFile::ensureDirectory($dir);
+        // A real, VALID coverage document outside the store, in a directory named as if it were person I1's
+        // (so a symlink from the store to it would otherwise pass the hash guard and leak).
+        $outsidePerson = sprintf('%s/%s', $outside, hash('sha256', 'I1'));
+        AtomicFile::ensureDirectory($outsidePerson);
+        AtomicFile::writeJson(
+            sprintf('%s/%s.json', $outsidePerson, hash('sha256', 'https://finder.a')),
+            ['personId' => 'I1', 'finderId' => 'https://finder.a', 'coverage' => [(new PortalCoverage('alpha', CoverageStatus::Ok, 1, null))->toArray()]]
+        );
+
+        $link = sprintf('%s/%s', $dir, hash('sha256', 'I1'));
+
+        if (!@symlink($outsidePerson, $link)) {
+            self::markTestSkipped('The platform does not support creating symlinks.');
+        }
+
+        self::assertSame([], iterator_to_array((new FileCoverageStore($dir))->each()));
     }
 }
