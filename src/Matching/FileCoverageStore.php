@@ -21,6 +21,7 @@ use UnexpectedValueException;
 use function array_map;
 use function hash;
 use function is_array;
+use function is_string;
 use function pathinfo;
 use function sprintf;
 
@@ -116,21 +117,21 @@ final readonly class FileCoverageStore implements CoverageStore
 
         $rows = [];
 
-        // Union every finder's coverage document for this person.
+        // Union every finder's coverage document for this person. The caller handed us the id and we scan
+        // exactly that person's directory, so we tolerantly union every document's rows and never read the
+        // stored personId back (no misattribution is possible when the id is an input, not content).
         foreach ($iterator as $fileInfo) {
             if (!$fileInfo instanceof SplFileInfo) {
                 continue;
             }
 
-            $path = $fileInfo->getPathname();
+            $result = $this->readCoverageDoc($fileInfo);
 
-            // Keep only "*.json" documents: an in-flight atomic temp file is "<hash>.json.tmp.<uniqid>",
-            // whose extension is the uniqid (not "json"), so it is excluded.
-            if (pathinfo($path, PATHINFO_EXTENSION) !== 'json') {
+            if ($result === null) {
                 continue;
             }
 
-            foreach ($this->readCoverageFile($path) as $row) {
+            foreach ($result['coverage'] as $row) {
                 $rows[] = $row;
             }
         }
@@ -139,38 +140,141 @@ final readonly class FileCoverageStore implements CoverageStore
     }
 
     /**
-     * Reads one finder's coverage document, tolerating an absent, corrupt or oversize file (via the
-     * shared {@see AtomicFile::readJsonSection} fail-soft primitive) by returning an empty list and
-     * dropping any individual row that no longer rebuilds. Reading the store's OWN persisted format, so
-     * this is a defensive read rather than untrusted-input narrowing.
+     * {@inheritDoc}
      *
-     * @param string $path The absolute document path.
-     *
-     * @return list<PortalCoverage> The finder's coverage rows, or [] when none are readable.
+     * @return iterable<string, list<PortalCoverage>> personId => the person's merged per-portal coverage.
      */
-    private function readCoverageFile(string $path): array
+    public function each(): iterable
     {
-        $rows = AtomicFile::readJsonSection($path, self::MAX_BYTES, 'coverage');
-
-        if ($rows === null) {
-            return [];
+        // A FilesystemIterator (typed UnexpectedValueException, no E_WARNING the webtrees handler would
+        // convert into an escaping exception) over the store root: the person sub-directories.
+        try {
+            $subdirs = new FilesystemIterator($this->dir, FilesystemIterator::SKIP_DOTS);
+        } catch (UnexpectedValueException) {
+            // The store directory does not exist yet: nothing has been searched.
+            return;
         }
 
-        $coverage = [];
-
-        foreach ($rows as $row) {
-            if (!is_array($row)) {
+        foreach ($subdirs as $subdir) {
+            if (!$subdir instanceof SplFileInfo) {
                 continue;
             }
 
-            $entry = PortalCoverage::fromArray($row);
+            // A legacy pre-§5.2c root-level "<sha(personId)>.json" document is a FILE, not a
+            // sub-directory, so it is skipped here before the hash guard — never surfaced tree-wide.
+            if (!$subdir->isDir()) {
+                continue;
+            }
 
-            if ($entry instanceof PortalCoverage) {
-                $coverage[] = $entry;
+            // Skip a symlinked directory even when isDir() reports true THROUGH the link, so the tree-wide
+            // scan can never follow a symlink out of the store and read coverage documents elsewhere on
+            // disk. Mirrors FileMatchStore::allRows()'s !isLink() guard; readCoverageDoc rejects a symlinked
+            // *file* but NOT a regular file reached through a symlinked *parent*, so this guard is
+            // load-bearing.
+            if ($subdir->isLink()) {
+                continue;
+            }
+
+            try {
+                $docs = new FilesystemIterator($subdir->getPathname(), FilesystemIterator::SKIP_DOTS);
+            } catch (UnexpectedValueException) {
+                // The sub-directory vanished between the listing and this scan (TOCTOU): skip it.
+                continue;
+            }
+
+            $rows     = [];
+            $personId = null;
+
+            foreach ($docs as $doc) {
+                if (!$doc instanceof SplFileInfo) {
+                    continue;
+                }
+
+                $result = $this->readCoverageDoc($doc);
+
+                // Per-document integrity guard: the document's OWN personId must hash to the containing
+                // directory (dir === sha256(personId)). A document with no personId, or one whose id
+                // hashes elsewhere (misplaced/corrupt), is dropped — its coverage must NOT be attributed
+                // to this person, whom the consumer would otherwise link. Validated documents all carry
+                // the same id (they hash to the same directory), so $personId stays coherent.
+                if (
+                    ($result === null)
+                    || ($result['personId'] === null)
+                    || (hash('sha256', $result['personId']) !== $subdir->getFilename())
+                ) {
+                    continue;
+                }
+
+                $personId = $result['personId'];
+
+                foreach ($result['coverage'] as $row) {
+                    $rows[] = $row;
+                }
+            }
+
+            if ($personId === null) {
+                // No validated document in this directory: nothing to surface tree-wide.
+                continue;
+            }
+
+            yield $personId => CoverageMerge::union($rows);
+        }
+    }
+
+    /**
+     * Reads one finder's coverage document, tolerating an absent, corrupt or oversize file (via the
+     * shared {@see AtomicFile::readJsonDocument} fail-soft primitive) by returning null and dropping any
+     * individual row that no longer rebuilds. Returns the document's stored personId (a non-empty string,
+     * or null when it carries none) alongside its coverage rows, so the caller can apply its own identity
+     * policy — {@see self::findByPerson} ignores it, {@see self::each} validates it. Reading the store's
+     * OWN persisted format, so this is a defensive read rather than untrusted-input narrowing. Only
+     * "*.json" documents are read: an in-flight atomic temp file is "<hash>.json.tmp.<uniqid>", whose
+     * extension is the uniqid (not "json"), so it is skipped.
+     *
+     * @param SplFileInfo $fileInfo The directory entry to read.
+     *
+     * @return array{personId: string|null, coverage: list<PortalCoverage>}|null The document, or null
+     *                                                                           when it is not a readable
+     *                                                                           JSON coverage document.
+     */
+    private function readCoverageDoc(SplFileInfo $fileInfo): ?array
+    {
+        if (pathinfo($fileInfo->getPathname(), PATHINFO_EXTENSION) !== 'json') {
+            return null;
+        }
+
+        $document = AtomicFile::readJsonDocument($fileInfo->getPathname(), self::MAX_BYTES);
+
+        if ($document === null) {
+            return null;
+        }
+
+        $personId = $document['personId'] ?? null;
+        $rows     = $document['coverage'] ?? null;
+
+        $coverage = [];
+
+        // Guard the coverage value with is_array before iterating: readJsonDocument returns the whole
+        // document, so a scalar "coverage" must not be iterated (readJsonSection gave this guarantee for
+        // free; the whole-document read restores it here).
+        if (is_array($rows)) {
+            foreach ($rows as $row) {
+                if (!is_array($row)) {
+                    continue;
+                }
+
+                $entry = PortalCoverage::fromArray($row);
+
+                if ($entry instanceof PortalCoverage) {
+                    $coverage[] = $entry;
+                }
             }
         }
 
-        return $coverage;
+        return [
+            'personId' => (is_string($personId) && ($personId !== '')) ? $personId : null,
+            'coverage' => $coverage,
+        ];
     }
 
     /**
