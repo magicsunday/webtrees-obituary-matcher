@@ -30,6 +30,10 @@ use Fisharebest\Webtrees\Services\ModuleService;
 use Fisharebest\Webtrees\Tree;
 use Fisharebest\Webtrees\View;
 use MagicSunday\ObituaryMatcher\Domain\ClassifiedMatch;
+use MagicSunday\ObituaryMatcher\Domain\CoverageStatus;
+use MagicSunday\ObituaryMatcher\Domain\PortalCoverage;
+use MagicSunday\ObituaryMatcher\Matching\CoverageStore;
+use MagicSunday\ObituaryMatcher\Matching\FileCoverageStore;
 use MagicSunday\ObituaryMatcher\Matching\FileMatchStore;
 use MagicSunday\ObituaryMatcher\Matching\MatchStatus;
 use MagicSunday\ObituaryMatcher\Matching\MatchStore;
@@ -40,6 +44,7 @@ use MagicSunday\ObituaryMatcher\Matching\WriteBack;
 use MagicSunday\ObituaryMatcher\Test\Support\RemovesFlatTempStoreTrait;
 use MagicSunday\ObituaryMatcher\Ui\BandKey;
 use MagicSunday\ObituaryMatcher\Ui\ObituaryDateFormatter;
+use MagicSunday\ObituaryMatcher\Ui\RetryRowView;
 use MagicSunday\ObituaryMatcher\Ui\SourceLink;
 use MagicSunday\ObituaryMatcher\Ui\WorklistPresenter;
 use MagicSunday\ObituaryMatcher\Ui\WorklistRowView;
@@ -67,6 +72,7 @@ use function hash;
 use function iterator_to_array;
 use function json_decode;
 use function json_encode;
+use function view;
 
 /**
  * Integration tests for the tree-wide worklist route: a manager GET renders every stored row across
@@ -91,6 +97,14 @@ use function json_encode;
 #[UsesClass(WorklistPresenter::class)]
 #[UsesClass(WorklistView::class)]
 #[UsesClass(WorklistRowView::class)]
+#[UsesClass(RetryRowView::class)]
+#[UsesClass(\MagicSunday\ObituaryMatcher\Domain\SearchOutcome::class)]
+#[UsesClass(PortalCoverage::class)]
+#[UsesClass(CoverageStatus::class)]
+#[UsesClass(\MagicSunday\ObituaryMatcher\Support\CoverageMerge::class)]
+#[UsesClass(FileCoverageStore::class)]
+#[UsesClass(\MagicSunday\ObituaryMatcher\Webtrees\CoverageStoreFactory::class)]
+#[UsesClass(\MagicSunday\ObituaryMatcher\Queue\AtomicFile::class)]
 #[UsesClass(BandKey::class)]
 #[UsesClass(ObituaryDateFormatter::class)]
 #[UsesClass(SourceLink::class)]
@@ -324,6 +338,134 @@ final class ObituaryWorklistHandlerTest extends IntegrationTestCase
         // No preview was requested, so the count line (its own class) is absent — the loose "would be
         // searched" phrase also lives in the form heading, so the count marker is what discriminates.
         self::assertStringNotContainsString('om-candidate-count', $html);
+    }
+
+    /**
+     * A person whose last search left a portal outage (a `PortalFailed` outcome — ≥1 failed portal, no
+     * notices, so no match row) is surfaced in the worklist's "repeat search needed" section (§6.4 point 2),
+     * linked to their individual page. This is the tree-wide half of the §5.2c coverage distinction.
+     *
+     * @return void
+     */
+    #[Test]
+    public function aPortalOutagePersonWithNoMatchIsListedInTheRetrySection(): void
+    {
+        $this->coverageStore()->record('I2', CoverageStore::DEFAULT_FINDER_ID, [
+            new PortalCoverage('trauer_anzeigen', CoverageStatus::Failed, null, 'timeout'),
+        ]);
+
+        $html = (string) $this->handler()->handle($this->worklistRequest(Auth::user()))->getBody();
+
+        self::assertStringContainsString('class="om-retry-needed"', $html);
+        // Emma /Ortlos/ has no stored match, so her name can only appear via the retry surface.
+        self::assertStringContainsString('Ortlos', $html);
+    }
+
+    /**
+     * A cleanly-searched person (all portals `ok`, no notices — a `NoNotices` genuine miss) is NOT surfaced
+     * in the retry section: the search was complete, so there is nothing to retry. Only `PortalFailed`
+     * people are actionable there.
+     *
+     * @return void
+     */
+    #[Test]
+    public function aCleanlySearchedPersonIsNotInTheRetrySection(): void
+    {
+        $this->coverageStore()->record('I3', CoverageStore::DEFAULT_FINDER_ID, [
+            new PortalCoverage('trauer_anzeigen', CoverageStatus::Ok, 0, null),
+        ]);
+
+        $html = (string) $this->handler()->handle($this->worklistRequest(Auth::user()))->getBody();
+
+        // No PortalFailed person → the section is hidden entirely, and Karl /Beispiel/ (no match) never shows.
+        self::assertStringNotContainsString('class="om-retry-needed"', $html);
+        self::assertStringNotContainsString('Beispiel', $html);
+    }
+
+    /**
+     * The retry section renders even when the tree has ZERO stored matches: a portal outage with no notice
+     * is exactly the case the surface exists for (searched, portal down, nothing stored), so it must show
+     * alongside the empty-match state rather than being hidden by it.
+     *
+     * @return void
+     */
+    #[Test]
+    public function theRetrySectionRendersEvenWithZeroMatches(): void
+    {
+        $this->coverageStore()->record('I2', CoverageStore::DEFAULT_FINDER_ID, [
+            new PortalCoverage('trauer_anzeigen', CoverageStatus::Failed, null, null),
+        ]);
+
+        $html = (string) $this->handler()->handle($this->worklistRequest(Auth::user()))->getBody();
+
+        // Both the empty-match notice AND the retry section render together.
+        self::assertStringContainsString('om-worklist-empty', $html);
+        self::assertStringContainsString('class="om-retry-needed"', $html);
+        self::assertStringContainsString('Ortlos', $html);
+    }
+
+    /**
+     * A portal-outage record for a person who no longer exists in the tree is skipped (stale), exactly like
+     * the match loop — the retry surface never renders a broken link.
+     *
+     * @return void
+     */
+    #[Test]
+    public function aStalePortalOutagePersonIsSkipped(): void
+    {
+        $this->coverageStore()->record('IGHOST', CoverageStore::DEFAULT_FINDER_ID, [
+            new PortalCoverage('trauer_anzeigen', CoverageStatus::Failed, null, null),
+        ]);
+
+        $html = (string) $this->handler()->handle($this->worklistRequest(Auth::user()))->getBody();
+
+        // IGHOST resolves to no individual → dropped, so the section stays hidden.
+        self::assertStringNotContainsString('class="om-retry-needed"', $html);
+    }
+
+    /**
+     * When the outage set exceeds the render cap, the template shows the capped head plus an "and N more"
+     * note driven by the pre-cap total — the render bound never hides how many people actually need a
+     * repeat search. Rendered directly from a hand-built view so the cap can be exceeded without seeding
+     * fifty-plus individuals.
+     *
+     * @return void
+     */
+    #[Test]
+    public function theRetrySectionRendersAnAndMoreNoteWhenTruncated(): void
+    {
+        $view = new WorklistView(
+            [],
+            ['total' => 0, 'open' => 0, 'confirmed' => 0, 'rejected' => 0, 'uncertain' => 0],
+            'all',
+            'all',
+            'score',
+            1,
+            1,
+            0,
+            false,
+            [
+                new RetryRowView('Anna Beispiel', 'I1', '/p/I1'),
+                new RetryRowView('Bert Beispiel', 'I2', '/p/I2'),
+            ],
+            5,
+        );
+
+        // The template builds route() URLs, which resolve the current request from the container — set it
+        // here (the handler path has it from middleware) so the direct render can build links.
+        Registry::container()->set(ServerRequestInterface::class, $this->worklistRequest(Auth::user()));
+
+        $html = view(self::MODULE_NAMESPACE . '::worklist', [
+            'title'           => 'Worklist',
+            'tree'            => $this->tree,
+            'view'            => $view,
+            'candidateFilter' => new \MagicSunday\ObituaryMatcher\Ui\CandidateFilterView(80, null, false, null, false),
+        ]);
+
+        self::assertStringContainsString('class="om-retry-needed"', $html);
+        self::assertStringContainsString('om-retry-needed-more', $html);
+        // Two rendered of five total → "and 3 more".
+        self::assertStringContainsString('3', $html);
     }
 
     /**
@@ -1074,7 +1216,24 @@ final class ObituaryWorklistHandlerTest extends IntegrationTestCase
             {
                 return new FileMatchStore($this->storeDir);
             }
+
+            protected function coverageStoreForTree(Tree $tree): CoverageStore
+            {
+                return new FileCoverageStore($this->storeDir . '/__coverage');
+            }
         };
+    }
+
+    /**
+     * Returns the temp-directory coverage store the retry-surface tests seed portal-outage records into.
+     * A separate namespace under the match store dir (its own sha256(personId) sub-tree), so a coverage
+     * document never collides with a match row.
+     *
+     * @return CoverageStore The temp-directory coverage store.
+     */
+    private function coverageStore(): CoverageStore
+    {
+        return new FileCoverageStore($this->dir . '/__coverage');
     }
 
     /**

@@ -24,6 +24,8 @@ use Fisharebest\Webtrees\Log;
 use Fisharebest\Webtrees\Registry;
 use Fisharebest\Webtrees\Tree;
 use Fisharebest\Webtrees\Validator;
+use MagicSunday\ObituaryMatcher\Domain\SearchOutcome;
+use MagicSunday\ObituaryMatcher\Matching\CoverageStore;
 use MagicSunday\ObituaryMatcher\Matching\MatchStatus;
 use MagicSunday\ObituaryMatcher\Matching\MatchStore;
 use MagicSunday\ObituaryMatcher\Matching\StoredMatch;
@@ -155,7 +157,7 @@ class ObituaryWorklistHandler implements RequestHandlerInterface
         $sort   = Validator::queryParams($request)->string('sort', 'score');
         $page   = max(1, Validator::queryParams($request)->integer('page', 1));
 
-        $view = (new WorklistPresenter())->build($entries, $status, $flag, $sort, $page);
+        $view = (new WorklistPresenter())->build($entries, $status, $flag, $sort, $page, $this->retryEntries($tree));
 
         return $this->viewResponse($this->viewNamespace . '::worklist', [
             'title'           => $this->worklistTitle(),
@@ -406,6 +408,47 @@ class ObituaryWorklistHandler implements RequestHandlerInterface
     }
 
     /**
+     * Builds the "repeat search needed" entries (§6.4 point 2): every person whose last search left a
+     * portal outage (a {@see SearchOutcome::PortalFailed} — no notices, at least one failed portal, so no
+     * match row of their own). It enumerates the tree's coverage, classifies each person webtrees-free,
+     * and resolves ONLY the PortalFailed people to individuals (a stale person is skipped, exactly like the
+     * match loop) — so a cleanly-searched miss never pays a factory lookup and never appears here. The
+     * presenter de-duplicates these against the match entries and caps the rendered list.
+     *
+     * @param Tree $tree The tree whose coverage is enumerated.
+     *
+     * @return list<array{personName: string, personId: string, personUrl: string}> The portal-outage people.
+     */
+    private function retryEntries(Tree $tree): array
+    {
+        $entries = [];
+
+        foreach ($this->coverageStoreForTree($tree)->each() as $personId => $coverage) {
+            if (SearchOutcome::fromCoverage($coverage) !== SearchOutcome::PortalFailed) {
+                continue;
+            }
+
+            $individual = Registry::individualFactory()->make($personId, $tree);
+
+            // A portal-outage person who no longer exists is stale: skip it, exactly like the match loop.
+            if (!$individual instanceof Individual) {
+                continue;
+            }
+
+            $entries[] = [
+                'personName' => strip_tags($individual->fullName()),
+                'personId'   => $personId,
+                'personUrl'  => route(IndividualPage::class, [
+                    'tree' => $tree->name(),
+                    'xref' => $personId,
+                ]),
+            ];
+        }
+
+        return $entries;
+    }
+
+    /**
      * Returns the tree-scoped match store. The seam lets a test subclass inject a store over a temp
      * directory.
      *
@@ -416,6 +459,19 @@ class ObituaryWorklistHandler implements RequestHandlerInterface
     protected function storeForTree(Tree $tree): MatchStore
     {
         return MatchStoreFactory::forTree($tree);
+    }
+
+    /**
+     * Returns the tree-scoped coverage store. The seam lets a test subclass inject a store over a temp
+     * directory, mirroring {@see self::storeForTree()} and {@see DrainService::coverageStoreForTree()}.
+     *
+     * @param Tree $tree The tree whose coverage store is requested.
+     *
+     * @return CoverageStore The tree-scoped coverage store.
+     */
+    protected function coverageStoreForTree(Tree $tree): CoverageStore
+    {
+        return CoverageStoreFactory::forTree($tree);
     }
 
     /**

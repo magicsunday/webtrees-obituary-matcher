@@ -192,16 +192,20 @@ final readonly class FileCoverageStore implements CoverageStore
 
                 $result = $this->readCoverageDoc($doc);
 
+                if ($result === null) {
+                    continue;
+                }
+
                 // Per-document integrity guard: the document's OWN personId must hash to the containing
                 // directory (dir === sha256(personId)). A document with no personId, or one whose id
                 // hashes elsewhere (misplaced/corrupt), is dropped — its coverage must NOT be attributed
                 // to this person, whom the consumer would otherwise link. Validated documents all carry
                 // the same id (they hash to the same directory), so $personId stays coherent.
-                if (
-                    ($result === null)
-                    || ($result['personId'] === null)
-                    || (hash('sha256', $result['personId']) !== $subdir->getFilename())
-                ) {
+                if ($result['personId'] === null) {
+                    continue;
+                }
+
+                if (hash('sha256', $result['personId']) !== $subdir->getFilename()) {
                     continue;
                 }
 
