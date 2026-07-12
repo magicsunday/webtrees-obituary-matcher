@@ -313,14 +313,15 @@ final class FileCoverageStoreTest extends TempDirTestCase
     }
 
     /**
-     * A document carrying no personId is dropped by each() (it cannot be addressed tree-wide), but
-     * findByPerson STILL tolerantly unions its coverage — the per-person path is handed the id and never
-     * reads it from content, so it must not regress.
+     * A document carrying no personId is dropped by BOTH reads: each() cannot address it tree-wide, and
+     * findByPerson requires a document's stored personId to equal the requested id, so an id-less
+     * (legacy/corrupt) document is not attributed to anyone. Keeping both reads on the same strict rule is
+     * what makes them agree under corruption.
      *
      * @return void
      */
     #[Test]
-    public function eachDropsADocumentWithoutPersonIdWhileFindByPersonStillUnionsIt(): void
+    public function aDocumentWithoutPersonIdIsDroppedByBothEachAndFindByPerson(): void
     {
         $dir = $this->tmp . '/coverage';
         // A finder document carrying coverage but NO personId key (a legacy/corrupt shape); a null
@@ -329,13 +330,26 @@ final class FileCoverageStoreTest extends TempDirTestCase
 
         $store = new FileCoverageStore($dir);
 
-        // each() cannot attribute it to a person → not yielded.
         self::assertSame([], iterator_to_array($store->each()));
+        self::assertSame([], $store->findByPerson('I1'));
+    }
 
-        // findByPerson('I1') is asked for I1 and scans I1's dir → still unions the coverage.
-        $coverage = $store->findByPerson('I1');
-        self::assertCount(1, $coverage);
-        self::assertSame('alpha', $coverage[0]->portal);
+    /**
+     * A document whose personId is PRESENT but invalid (an empty string here; a non-string normalises the
+     * same way) is dropped by findByPerson exactly like an absent id — the tolerant path is for a matching
+     * id only, never for a corrupt identity value. Guards the malformed-but-present half so findByPerson
+     * and each() (which also drops it) cannot diverge.
+     *
+     * @return void
+     */
+    #[Test]
+    public function findByPersonDropsADocumentWhosePersonIdIsPresentButInvalid(): void
+    {
+        $dir = $this->tmp . '/coverage';
+        // Owner directory is I1's, but the document body carries an empty personId.
+        $this->writeDoc($dir, 'I1', 'https://finder.a', new PortalCoverage('alpha', CoverageStatus::Ok, 1, null), '');
+
+        self::assertSame([], (new FileCoverageStore($dir))->findByPerson('I1'));
     }
 
     /**
@@ -493,7 +507,9 @@ final class FileCoverageStoreTest extends TempDirTestCase
      * @param string         $ownerPerson  The person whose sub-directory the document lands in.
      * @param string         $finderId     The finder the document belongs to.
      * @param PortalCoverage $coverage     The document's single coverage row.
-     * @param string|null    $bodyPersonId The personId written into the body, or null to omit the key.
+     * @param string|null    $bodyPersonId The personId written into the body: null omits the key entirely
+     *                                     (a legacy/id-less shape); an empty string writes an explicit,
+     *                                     invalid personId (a corrupt shape).
      *
      * @return void
      */
