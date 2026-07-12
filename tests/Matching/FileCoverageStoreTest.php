@@ -285,13 +285,9 @@ final class FileCoverageStoreTest extends TempDirTestCase
     #[Test]
     public function eachSkipsInFlightTempFiles(): void
     {
-        $dir    = $this->tmp . '/coverage';
+        $dir = $this->tmp . '/coverage';
+        $this->writeDoc($dir, 'I1', 'https://finder.a', new PortalCoverage('alpha', CoverageStatus::Ok, 1, null), 'I1');
         $subdir = sprintf('%s/%s', $dir, hash('sha256', 'I1'));
-        AtomicFile::ensureDirectory($subdir);
-        AtomicFile::writeJson(
-            sprintf('%s/%s.json', $subdir, hash('sha256', 'https://finder.a')),
-            ['personId' => 'I1', 'finderId' => 'https://finder.a', 'coverage' => [(new PortalCoverage('alpha', CoverageStatus::Ok, 1, null))->toArray()]]
-        );
         file_put_contents(sprintf('%s/%s.json.tmp.abc123', $subdir, hash('sha256', 'https://finder.b')), '{ half written');
 
         $byPerson = iterator_to_array((new FileCoverageStore($dir))->each());
@@ -324,14 +320,10 @@ final class FileCoverageStoreTest extends TempDirTestCase
     #[Test]
     public function eachDropsADocumentWithoutPersonIdWhileFindByPersonStillUnionsIt(): void
     {
-        $dir    = $this->tmp . '/coverage';
-        $subdir = sprintf('%s/%s', $dir, hash('sha256', 'I1'));
-        AtomicFile::ensureDirectory($subdir);
-        // A finder document carrying coverage but NO personId key (a legacy/corrupt shape).
-        AtomicFile::writeJson(
-            sprintf('%s/%s.json', $subdir, hash('sha256', 'https://finder.a')),
-            ['coverage' => [(new PortalCoverage('alpha', CoverageStatus::Ok, 1, null))->toArray()]]
-        );
+        $dir = $this->tmp . '/coverage';
+        // A finder document carrying coverage but NO personId key (a legacy/corrupt shape); the empty
+        // bodyPersonId omits the key.
+        $this->writeDoc($dir, 'I1', 'https://finder.a', new PortalCoverage('alpha', CoverageStatus::Ok, 1, null), '');
 
         $store = new FileCoverageStore($dir);
 
@@ -353,13 +345,9 @@ final class FileCoverageStoreTest extends TempDirTestCase
     #[Test]
     public function eachSkipsACorruptDocumentWhileUnioningASiblingValidOne(): void
     {
-        $dir    = $this->tmp . '/coverage';
+        $dir = $this->tmp . '/coverage';
+        $this->writeDoc($dir, 'I1', 'https://finder.a', new PortalCoverage('alpha', CoverageStatus::Ok, 1, null), 'I1');
         $subdir = sprintf('%s/%s', $dir, hash('sha256', 'I1'));
-        AtomicFile::ensureDirectory($subdir);
-        AtomicFile::writeJson(
-            sprintf('%s/%s.json', $subdir, hash('sha256', 'https://finder.a')),
-            ['personId' => 'I1', 'finderId' => 'https://finder.a', 'coverage' => [(new PortalCoverage('alpha', CoverageStatus::Ok, 1, null))->toArray()]]
-        );
         file_put_contents(sprintf('%s/%s.json', $subdir, hash('sha256', 'https://finder.b')), '{ not json');
 
         $byPerson = iterator_to_array((new FileCoverageStore($dir))->each());
@@ -380,19 +368,11 @@ final class FileCoverageStoreTest extends TempDirTestCase
     #[Test]
     public function eachValidatesPersonIdPerDocumentAgainstTheDirectory(): void
     {
-        $dir    = $this->tmp . '/coverage';
-        $subdir = sprintf('%s/%s', $dir, hash('sha256', 'I1'));
-        AtomicFile::ensureDirectory($subdir);
+        $dir = $this->tmp . '/coverage';
         // Resident, valid: personId I1 in I1's directory.
-        AtomicFile::writeJson(
-            sprintf('%s/%s.json', $subdir, hash('sha256', 'https://finder.a')),
-            ['personId' => 'I1', 'finderId' => 'https://finder.a', 'coverage' => [(new PortalCoverage('alpha', CoverageStatus::Ok, 1, null))->toArray()]]
-        );
-        // Misplaced: a document whose personId is I2, sitting in I1's directory.
-        AtomicFile::writeJson(
-            sprintf('%s/%s.json', $subdir, hash('sha256', 'https://finder.b')),
-            ['personId' => 'I2', 'finderId' => 'https://finder.b', 'coverage' => [(new PortalCoverage('zebra', CoverageStatus::Ok, 1, null))->toArray()]]
-        );
+        $this->writeDoc($dir, 'I1', 'https://finder.a', new PortalCoverage('alpha', CoverageStatus::Ok, 1, null), 'I1');
+        // Misplaced: a document whose body personId is I2, sitting in I1's directory.
+        $this->writeDoc($dir, 'I1', 'https://finder.b', new PortalCoverage('zebra', CoverageStatus::Ok, 1, null), 'I2');
 
         $byPerson = iterator_to_array((new FileCoverageStore($dir))->each());
 
@@ -413,14 +393,9 @@ final class FileCoverageStoreTest extends TempDirTestCase
     #[Test]
     public function eachYieldsNothingForADirectoryOfOnlyMisplacedDocuments(): void
     {
-        $dir    = $this->tmp . '/coverage';
-        $subdir = sprintf('%s/%s', $dir, hash('sha256', 'I2'));
-        AtomicFile::ensureDirectory($subdir);
-        // A document claiming personId I3, sitting in I2's directory.
-        AtomicFile::writeJson(
-            sprintf('%s/%s.json', $subdir, hash('sha256', 'https://finder.a')),
-            ['personId' => 'I3', 'finderId' => 'https://finder.a', 'coverage' => [(new PortalCoverage('alpha', CoverageStatus::Ok, 1, null))->toArray()]]
-        );
+        $dir = $this->tmp . '/coverage';
+        // A document whose body personId is I3, sitting in I2's directory.
+        $this->writeDoc($dir, 'I2', 'https://finder.a', new PortalCoverage('alpha', CoverageStatus::Ok, 1, null), 'I3');
 
         self::assertSame([], iterator_to_array((new FileCoverageStore($dir))->each()));
     }
@@ -461,19 +436,43 @@ final class FileCoverageStoreTest extends TempDirTestCase
         AtomicFile::ensureDirectory($dir);
         // A real, VALID coverage document outside the store, in a directory named as if it were person I1's
         // (so a symlink from the store to it would otherwise pass the hash guard and leak).
-        $outsidePerson = sprintf('%s/%s', $outside, hash('sha256', 'I1'));
-        AtomicFile::ensureDirectory($outsidePerson);
-        AtomicFile::writeJson(
-            sprintf('%s/%s.json', $outsidePerson, hash('sha256', 'https://finder.a')),
-            ['personId' => 'I1', 'finderId' => 'https://finder.a', 'coverage' => [(new PortalCoverage('alpha', CoverageStatus::Ok, 1, null))->toArray()]]
-        );
+        $this->writeDoc($outside, 'I1', 'https://finder.a', new PortalCoverage('alpha', CoverageStatus::Ok, 1, null), 'I1');
 
         $link = sprintf('%s/%s', $dir, hash('sha256', 'I1'));
 
-        if (!@symlink($outsidePerson, $link)) {
+        if (!@symlink(sprintf('%s/%s', $outside, hash('sha256', 'I1')), $link)) {
             self::markTestSkipped('The platform does not support creating symlinks.');
         }
 
         self::assertSame([], iterator_to_array((new FileCoverageStore($dir))->each()));
+    }
+
+    /**
+     * Writes one finder coverage document into a person's directory under the given store dir. $ownerPerson
+     * selects the sha256(id) sub-directory the document lands in; $bodyPersonId is the personId written
+     * INSIDE the document — equal to $ownerPerson for a well-placed record, a DIFFERENT id for a misplaced
+     * one, or the empty string to omit the personId key entirely (a legacy/corrupt shape). Used by the
+     * each() tests so their identical seeding never duplicates.
+     *
+     * @param string         $dir          The store directory.
+     * @param string         $ownerPerson  The person whose sub-directory the document lands in.
+     * @param string         $finderId     The finder the document belongs to.
+     * @param PortalCoverage $coverage     The document's single coverage row.
+     * @param string         $bodyPersonId The personId written into the body, or "" to omit the key.
+     *
+     * @return void
+     */
+    private function writeDoc(string $dir, string $ownerPerson, string $finderId, PortalCoverage $coverage, string $bodyPersonId): void
+    {
+        $subdir = sprintf('%s/%s', $dir, hash('sha256', $ownerPerson));
+        AtomicFile::ensureDirectory($subdir);
+
+        $body = ['finderId' => $finderId, 'coverage' => [$coverage->toArray()]];
+
+        if ($bodyPersonId !== '') {
+            $body['personId'] = $bodyPersonId;
+        }
+
+        AtomicFile::writeJson(sprintf('%s/%s.json', $subdir, hash('sha256', $finderId)), $body);
     }
 }
