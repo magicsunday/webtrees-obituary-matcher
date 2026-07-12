@@ -14,6 +14,7 @@ namespace MagicSunday\ObituaryMatcher\Test\Ui;
 use MagicSunday\ObituaryMatcher\Domain\ClassifiedMatch;
 use MagicSunday\ObituaryMatcher\Matching\MatchStatus;
 use MagicSunday\ObituaryMatcher\Matching\StoredMatch;
+use MagicSunday\ObituaryMatcher\Ui\RetryRowView;
 use MagicSunday\ObituaryMatcher\Ui\WorklistPresenter;
 use MagicSunday\ObituaryMatcher\Ui\WorklistRowView;
 use MagicSunday\ObituaryMatcher\Ui\WorklistView;
@@ -40,6 +41,7 @@ use function sprintf;
 #[CoversClass(WorklistPresenter::class)]
 #[UsesClass(WorklistView::class)]
 #[UsesClass(WorklistRowView::class)]
+#[UsesClass(RetryRowView::class)]
 final class WorklistPresenterTest extends TestCase
 {
     /**
@@ -497,5 +499,133 @@ final class WorklistPresenterTest extends TestCase
         self::assertSame([], $view->rows);
         self::assertSame(['total' => 0, 'open' => 0, 'confirmed' => 0, 'rejected' => 0, 'uncertain' => 0], $view->counts);
         self::assertSame(1, $view->totalPages);
+    }
+
+    /**
+     * Builds a retry entry (a portal-outage person with no match) for the retry-surface projection.
+     *
+     * @param string $id   The person XREF.
+     * @param string $name The display name.
+     *
+     * @return array{personName: string, personId: string, personUrl: string}
+     */
+    private function retryEntry(string $id, string $name): array
+    {
+        return ['personName' => $name, 'personId' => $id, 'personUrl' => '/p/' . $id];
+    }
+
+    /**
+     * The retry surface projects each portal-outage entry to a RetryRowView, sorted by display name and
+     * tie-broken by personId (byte order — the house XREF invariant), carrying the name, id and URL
+     * verbatim. retryNeededTotal counts the projected rows.
+     *
+     * @return void
+     */
+    #[Test]
+    public function retryEntriesAreProjectedSortedByName(): void
+    {
+        $view = (new WorklistPresenter())->build([], 'all', 'all', 'score', 1, [
+            $this->retryEntry('I3', 'Zeta'),
+            $this->retryEntry('I1', 'Alpha'),
+            $this->retryEntry('I2', 'Alpha'),
+        ]);
+
+        self::assertCount(3, $view->retryNeeded);
+        self::assertSame(3, $view->retryNeededTotal);
+
+        // Sorted by name (Alpha, Alpha, Zeta); the two "Alpha" rows tie-break on personId (I1 < I2).
+        self::assertSame(['I1', 'I2', 'I3'], array_map(static fn (RetryRowView $r): string => $r->personId, $view->retryNeeded));
+        self::assertSame(['Alpha', 'Alpha', 'Zeta'], array_map(static fn (RetryRowView $r): string => $r->personName, $view->retryNeeded));
+        self::assertSame('/p/I1', $view->retryNeeded[0]->personUrl);
+    }
+
+    /**
+     * Over RETRY_LIST_CAP entries render exactly the cap, while retryNeededTotal carries the full pre-cap
+     * count so the template can show an "and N more" note — the render bound never hides the true size.
+     *
+     * @return void
+     */
+    #[Test]
+    public function retryListIsCappedWhileTheTotalStaysPreCap(): void
+    {
+        $entries = [];
+
+        for ($i = 0; $i < WorklistPresenter::RETRY_LIST_CAP + 5; ++$i) {
+            // Zero-padded so byte-order sort is the natural numeric order.
+            $entries[] = $this->retryEntry(sprintf('I%03d', $i), sprintf('Person %03d', $i));
+        }
+
+        $view = (new WorklistPresenter())->build([], 'all', 'all', 'score', 1, $entries);
+
+        self::assertCount(WorklistPresenter::RETRY_LIST_CAP, $view->retryNeeded);
+        self::assertSame(WorklistPresenter::RETRY_LIST_CAP + 5, $view->retryNeededTotal);
+    }
+
+    /**
+     * No retry entries yields an empty retry surface — the common case (no portal outage), which the
+     * template hides entirely.
+     *
+     * @return void
+     */
+    #[Test]
+    public function noRetryEntriesYieldAnEmptyRetrySurface(): void
+    {
+        $view = (new WorklistPresenter())->build([$this->entry('I1', 90, MatchStatus::Pending)], 'all', 'all', 'score', 1);
+
+        self::assertSame([], $view->retryNeeded);
+        self::assertSame(0, $view->retryNeededTotal);
+    }
+
+    /**
+     * The retry surface is independent of the match filter: it always shows the full (capped) outage set
+     * regardless of the status filter, because it is a separate concern from the match table.
+     *
+     * @return void
+     */
+    #[Test]
+    public function retryListIsIndependentOfTheStatusFilter(): void
+    {
+        $view = (new WorklistPresenter())->build(
+            [$this->entry('I9', 90, MatchStatus::Confirmed)],
+            'open',
+            'all',
+            'score',
+            1,
+            [$this->retryEntry('I1', 'Alpha')],
+        );
+
+        // The "open" filter drops the Confirmed match row, but the retry surface is untouched.
+        self::assertSame([], $view->rows);
+        self::assertCount(1, $view->retryNeeded);
+        self::assertSame('I1', $view->retryNeeded[0]->personId);
+    }
+
+    /**
+     * A retry entry whose personId also carries a stored match is dropped from the retry surface (and its
+     * total): a person with a match is actioned via their match row, so listing them again as "repeat
+     * search needed" would be a confusing double-listing (the cross-drain overlap: an old match plus a
+     * later portal outage). De-dup is against the FULL match entries, independent of the active filter.
+     *
+     * @return void
+     */
+    #[Test]
+    public function retryEntriesAreDeduplicatedAgainstMatchEntries(): void
+    {
+        $view = (new WorklistPresenter())->build(
+            [$this->entry('I1', 90, MatchStatus::Confirmed)],
+            'all',
+            'all',
+            'score',
+            1,
+            [
+                $this->retryEntry('I1', 'Has A Match'),
+                $this->retryEntry('I2', 'No Match'),
+            ],
+        );
+
+        // I1 has a match row → excluded from the retry surface; only I2 remains.
+        self::assertCount(1, $view->retryNeeded);
+        self::assertSame(1, $view->retryNeededTotal);
+        self::assertSame('I2', $view->retryNeeded[0]->personId);
     }
 }

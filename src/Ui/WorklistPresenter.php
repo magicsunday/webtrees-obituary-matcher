@@ -43,6 +43,13 @@ final readonly class WorklistPresenter
     public const int WORKLIST_PAGE_SIZE = 50;
 
     /**
+     * The maximum number of "repeat search needed" rows rendered at once (§6.4 point 2). A defensive
+     * bound so a systemic portal outage on a large tree renders a fixed head plus an "and N more" note
+     * rather than an unbounded list; the pre-cap total is still surfaced.
+     */
+    public const int RETRY_LIST_CAP = 50;
+
+    /**
      * Builds the worklist view from the handler's surviving entries.
      *
      * @param list<array{match: StoredMatch, personName: string, personId: string, personUrl: string, reviewUrl: string|null}> $entries      The surviving rows (stale-person rows already skipped).
@@ -50,10 +57,11 @@ final readonly class WorklistPresenter
      * @param string                                                                                                           $flagFilter   The requested quality-flag filter (all/conflict/ambiguous).
      * @param string                                                                                                           $sort         The requested sort key (score/name/death).
      * @param int                                                                                                              $page         The 1-based requested page.
+     * @param list<array{personName: string, personId: string, personUrl: string}>                                             $retryEntries The portal-outage people (§6.4 point 2) needing a repeat search; empty when there was no outage. Independent of the match filter.
      *
      * @return WorklistView The filtered, sorted, paginated view.
      */
-    public function build(array $entries, string $statusFilter, string $flagFilter, string $sort, int $page): WorklistView
+    public function build(array $entries, string $statusFilter, string $flagFilter, string $sort, int $page, array $retryEntries = []): WorklistView
     {
         $counts = $this->counts($entries);
 
@@ -91,6 +99,8 @@ final readonly class WorklistPresenter
             $rows[] = $this->toRow($entry);
         }
 
+        $retryDeduped = $this->dedupeRetryEntries($retryEntries, $entries);
+
         return new WorklistView(
             $rows,
             $counts,
@@ -101,7 +111,73 @@ final readonly class WorklistPresenter
             $totalPages,
             $totalFiltered,
             $this->hasMultipleOrigins($entries),
+            $this->retryRows($retryDeduped),
+            count($retryDeduped),
         );
+    }
+
+    /**
+     * Drops every retry entry whose person already carries a stored match: such a person is actioned via
+     * their match row, so listing them again as "repeat search needed" would be a confusing double-listing
+     * (the cross-drain overlap — an old match plus a later portal outage). De-dup is against the FULL match
+     * entries, independent of the active filter, so a person filtered off the current page is still
+     * excluded.
+     *
+     * @param list<array{personName: string, personId: string, personUrl: string}>                                             $retryEntries The portal-outage people.
+     * @param list<array{match: StoredMatch, personName: string, personId: string, personUrl: string, reviewUrl: string|null}> $entries      The match entries.
+     *
+     * @return list<array{personName: string, personId: string, personUrl: string}> The retry entries with any matched person removed.
+     */
+    private function dedupeRetryEntries(array $retryEntries, array $entries): array
+    {
+        $matched = [];
+
+        foreach ($entries as $entry) {
+            $matched[$entry['personId']] = true;
+        }
+
+        $deduped = [];
+
+        foreach ($retryEntries as $retry) {
+            if (isset($matched[$retry['personId']])) {
+                continue;
+            }
+
+            $deduped[] = $retry;
+        }
+
+        return $deduped;
+    }
+
+    /**
+     * Projects the (already de-duplicated) portal-outage entries into view rows: sorted by display name
+     * and tie-broken by personId (byte order — the module's house XREF invariant, consistent with the
+     * match tie-break), then capped at {@see self::RETRY_LIST_CAP} rendered rows. The pre-cap count is
+     * carried separately on the view so the template can note how many were not rendered.
+     *
+     * @param list<array{personName: string, personId: string, personUrl: string}> $retryEntries The de-duplicated portal-outage people.
+     *
+     * @return list<RetryRowView> The sorted, capped, projected retry rows.
+     */
+    private function retryRows(array $retryEntries): array
+    {
+        usort($retryEntries, static function (array $a, array $b): int {
+            $primary = strcmp($a['personName'], $b['personName']);
+
+            if ($primary !== 0) {
+                return $primary;
+            }
+
+            return strcmp($a['personId'], $b['personId']);
+        });
+
+        $rows = [];
+
+        foreach (array_slice($retryEntries, 0, self::RETRY_LIST_CAP) as $entry) {
+            $rows[] = new RetryRowView($entry['personName'], $entry['personId'], $entry['personUrl']);
+        }
+
+        return $rows;
     }
 
     /**
