@@ -32,7 +32,7 @@ msgstr[0] ""
 msgstr[1] ""
 msgstr[2] ""
 
-#: src/Webtrees/ObituaryWorklistHandler.php:366
+#: src/Webtrees/ObituaryWorklistHandler.php:389
 #, php-format
 msgid "%s match rejected."
 msgid_plural "%s matches rejected."
@@ -354,7 +354,7 @@ msgstr ""
 msgid "Obituary Matcher"
 msgstr ""
 
-#: src/Webtrees/ObituaryWorklistHandler.php:484
+#: src/Webtrees/ObituaryWorklistHandler.php:517
 msgid "Obituary worklist"
 msgstr ""
 
@@ -657,7 +657,7 @@ msgstr ""
 msgid "The finder storage location is unavailable."
 msgstr ""
 
-#: src/Webtrees/ObituaryWorklistHandler.php:297 src/Webtrees/RevertFlash.php:68
+#: src/Webtrees/ObituaryWorklistHandler.php:320 src/Webtrees/RevertFlash.php:68
 #: src/Webtrees/ReviewScreenHandler.php:411
 msgid "The match could not be reverted."
 msgstr ""

@@ -30,7 +30,7 @@ msgid_plural "%s finder jobs are awaiting results."
 msgstr[0] "%s Finder-Auftrag wartet auf Ergebnisse."
 msgstr[1] "%s Finder-Aufträge warten auf Ergebnisse."
 
-#: src/Webtrees/ObituaryWorklistHandler.php:366
+#: src/Webtrees/ObituaryWorklistHandler.php:389
 #, php-format
 msgid "%s match rejected."
 msgid_plural "%s matches rejected."
@@ -355,7 +355,7 @@ msgstr "Traueranzeige"
 msgid "Obituary Matcher"
 msgstr "Traueranzeigen-Abgleich"
 
-#: src/Webtrees/ObituaryWorklistHandler.php:484
+#: src/Webtrees/ObituaryWorklistHandler.php:517
 msgid "Obituary worklist"
 msgstr "Traueranzeigen-Arbeitsliste"
 
@@ -674,7 +674,7 @@ msgstr "Der Finder ist erreichbar."
 msgid "The finder storage location is unavailable."
 msgstr "Der Speicherort des Finders ist nicht verfügbar."
 
-#: src/Webtrees/ObituaryWorklistHandler.php:297 src/Webtrees/RevertFlash.php:68
+#: src/Webtrees/ObituaryWorklistHandler.php:320 src/Webtrees/RevertFlash.php:68
 #: src/Webtrees/ReviewScreenHandler.php:411
 msgid "The match could not be reverted."
 msgstr "Der Treffer konnte nicht zurückgenommen werden."
