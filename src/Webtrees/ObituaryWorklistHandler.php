@@ -83,6 +83,17 @@ class ObituaryWorklistHandler implements RequestHandlerInterface
     private const int PREVIEW_COUNT_CAP = 1000;
 
     /**
+     * The defensive upper bound on how many portal-outage individuals the "repeat search needed" surface
+     * (§6.4 point 2) hydrates per request. A systemic portal outage on a large tree can leave thousands of
+     * `PortalFailed` coverage records, and resolving an `Individual` for every one on each worklist GET
+     * would be an N+1 hydration bottleneck. The presenter only ever renders {@see WorklistPresenter::RETRY_LIST_CAP}
+     * of them, so hydrating past a small multiple of that cap is pure waste; the enumeration stops here and
+     * the "and N more" note reflects the hydrated total. Set well above the render cap so ordinary trees,
+     * and the de-duplication against stored matches, still surface the full actionable list.
+     */
+    private const int RETRY_HYDRATION_CAP = 150;
+
+    /**
      * Constructor.
      *
      * @param string $viewNamespace The module's registered view namespace (its {@see \Fisharebest\Webtrees\Module\ModuleCustomInterface::name()}).
@@ -228,6 +239,18 @@ class ObituaryWorklistHandler implements RequestHandlerInterface
     protected function previewCountCap(): int
     {
         return self::PREVIEW_COUNT_CAP;
+    }
+
+    /**
+     * The defensive cap on how many portal-outage individuals the retry surface hydrates per request. A
+     * protected seam so a test can exercise the bounded-hydration behaviour with a low cap instead of
+     * seeding a hundred-plus outage individuals.
+     *
+     * @return int The maximum portal-outage individuals hydrated before the enumeration stops.
+     */
+    protected function retryHydrationCap(): int
+    {
+        return self::RETRY_HYDRATION_CAP;
     }
 
     /**
@@ -413,7 +436,9 @@ class ObituaryWorklistHandler implements RequestHandlerInterface
      * match row of their own). It enumerates the tree's coverage, classifies each person webtrees-free,
      * and resolves ONLY the PortalFailed people to individuals (a stale person is skipped, exactly like the
      * match loop) — so a cleanly-searched miss never pays a factory lookup and never appears here. The
-     * presenter de-duplicates these against the match entries and caps the rendered list.
+     * presenter de-duplicates these against the match entries and caps the rendered list. Hydration itself
+     * stops at {@see self::RETRY_HYDRATION_CAP}, so a systemic outage on a large tree can never trigger an
+     * unbounded factory walk.
      *
      * @param Tree $tree The tree whose coverage is enumerated.
      *
@@ -422,10 +447,18 @@ class ObituaryWorklistHandler implements RequestHandlerInterface
     private function retryEntries(Tree $tree): array
     {
         $entries = [];
+        $cap     = $this->retryHydrationCap();
 
         foreach ($this->coverageStoreForTree($tree)->each() as $personId => $coverage) {
             if (SearchOutcome::fromCoverage($coverage) !== SearchOutcome::PortalFailed) {
                 continue;
+            }
+
+            // Stop hydrating once the defensive cap is reached: a systemic outage on a large tree can leave
+            // thousands of PortalFailed records, and the presenter renders only a fixed head of them, so
+            // resolving every one would be a needless N+1 walk (see self::RETRY_HYDRATION_CAP).
+            if (count($entries) >= $cap) {
+                break;
             }
 
             $individual = Registry::individualFactory()->make($personId, $tree);

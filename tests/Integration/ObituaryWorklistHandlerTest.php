@@ -471,6 +471,109 @@ final class ObituaryWorklistHandlerTest extends IntegrationTestCase
     }
 
     /**
+     * The retry surface bounds how many portal-outage individuals it hydrates per request: under a
+     * systemic outage a large tree could accumulate thousands of `PortalFailed` records, and resolving an
+     * `Individual` for every one would be an N+1 hydration bottleneck. With the cap lowered to one, only a
+     * single outage person is hydrated even though two were recorded — proving the enumeration stops at
+     * the cap rather than resolving the whole set.
+     *
+     * @return void
+     */
+    #[Test]
+    public function theRetryHydrationIsBoundedByTheCap(): void
+    {
+        foreach (['I1', 'I2', 'IHTML'] as $xref) {
+            $this->coverageStore()->record($xref, CoverageStore::DEFAULT_FINDER_ID, [
+                new PortalCoverage('trauer_anzeigen', CoverageStatus::Failed, null, null),
+            ]);
+        }
+
+        // A coverage store that counts how far its lazy each() generator is advanced. Only retryEntries()
+        // consumes that generator, so the count is an un-confounded measure of how many outage records the
+        // enumeration actually walked (and therefore hydrated) — unlike a factory make() spy, which
+        // webtrees also drives from route() building and access checks.
+        $spyStore = new class(new FileCoverageStore($this->dir . '/__coverage')) implements CoverageStore {
+            public int $enumerated = 0;
+
+            /**
+             * @param CoverageStore $inner The real store this decorates.
+             */
+            public function __construct(private readonly CoverageStore $inner)
+            {
+            }
+
+            /**
+             * @param list<PortalCoverage> $coverage The per-portal coverage to record.
+             */
+            public function record(string $personId, string $finderId, array $coverage): void
+            {
+                $this->inner->record($personId, $finderId, $coverage);
+            }
+
+            /**
+             * @return list<PortalCoverage> The merged coverage.
+             */
+            public function findByPerson(string $personId): array
+            {
+                return $this->inner->findByPerson($personId);
+            }
+
+            /**
+             * @return iterable<string, list<PortalCoverage>> Each searched person and their coverage.
+             */
+            public function each(): iterable
+            {
+                foreach ($this->inner->each() as $personId => $coverage) {
+                    ++$this->enumerated;
+
+                    yield $personId => $coverage;
+                }
+            }
+        };
+
+        $handler = new class(self::MODULE_NAMESPACE, $this->dir, $spyStore) extends ObituaryWorklistHandler {
+            /**
+             * @param string        $viewNamespace The view namespace the handler renders under.
+             * @param string        $storeDir      The temp store directory injected for the test.
+             * @param CoverageStore $coverageStore The counting coverage store injected for the test.
+             */
+            public function __construct(
+                string $viewNamespace,
+                private readonly string $storeDir,
+                private readonly CoverageStore $coverageStore,
+            ) {
+                parent::__construct($viewNamespace);
+            }
+
+            protected function storeForTree(Tree $tree): MatchStore
+            {
+                return new FileMatchStore($this->storeDir);
+            }
+
+            protected function coverageStoreForTree(Tree $tree): CoverageStore
+            {
+                return $this->coverageStore;
+            }
+
+            protected function retryHydrationCap(): int
+            {
+                return 1;
+            }
+        };
+
+        $html = (string) $handler->handle($this->worklistRequest(Auth::user()))->getBody();
+
+        // Three portal outages recorded, cap of one: the lazy enumeration advances just far enough to fill
+        // the cap and then stops — it pulls the first (hydrated), pulls the second (which trips the break)
+        // and never touches the third. Uncapped, all three would be enumerated and hydrated (the N+1 walk),
+        // so this count, not the render, is the load-bearing assertion.
+        self::assertSame(2, $spyStore->enumerated, 'the retry enumeration stops at the cap, not the record count');
+
+        // The path really executed: at least one outage person made it onto the rendered surface.
+        self::assertStringContainsString('class="om-retry-needed"', $html);
+    }
+
+    /**
      * A preview request (the `cand_preview` marker present) runs the count through the candidate
      * repository and renders the "≈ N people would be searched" line reflecting it.
      *
