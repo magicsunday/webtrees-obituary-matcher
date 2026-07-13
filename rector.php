@@ -11,11 +11,13 @@ declare(strict_types=1);
 
 use Rector\CodingStyle\Rector\Catch_\CatchExceptionNameMatchingTypeRector;
 use Rector\Config\RectorConfig;
+use Rector\DeadCode\Rector\ClassMethod\RemoveReturnTagIncompatibleWithNativeTypeRector;
 use Rector\DeadCode\Rector\ClassMethod\RemoveUselessParamTagRector;
 use Rector\DeadCode\Rector\ClassMethod\RemoveUselessReturnTagRector;
 use Rector\DeadCode\Rector\Stmt\RemoveUnreachableStatementRector;
 use Rector\Set\ValueObject\LevelSetList;
 use Rector\Set\ValueObject\SetList;
+use Rector\TypeDeclarationDocblocks\Rector\ClassMethod\DocblockReturnArrayFromDirectArrayInstanceRector;
 
 return static function (RectorConfig $rectorConfig): void {
     $rectorConfig->paths([
@@ -77,5 +79,23 @@ return static function (RectorConfig $rectorConfig): void {
         RemoveUnreachableStatementRector::class,
         RemoveUselessParamTagRector::class,
         RemoveUselessReturnTagRector::class,
+
+        // The value objects below carry a class-scoped `@phpstan-type` alias
+        // (ClassifiedMatchArray / WriteBackArray) that their `toArray()` method
+        // references via `@return <Alias>`. PHPStan resolves that alias at max
+        // level (the shape flows into every consumer that imports it), but
+        // Rector's docblock resolver does not carry a class-level `@phpstan-type`
+        // into a method `@return`, so it wrongly reads the alias as a bare object
+        // type "incompatible" with the native `array` and either strips the tag
+        // (losing the shape) or inlines a widened `array<string, ...>` that drops
+        // the precise keys and the shared alias. Skip the two offending rules for
+        // exactly these files — a path-scoped skip, never a baseline.
+        RemoveReturnTagIncompatibleWithNativeTypeRector::class => [
+            __DIR__ . '/src/Domain/ClassifiedMatch.php',
+            __DIR__ . '/src/Matching/WriteBack.php',
+        ],
+        DocblockReturnArrayFromDirectArrayInstanceRector::class => [
+            __DIR__ . '/src/Matching/WriteBack.php',
+        ],
     ]);
 };
