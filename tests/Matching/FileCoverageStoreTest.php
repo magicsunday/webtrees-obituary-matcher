@@ -493,6 +493,26 @@ final class FileCoverageStoreTest extends TempDirTestCase
     }
 
     /**
+     * Both reads reject a symlinked coverage DOCUMENT, not just a symlinked directory: a person's real
+     * hashed directory can hold a finder document that is itself a symlink to a valid, matching-personId
+     * document placed OUTSIDE the store. readCoverageDoc refuses it because it reads through
+     * {@see AtomicFile::readJsonCapped}, which rejects a symlink (its is_link guard) before ever opening
+     * the path — so a corrupted store layout cannot leak an arbitrary file through a symlinked document.
+     * This pins that store-level reliance on the AtomicFile symlink guard so a future refactor of the read
+     * path cannot silently drop it. Skipped where the platform cannot create a symlink.
+     *
+     * @return void
+     */
+    #[Test]
+    public function bothReadsRejectASymlinkedCoverageDocument(): void
+    {
+        $dir = $this->symlinkedDocumentStore();
+
+        self::assertSame([], iterator_to_array((new FileCoverageStore($dir))->each()));
+        self::assertSame([], (new FileCoverageStore($dir))->findByPerson('I1'));
+    }
+
+    /**
      * Builds the corrupted-layout fixture both symlink guards must refuse: a VALID, matching-personId
      * document for I1 placed OUTSIDE the store, with I1's hashed directory inside the store replaced by a
      * symlink to it (so a reader that followed the link would leak the outside document). Skips the test on
@@ -509,12 +529,53 @@ final class FileCoverageStoreTest extends TempDirTestCase
 
         $link = sprintf('%s/%s', $dir, hash('sha256', 'I1'));
 
-        // Probe symlink support without the banned @-suppression: a scoped handler swallows the E_WARNING
-        // symlink() emits when the platform cannot create one, so the return value drives the skip.
+        $this->createSymlinkOrSkip(sprintf('%s/%s', $outside, hash('sha256', 'I1')), $link);
+
+        return $dir;
+    }
+
+    /**
+     * Builds a store whose I1 person directory is REAL but holds a finder document that is a symlink to a
+     * valid, matching-personId document placed OUTSIDE the store — the file-level analogue of
+     * {@see self::symlinkedPersonStore()}. A reader that followed the link would leak the outside document.
+     * Skips the test on a platform that cannot create a symlink. Returns the store directory.
+     *
+     * @return string The store directory whose I1 finder document is a symlink pointing outside.
+     */
+    private function symlinkedDocumentStore(): string
+    {
+        $dir     = $this->tmp . '/coverage';
+        $outside = $this->tmp . '/outside';
+
+        $this->writeDoc($outside, 'I1', 'https://finder.a', new PortalCoverage('alpha', CoverageStatus::Ok, 1, null), 'I1');
+
+        $personDir = sprintf('%s/%s', $dir, hash('sha256', 'I1'));
+        AtomicFile::ensureDirectory($personDir);
+
+        $target = sprintf('%s/%s/%s.json', $outside, hash('sha256', 'I1'), hash('sha256', 'https://finder.a'));
+        $link   = sprintf('%s/%s.json', $personDir, hash('sha256', 'https://finder.a'));
+
+        $this->createSymlinkOrSkip($target, $link);
+
+        return $dir;
+    }
+
+    /**
+     * Creates a symlink from $link to $target, skipping the test on a platform that cannot create one. The
+     * probe avoids the banned @-suppression: a scoped handler swallows the E_WARNING symlink() emits when
+     * the platform cannot create a symlink, so the return value drives the skip.
+     *
+     * @param string $target The path the symlink points to.
+     * @param string $link   The symlink path to create.
+     *
+     * @return void
+     */
+    private function createSymlinkOrSkip(string $target, string $link): void
+    {
         set_error_handler(static fn (): bool => true);
 
         try {
-            $linked = symlink(sprintf('%s/%s', $outside, hash('sha256', 'I1')), $link);
+            $linked = symlink($target, $link);
         } finally {
             restore_error_handler();
         }
@@ -522,8 +583,6 @@ final class FileCoverageStoreTest extends TempDirTestCase
         if (!$linked) {
             self::markTestSkipped('The platform does not support creating symlinks.');
         }
-
-        return $dir;
     }
 
     /**
