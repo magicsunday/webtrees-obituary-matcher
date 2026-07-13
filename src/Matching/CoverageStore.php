@@ -56,4 +56,16 @@ interface CoverageStore
      * @return list<PortalCoverage> The merged coverage, one row per portal.
      */
     public function findByPerson(string $personId): array;
+
+    /**
+     * Enumerates every searched person's coverage tree-wide, keyed by personId, with each person's rows
+     * UNIONED across their finders exactly as {@see self::findByPerson} returns them. Lazily yielded so a
+     * consumer can classify (and filter) each person without materialising the whole store. A person is
+     * yielded once; a record that cannot be attributed to a definite person (a legacy/corrupt document
+     * carrying no personId, or one whose stored personId does not match its location) is omitted rather
+     * than surfaced under a wrong identity.
+     *
+     * @return iterable<string, list<PortalCoverage>> Each searched personId mapped to their merged per-portal coverage.
+     */
+    public function each(): iterable;
 }

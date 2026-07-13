@@ -12,7 +12,6 @@ use MagicSunday\ObituaryMatcher\Webtrees\ObituaryWorklistHandler;
 /** @var Tree $tree */
 /** @var WorklistView $view */
 /** @var CandidateFilterView $candidateFilter */
-
 $bandLabels = [
     'strong'   => I18N::translate('Strong match'),
     'probable' => I18N::translate('Probable match'),
@@ -67,177 +66,201 @@ $navParams = [
 ];
 ?>
 <div class="om-worklist">
-    <h2><?= e(I18N::translate('Death notices')) ?></h2>
+    <h2><?php echo e(I18N::translate('Death notices')); ?></h2>
 
     <section class="om-candidate-filter">
-        <h3><?= e(I18N::translate('Preview who would be searched')) ?></h3>
-        <form method="get" class="d-flex flex-wrap align-items-center gap-2" action="<?= e(route(ObituaryWorklistHandler::ROUTE_NAME, ['tree' => $tree->name()])) ?>">
+        <h3><?php echo e(I18N::translate('Preview who would be searched')); ?></h3>
+        <form method="get" class="d-flex flex-wrap align-items-center gap-2" action="<?php echo e(route(ObituaryWorklistHandler::ROUTE_NAME, ['tree' => $tree->name()])); ?>">
             <input type="hidden" name="cand_preview" value="1">
             <label class="me-3">
-                <?= e(I18N::translate('Minimum age')) ?>
-                <input type="number" class="form-control" name="cand_min_age" min="<?= e((string) CandidateCriteria::AGE_FLOOR) ?>" max="<?= e((string) CandidateCriteria::AGE_CEILING) ?>" value="<?= e((string) $candidateFilter->minAge) ?>">
+                <?php echo e(I18N::translate('Minimum age')); ?>
+                <input type="number" class="form-control" name="cand_min_age" min="<?php echo e((string) CandidateCriteria::AGE_FLOOR); ?>" max="<?php echo e((string) CandidateCriteria::AGE_CEILING); ?>" value="<?php echo e((string) $candidateFilter->minAge); ?>">
             </label>
             <label class="me-3">
-                <?= e(I18N::translate('Maximum age')) ?>
-                <input type="number" class="form-control" name="cand_max_age" min="<?= e((string) CandidateCriteria::AGE_FLOOR) ?>" max="<?= e((string) CandidateCriteria::AGE_CEILING) ?>" value="<?= e($candidateFilter->maxAge !== null ? (string) $candidateFilter->maxAge : '') ?>">
+                <?php echo e(I18N::translate('Maximum age')); ?>
+                <input type="number" class="form-control" name="cand_max_age" min="<?php echo e((string) CandidateCriteria::AGE_FLOOR); ?>" max="<?php echo e((string) CandidateCriteria::AGE_CEILING); ?>" value="<?php echo e($candidateFilter->maxAge !== null ? (string) $candidateFilter->maxAge : ''); ?>">
             </label>
             <label class="form-check-label me-3">
-                <input type="checkbox" class="form-check-input" name="cand_unknown_birth" value="1"<?= $candidateFilter->includeUnknownBirth ? ' checked' : '' ?>>
-                <?= e(I18N::translate('Include people without a known birth date')) ?>
+                <input type="checkbox" class="form-check-input" name="cand_unknown_birth" value="1"<?php echo $candidateFilter->includeUnknownBirth ? ' checked' : ''; ?>>
+                <?php echo e(I18N::translate('Include people without a known birth date')); ?>
             </label>
-            <button type="submit" class="btn btn-primary"><?= e(I18N::translate('Preview count')) ?></button>
+            <button type="submit" class="btn btn-primary"><?php echo e(I18N::translate('Preview count')); ?></button>
         </form>
-        <?php if ($candidateFilter->matchCount !== null) : ?>
-            <p class="om-candidate-count">≈ <?= e(I18N::plural('%s person would be searched', '%s people would be searched', $candidateFilter->matchCount, I18N::number($candidateFilter->matchCount) . ($candidateFilter->matchCountReachedCap ? '+' : ''))) ?></p>
-        <?php endif ?>
+        <?php if ($candidateFilter->matchCount !== null) { ?>
+            <p class="om-candidate-count">≈ <?php echo e(I18N::plural('%s person would be searched', '%s people would be searched', $candidateFilter->matchCount, I18N::number($candidateFilter->matchCount) . ($candidateFilter->matchCountReachedCap ? '+' : ''))); ?></p>
+        <?php } ?>
     </section>
 
+    <?php if ($view->retryNeeded !== []) { ?>
+        <section class="om-retry-needed">
+            <h3><?php echo e(I18N::translate('Repeat search needed')); ?></h3>
+            <p class="om-retry-needed-intro">
+                <?php echo e(I18N::plural(
+                    '%s person was searched but a portal was unavailable, so the result is incomplete — a repeat search is recommended.',
+                    '%s people were searched but a portal was unavailable, so their results are incomplete — a repeat search is recommended.',
+                    $view->retryNeededTotal,
+                    I18N::number($view->retryNeededTotal),
+                )); ?>
+            </p>
+            <ul class="om-retry-needed-list">
+                <?php foreach ($view->retryNeeded as $person) { ?>
+                    <li><a href="<?php echo e($person->personUrl); ?>"><?php echo e($person->personName); ?></a></li>
+                <?php } ?>
+            </ul>
+            <?php if ($view->retryNeededTotal > count($view->retryNeeded)) { ?>
+                <p class="om-retry-needed-more">
+                    <?php echo e(I18N::translate('and %s more', I18N::number($view->retryNeededTotal - count($view->retryNeeded)))); ?>
+                </p>
+            <?php } ?>
+        </section>
+    <?php } ?>
+
     <p class="om-worklist-counts">
-        <?= e(I18N::translate('Total: %d', $view->counts['total'])) ?>
+        <?php echo e(I18N::translate('Total: %d', $view->counts['total'])); ?>
     </p>
 
-    <?php if ($view->counts['total'] === 0) : ?>
-        <p class="om-worklist-empty"><?= e(I18N::translate('No obituary matches in this tree yet.')) ?></p>
-    <?php else : ?>
+    <?php if ($view->counts['total'] === 0) { ?>
+        <p class="om-worklist-empty"><?php echo e(I18N::translate('No obituary matches in this tree yet.')); ?></p>
+    <?php } else { ?>
         <p class="om-worklist-breakdown">
-            <?= e(I18N::translate(
+            <?php echo e(I18N::translate(
                 '%1$s open · %2$s confirmed · %3$s rejected · %4$s uncertain',
                 I18N::number($view->counts['open']),
                 I18N::number($view->counts['confirmed']),
                 I18N::number($view->counts['rejected']),
                 I18N::number($view->counts['uncertain']),
-            )) ?>
+            )); ?>
         </p>
 
         <ul class="om-worklist-filters nav nav-pills">
-            <?php foreach ($statusFilters as $key => $label) : ?>
+            <?php foreach ($statusFilters as $key => $label) { ?>
                 <li class="nav-item">
-                    <a class="nav-link<?= $view->statusFilter === $key ? ' active' : '' ?>"
-                       href="<?= e(route(ObituaryWorklistHandler::ROUTE_NAME, [...$navParams, 'status' => $key])) ?>"><?= e($label) ?></a>
+                    <a class="nav-link<?php echo $view->statusFilter === $key ? ' active' : ''; ?>"
+                       href="<?php echo e(route(ObituaryWorklistHandler::ROUTE_NAME, [...$navParams, 'status' => $key])); ?>"><?php echo e($label); ?></a>
                 </li>
-            <?php endforeach ?>
+            <?php } ?>
         </ul>
 
         <ul class="om-worklist-flags nav nav-pills">
-            <?php foreach ($flagFilters as $key => $label) : ?>
+            <?php foreach ($flagFilters as $key => $label) { ?>
                 <li class="nav-item">
-                    <a class="nav-link<?= $view->flagFilter === $key ? ' active' : '' ?>"
-                       href="<?= e(route(ObituaryWorklistHandler::ROUTE_NAME, [...$navParams, 'flag' => $key])) ?>"><?= e($label) ?></a>
+                    <a class="nav-link<?php echo $view->flagFilter === $key ? ' active' : ''; ?>"
+                       href="<?php echo e(route(ObituaryWorklistHandler::ROUTE_NAME, [...$navParams, 'flag' => $key])); ?>"><?php echo e($label); ?></a>
                 </li>
-            <?php endforeach ?>
+            <?php } ?>
         </ul>
 
         <p class="om-worklist-sort">
-            <?= e(I18N::translate('Sort by')) ?>:
-            <?php foreach ($sortOptions as $key => $label) : ?>
-                <a class="om-sort-link<?= $view->sort === $key ? ' active' : '' ?>"
-                   href="<?= e(route(ObituaryWorklistHandler::ROUTE_NAME, [...$navParams, 'sort' => $key])) ?>"><?= e($label) ?></a>
-            <?php endforeach ?>
+            <?php echo e(I18N::translate('Sort by')); ?>:
+            <?php foreach ($sortOptions as $key => $label) { ?>
+                <a class="om-sort-link<?php echo $view->sort === $key ? ' active' : ''; ?>"
+                   href="<?php echo e(route(ObituaryWorklistHandler::ROUTE_NAME, [...$navParams, 'sort' => $key])); ?>"><?php echo e($label); ?></a>
+            <?php } ?>
         </p>
 
-        <?php if ($view->rows === []) : ?>
-            <p class="om-worklist-empty"><?= e(I18N::translate('No matches for this filter.')) ?></p>
-        <?php else : ?>
+        <?php if ($view->rows === []) { ?>
+            <p class="om-worklist-empty"><?php echo e(I18N::translate('No matches for this filter.')); ?></p>
+        <?php } else { ?>
             <?php
             // The bulk-reject form lives OUTSIDE the table so the per-row revert forms are not nested
             // inside it (invalid HTML); each rejectable row's checkbox associates with it via the HTML5
             // `form` attribute.
             ?>
-            <form method="post" id="om-bulk-reject" class="om-bulk-reject-form" action="<?= e(route(ObituaryWorklistHandler::ROUTE_NAME, ['tree' => $tree->name()])) ?>">
-                <?= csrf_field() ?>
+            <form method="post" id="om-bulk-reject" class="om-bulk-reject-form" action="<?php echo e(route(ObituaryWorklistHandler::ROUTE_NAME, ['tree' => $tree->name()])); ?>">
+                <?php echo csrf_field(); ?>
                 <input type="hidden" name="action" value="bulk-reject">
-                <button type="submit" class="btn btn-outline-danger btn-sm"><?= e(I18N::translate('Reject selected')) ?></button>
+                <button type="submit" class="btn btn-outline-danger btn-sm"><?php echo e(I18N::translate('Reject selected')); ?></button>
             </form>
 
             <table class="table table-sm om-worklist-table">
                 <thead>
                     <tr>
-                        <th><span class="visually-hidden"><?= e(I18N::translate('Select')) ?></span></th>
-                        <th><?= e(I18N::translate('Individual')) ?></th>
-                        <th><?= e(I18N::translate('Match')) ?></th>
-                        <th><?= e(I18N::translate('Score')) ?></th>
-                        <th><?= e(I18N::translate('Date of death')) ?></th>
-                        <th><?= e(I18N::translate('Source')) ?></th>
-                        <?php if ($view->hasMultipleOrigins) : ?>
-                            <th><?= e(I18N::translate('Origin finder')) ?></th>
-                        <?php endif ?>
-                        <th><?= e(I18N::translate('Status')) ?></th>
-                        <th><span class="visually-hidden"><?= e(I18N::translate('Review')) ?></span></th>
+                        <th><span class="visually-hidden"><?php echo e(I18N::translate('Select')); ?></span></th>
+                        <th><?php echo e(I18N::translate('Individual')); ?></th>
+                        <th><?php echo e(I18N::translate('Match')); ?></th>
+                        <th><?php echo e(I18N::translate('Score')); ?></th>
+                        <th><?php echo e(I18N::translate('Date of death')); ?></th>
+                        <th><?php echo e(I18N::translate('Source')); ?></th>
+                        <?php if ($view->hasMultipleOrigins) { ?>
+                            <th><?php echo e(I18N::translate('Origin finder')); ?></th>
+                        <?php } ?>
+                        <th><?php echo e(I18N::translate('Status')); ?></th>
+                        <th><span class="visually-hidden"><?php echo e(I18N::translate('Review')); ?></span></th>
                     </tr>
                 </thead>
                 <tbody>
-                    <?php foreach ($view->rows as $row) : ?>
-                        <tr class="om-worklist-row om-band-<?= e($row->bandKey) ?>" data-xref="<?= e($row->personId) ?>">
+                    <?php foreach ($view->rows as $row) { ?>
+                        <tr class="om-worklist-row om-band-<?php echo e($row->bandKey); ?>" data-xref="<?php echo e($row->personId); ?>">
                             <td class="om-select">
-                                <?php if ($row->bulkRejectToken !== null) : ?>
-                                    <input type="checkbox" class="form-check-input" form="om-bulk-reject" name="selected[]" value="<?= e($row->bulkRejectToken) ?>"
-                                           aria-label="<?= e(I18N::translate('Select %s for bulk reject', $row->personName)) ?>">
-                                <?php endif ?>
+                                <?php if ($row->bulkRejectToken !== null) { ?>
+                                    <input type="checkbox" class="form-check-input" form="om-bulk-reject" name="selected[]" value="<?php echo e($row->bulkRejectToken); ?>"
+                                           aria-label="<?php echo e(I18N::translate('Select %s for bulk reject', $row->personName)); ?>">
+                                <?php } ?>
                             </td>
                             <td>
-                                <a href="<?= e($row->personUrl) ?>"><?= e($row->personName) ?></a>
+                                <a href="<?php echo e($row->personUrl); ?>"><?php echo e($row->personName); ?></a>
                             </td>
                             <td class="om-band">
-                                <span aria-hidden="true"><?= e($bandIcons[$row->bandKey] ?? '○') ?></span>
-                                <?= e($bandLabels[$row->bandKey] ?? $row->bandKey) ?>
+                                <span aria-hidden="true"><?php echo e($bandIcons[$row->bandKey] ?? '○'); ?></span>
+                                <?php echo e($bandLabels[$row->bandKey] ?? $row->bandKey); ?>
                             </td>
-                            <td class="om-score"><?= e((string) $row->score) ?></td>
-                            <td class="om-death"><?= e($row->deathDate ?? '') ?></td>
+                            <td class="om-score"><?php echo e((string) $row->score); ?></td>
+                            <td class="om-death"><?php echo e($row->deathDate ?? ''); ?></td>
                             <td class="om-source">
-                                <?php if ($row->sourceUrl !== null) : ?>
-                                    <a href="<?= e($row->sourceUrl) ?>" target="_blank" rel="noopener noreferrer"><?= e($row->sourceHost ?? '') ?></a>
-                                <?php else : ?>
-                                    <?= e($row->sourceHost ?? '') ?>
-                                <?php endif ?>
+                                <?php if ($row->sourceUrl !== null) { ?>
+                                    <a href="<?php echo e($row->sourceUrl); ?>" target="_blank" rel="noopener noreferrer"><?php echo e($row->sourceHost ?? ''); ?></a>
+                                <?php } else { ?>
+                                    <?php echo e($row->sourceHost ?? ''); ?>
+                                <?php } ?>
                             </td>
-                            <?php if ($view->hasMultipleOrigins) : ?>
-                                <td class="om-origin text-break"><?= e($row->originFinderId ?? '') ?></td>
-                            <?php endif ?>
-                            <td class="om-status"><?= e($statusLabels[$row->statusKey] ?? $row->statusKey) ?></td>
+                            <?php if ($view->hasMultipleOrigins) { ?>
+                                <td class="om-origin text-break"><?php echo e($row->originFinderId ?? ''); ?></td>
+                            <?php } ?>
+                            <td class="om-status"><?php echo e($statusLabels[$row->statusKey] ?? $row->statusKey); ?></td>
                             <td class="om-review">
-                                <?php if ($row->reviewUrl !== null) : ?>
-                                    <a class="btn btn-primary btn-sm" href="<?= e($row->reviewUrl) ?>"><?= e(I18N::translate('Review')) ?></a>
-                                <?php elseif ($row->revertObituaryUrl !== null) : ?>
-                                    <form method="post" action="<?= e(route(ObituaryWorklistHandler::ROUTE_NAME, ['tree' => $tree->name()])) ?>">
-                                        <?= csrf_field() ?>
+                                <?php if ($row->reviewUrl !== null) { ?>
+                                    <a class="btn btn-primary btn-sm" href="<?php echo e($row->reviewUrl); ?>"><?php echo e(I18N::translate('Review')); ?></a>
+                                <?php } elseif ($row->revertObituaryUrl !== null) { ?>
+                                    <form method="post" action="<?php echo e(route(ObituaryWorklistHandler::ROUTE_NAME, ['tree' => $tree->name()])); ?>">
+                                        <?php echo csrf_field(); ?>
                                         <input type="hidden" name="action" value="revert">
-                                        <input type="hidden" name="person" value="<?= e($row->personId) ?>">
-                                        <input type="hidden" name="url" value="<?= e($row->revertObituaryUrl) ?>">
+                                        <input type="hidden" name="person" value="<?php echo e($row->personId); ?>">
+                                        <input type="hidden" name="url" value="<?php echo e($row->revertObituaryUrl); ?>">
                                         <button type="submit" class="btn btn-outline-danger btn-sm"
-                                                aria-label="<?= e(I18N::translate('Revert match for %s', $row->personName)) ?>"><?= e(I18N::translate('Revert')) ?></button>
+                                                aria-label="<?php echo e(I18N::translate('Revert match for %s', $row->personName)); ?>"><?php echo e(I18N::translate('Revert')); ?></button>
                                     </form>
-                                <?php endif ?>
+                                <?php } ?>
                             </td>
                         </tr>
-                    <?php endforeach ?>
+                    <?php } ?>
                 </tbody>
             </table>
 
-            <?php if ($view->totalPages > 1) : ?>
-                <nav class="om-worklist-pagination" aria-label="<?= e(I18N::translate('Pagination')) ?>">
+            <?php if ($view->totalPages > 1) { ?>
+                <nav class="om-worklist-pagination" aria-label="<?php echo e(I18N::translate('Pagination')); ?>">
                     <ul class="pagination">
-                        <li class="page-item<?= $view->page <= 1 ? ' disabled' : '' ?>">
-                            <?php if ($view->page > 1) : ?>
+                        <li class="page-item<?php echo $view->page <= 1 ? ' disabled' : ''; ?>">
+                            <?php if ($view->page > 1) { ?>
                                 <a class="page-link"
-                                   href="<?= e(route(ObituaryWorklistHandler::ROUTE_NAME, [...$navParams, 'page' => $view->page - 1])) ?>"><?= e(I18N::translate('previous')) ?></a>
-                            <?php else : ?>
-                                <span class="page-link"><?= e(I18N::translate('previous')) ?></span>
-                            <?php endif ?>
+                                   href="<?php echo e(route(ObituaryWorklistHandler::ROUTE_NAME, [...$navParams, 'page' => $view->page - 1])); ?>"><?php echo e(I18N::translate('previous')); ?></a>
+                            <?php } else { ?>
+                                <span class="page-link"><?php echo e(I18N::translate('previous')); ?></span>
+                            <?php } ?>
                         </li>
                         <li class="page-item disabled">
-                            <span class="page-link"><?= e(I18N::translate('Page %1$s of %2$s', I18N::number($view->page), I18N::number($view->totalPages))) ?></span>
+                            <span class="page-link"><?php echo e(I18N::translate('Page %1$s of %2$s', I18N::number($view->page), I18N::number($view->totalPages))); ?></span>
                         </li>
-                        <li class="page-item<?= $view->page >= $view->totalPages ? ' disabled' : '' ?>">
-                            <?php if ($view->page < $view->totalPages) : ?>
+                        <li class="page-item<?php echo $view->page >= $view->totalPages ? ' disabled' : ''; ?>">
+                            <?php if ($view->page < $view->totalPages) { ?>
                                 <a class="page-link"
-                                   href="<?= e(route(ObituaryWorklistHandler::ROUTE_NAME, [...$navParams, 'page' => $view->page + 1])) ?>"><?= e(I18N::translate('next')) ?></a>
-                            <?php else : ?>
-                                <span class="page-link"><?= e(I18N::translate('next')) ?></span>
-                            <?php endif ?>
+                                   href="<?php echo e(route(ObituaryWorklistHandler::ROUTE_NAME, [...$navParams, 'page' => $view->page + 1])); ?>"><?php echo e(I18N::translate('next')); ?></a>
+                            <?php } else { ?>
+                                <span class="page-link"><?php echo e(I18N::translate('next')); ?></span>
+                            <?php } ?>
                         </li>
                     </ul>
                 </nav>
-            <?php endif ?>
-        <?php endif ?>
-    <?php endif ?>
+            <?php } ?>
+        <?php } ?>
+    <?php } ?>
 </div>

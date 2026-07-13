@@ -87,5 +87,13 @@ final class WorklistViewTest extends TestCase
         self::assertSame('all', $view->statusFilter);
         self::assertSame('all', $view->flagFilter);
         self::assertSame('score', $view->sort);
+
+        // The retry surface defaults to empty when the (trailing, defaulted) args are omitted — an
+        // 8-arg construction stays valid, so the existing callers and this shape test do not break.
+        // RetryRowView's positional field mapping is pinned discriminatingly by
+        // WorklistPresenterTest::retryEntriesAreProjectedSortedByName (distinct personId/personName values
+        // built positionally), so no separate construct-and-read shape test is needed here.
+        self::assertSame([], $view->retryNeeded);
+        self::assertSame(0, $view->retryNeededTotal);
     }
 }
