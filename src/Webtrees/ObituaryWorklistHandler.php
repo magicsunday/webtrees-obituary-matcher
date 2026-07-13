@@ -39,6 +39,7 @@ use Throwable;
 
 use function count;
 use function explode;
+use function html_entity_decode;
 use function in_array;
 use function max;
 use function min;
@@ -46,6 +47,8 @@ use function redirect;
 use function route;
 use function sprintf;
 use function strip_tags;
+
+use const ENT_QUOTES;
 
 /**
  * The tree-wide worklist route handler. It renders a manager-only, read-only overview of every stored
@@ -153,7 +156,7 @@ class ObituaryWorklistHandler implements RequestHandlerInterface
 
             $entries[] = [
                 'match'      => $row,
-                'personName' => strip_tags($individual->fullName()),
+                'personName' => $this->plainName($individual),
                 'personId'   => $row->personId,
                 'personUrl'  => route(IndividualPage::class, [
                     'tree' => $tree->name(),
@@ -431,6 +434,22 @@ class ObituaryWorklistHandler implements RequestHandlerInterface
     }
 
     /**
+     * Returns an individual's display name as PLAIN text. fullName() returns HTML with the name parts
+     * already escaped (an apostrophe becomes "O&#039;Connor"), so strip_tags alone would leave those
+     * entities for the template's e() to double-escape — the user would see the literal "O&#039;Connor".
+     * Stripping the tags and THEN decoding the entities yields the plain name, which the template escapes
+     * exactly once.
+     *
+     * @param Individual $individual The individual whose name is projected.
+     *
+     * @return string The plain-text display name.
+     */
+    private function plainName(Individual $individual): string
+    {
+        return html_entity_decode(strip_tags($individual->fullName()), ENT_QUOTES);
+    }
+
+    /**
      * Builds the "repeat search needed" entries (§6.4 point 2): every person whose last search left a
      * portal outage (a {@see SearchOutcome::PortalFailed} — no notices, at least one failed portal, so no
      * match row of their own). It enumerates the tree's coverage, classifies each person webtrees-free,
@@ -469,7 +488,7 @@ class ObituaryWorklistHandler implements RequestHandlerInterface
             }
 
             $entries[] = [
-                'personName' => strip_tags($individual->fullName()),
+                'personName' => $this->plainName($individual),
                 'personId'   => $personId,
                 'personUrl'  => route(IndividualPage::class, [
                     'tree' => $tree->name(),

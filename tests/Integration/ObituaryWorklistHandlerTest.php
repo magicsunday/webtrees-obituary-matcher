@@ -179,6 +179,7 @@ final class ObituaryWorklistHandlerTest extends IntegrationTestCase
             . "0 @I2@ INDI\n1 NAME Emma /Ortlos/\n1 SEX F\n1 BIRT\n2 PLAC Hamburg\n"
             . "0 @I3@ INDI\n1 NAME Karl /Beispiel/\n1 SEX M\n"
             . "0 @IHTML@ INDI\n1 NAME <b>Max</b> /Mustermann/\n1 SEX M\n"
+            . "0 @IOCON@ INDI\n1 NAME Sean /O'Connor/\n1 SEX M\n1 BIRT\n2 DATE 3 MAR 1910\n1 DEAT\n2 DATE 5 MAY 1970\n"
             // Two candidate individuals (#63): born 1900 with no death date, so they are always old
             // enough (age > 120 at any wall-clock year) and stay searchable candidates. They carry no
             // stored match, so they never add a worklist ROW — only the candidate-count preview sees them.
@@ -421,6 +422,30 @@ final class ObituaryWorklistHandlerTest extends IntegrationTestCase
 
         // IGHOST resolves to no individual → dropped, so the section stays hidden.
         self::assertStringNotContainsString('class="om-retry-needed"', $html);
+    }
+
+    /**
+     * A portal-outage person whose name contains a character fullName() HTML-escapes (an apostrophe, as in
+     * O'Connor) is rendered with a SINGLE correct escape, not double-escaped. fullName() returns the name
+     * pre-escaped inside its markup, so the plain-text projection must decode those entities — otherwise
+     * the template's e() escapes them a second time and the user sees the literal "O&#039;Connor".
+     *
+     * @return void
+     */
+    #[Test]
+    public function anOutagePersonNameWithAnApostropheIsNotDoubleEscaped(): void
+    {
+        $this->coverageStore()->record('IOCON', CoverageStore::DEFAULT_FINDER_ID, [
+            new PortalCoverage('trauer_anzeigen', CoverageStatus::Failed, null, null),
+        ]);
+
+        $html = (string) $this->handler()->handle($this->worklistRequest(Auth::user()))->getBody();
+
+        self::assertStringContainsString('class="om-retry-needed"', $html);
+        // A single, correct escape of the apostrophe...
+        self::assertStringContainsString('O&#039;Connor', $html);
+        // ...never the double-escaped entity that strip_tags-without-decode would leave for e().
+        self::assertStringNotContainsString('O&amp;#039;', $html);
     }
 
     /**
