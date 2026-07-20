@@ -102,7 +102,10 @@ The total score is a weighted sum of independent positive signals, capped at 100
 - Every pure-helper branch gets a `DataProvider` row. Don't over-mock the unit under test — the engine is deterministic, so feed it real typed input.
 
 ## Commit & git discipline
-- Commit subject is a **capital-verb imperative** matching `^(GH-<N>: )?[A-ZÄÖÜ]` — no conventional-commit prefixes (`feat:` / `fix:` / `chore:`), no lowercase or path starts. Use the `GH-<N>: ` prefix for issue-tied commits.
+- A subject starting with `GH-` must match `^GH-\d+: [A-ZÄÖÜ]`; every other subject must match `^[A-ZÄÖÜ]` — a capital-verb imperative either way. The patterns check only the leading capital; two starts are banned whatever their case: conventional-commit prefixes (`feat:` / `Fix:` / `chore:`) and path-like starts (`src/Module.php: …` / `Src/Module.php: …`).
+    - Keep the two patterns separate. Folded into `^(GH-\d+: )?[A-ZÄÖÜ]` (wrong) the rule stops enforcing the capital *after* the prefix, because the optional group can be skipped and the `G` of `GH-` then satisfies `[A-ZÄÖÜ]` on its own — `GH-12: fix typo` would pass. Keying on the subject rather than the branch also keeps the check decidable for commits already on `main`.
+    - The normative definition lives in `magicsunday/.github/.github/workflows/commit-convention.yml@main`, which self-tests a decision table before applying it. No workflow here calls that gate, so the rule in this repository is documentation only; wherever it is wired, the workflow is authoritative and this text is what gets fixed.
+- Use the `GH-<N>: ` prefix for issue-tied commits; the merge and revert commits git writes itself keep their generated subject.
 - **Never** add a `Co-Authored-By:` trailer or any AI attribution.
 - Commit as **Rico Sonntag <mail@ricosonntag.de>** (the private address, never a work address).
 - Granular, logical commits — one concern each; keep CGL / style-only fixes in a separate commit from feature changes. Commit only verified-working code (full `composer ci:test` green first).
