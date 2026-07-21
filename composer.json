@@ -23,16 +23,17 @@
         }
     ],
     "config": {
-        "audit": {
-            "ignore": {
-                "CVE-2026-55767": "guzzlehttp/guzzle <7.12.1: webtrees pins guzzle to an exact version that production already runs; the pin, not this module, governs the upgrade.",
-                "CVE-2026-55568": "guzzlehttp/guzzle <7.12.1: webtrees pins guzzle to an exact version that production already runs; the pin, not this module, governs the upgrade."
-            }
-        },
         "bin-dir": ".build/bin",
         "vendor-dir": ".build/vendor",
         "sort-packages": true,
-        "optimize-autoloader": true
+        "optimize-autoloader": true,
+        "policy": {
+            "advisories": {
+                "ignore": {
+                    "guzzlehttp/guzzle": "Transitive dev/test dependency pinned exactly by fisharebest/webtrees; the module ships no guzzle and the admin's webtrees install governs the upgrade. New guzzle CVEs still surface via composer audit, and advisories on any other package still block resolution."
+                }
+            }
+        }
     },
     "require": {
         "php": "8.3 - 8.5",
