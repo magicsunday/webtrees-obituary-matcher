@@ -701,7 +701,7 @@ final class ReviewScreenHandlerTest extends IntegrationTestCase
         $key     = $this->seedPendingMatch('I1');
         $request = $this->managerPostRequest(
             ReviewScreenHandler::ROUTE_NAME,
-            ['xref'   => 'I1', 'key' => $key],
+            ['xref' => 'I1', 'key' => $key],
             ['action' => 'reject']
         );
 
@@ -733,7 +733,7 @@ final class ReviewScreenHandlerTest extends IntegrationTestCase
 
         $request = $this->managerPostRequest(
             ReviewScreenHandler::ROUTE_NAME,
-            ['xref'   => 'I1', 'key' => $key],
+            ['xref' => 'I1', 'key' => $key],
             ['action' => 'reject', '_csrf' => $token]
         );
 
@@ -762,7 +762,7 @@ final class ReviewScreenHandlerTest extends IntegrationTestCase
         // No `_csrf` field in the body: the empty client token mismatches the session token.
         $request = $this->managerPostRequest(
             ReviewScreenHandler::ROUTE_NAME,
-            ['xref'   => 'I1', 'key' => $key],
+            ['xref' => 'I1', 'key' => $key],
             ['action' => 'reject']
         );
 
@@ -787,7 +787,7 @@ final class ReviewScreenHandlerTest extends IntegrationTestCase
         $key     = $this->seedPendingMatch('I1');
         $request = $this->managerPostRequest(
             ReviewScreenHandler::ROUTE_NAME,
-            ['xref'   => 'I1', 'key' => $key],
+            ['xref' => 'I1', 'key' => $key],
             ['action' => 'uncertain']
         );
 
@@ -822,7 +822,7 @@ final class ReviewScreenHandlerTest extends IntegrationTestCase
         $key     = $this->seedPendingMatch('I1');
         $request = $this->managerPostRequest(
             ReviewScreenHandler::ROUTE_NAME,
-            ['xref'   => 'I1', 'key' => $key],
+            ['xref' => 'I1', 'key' => $key],
             ['action' => 'bogus']
         );
 
@@ -867,7 +867,7 @@ final class ReviewScreenHandlerTest extends IntegrationTestCase
 
         $request = $this->managerPostRequest(
             ReviewScreenHandler::ROUTE_NAME,
-            ['xref'   => 'I1', 'key' => $key],
+            ['xref' => 'I1', 'key' => $key],
             ['action' => 'uncertain']
         );
 
@@ -1034,7 +1034,7 @@ final class ReviewScreenHandlerTest extends IntegrationTestCase
         $key     = str_repeat('a', 64);
         $request = $this->managerPostRequest(
             ReviewScreenHandler::ROUTE_NAME,
-            ['xref'   => 'I1', 'key' => $key],
+            ['xref' => 'I1', 'key' => $key],
             ['action' => 'uncertain']
         );
 
@@ -1497,7 +1497,7 @@ final class ReviewScreenHandlerTest extends IntegrationTestCase
         $handler = $this->handlerWithThrowingWriter(new RuntimeException('updateRecord failed'));
         $request = $this->managerPostRequest(
             ReviewScreenHandler::ROUTE_NAME,
-            ['xref'   => 'I2', 'key' => $key],
+            ['xref' => 'I2', 'key' => $key],
             ['action' => 'confirm']
         );
 
@@ -1534,7 +1534,7 @@ final class ReviewScreenHandlerTest extends IntegrationTestCase
 
         $request = $this->managerPostRequest(
             ReviewScreenHandler::ROUTE_NAME,
-            ['xref'   => 'I2', 'key' => $key],
+            ['xref' => 'I2', 'key' => $key],
             ['action' => 'confirm']
         );
 
@@ -1584,7 +1584,7 @@ final class ReviewScreenHandlerTest extends IntegrationTestCase
     {
         $request = $this->managerPostRequest(
             ReviewScreenHandler::ROUTE_NAME,
-            ['xref'   => $xref, 'key' => $key],
+            ['xref' => $xref, 'key' => $key],
             ['action' => 'confirm']
         );
 
@@ -1616,7 +1616,7 @@ final class ReviewScreenHandlerTest extends IntegrationTestCase
     {
         $request = $this->managerPostRequest(
             ReviewScreenHandler::ROUTE_NAME,
-            ['xref'   => $xref, 'key' => $key],
+            ['xref' => $xref, 'key' => $key],
             ['action' => 'confirm']
         );
 
@@ -1652,7 +1652,7 @@ final class ReviewScreenHandlerTest extends IntegrationTestCase
         $handler = $this->handlerWith($store);
         $request = $this->managerPostRequest(
             ReviewScreenHandler::ROUTE_NAME,
-            ['xref'   => 'I2', 'key' => $key],
+            ['xref' => 'I2', 'key' => $key],
             ['action' => 'confirm']
         );
 
