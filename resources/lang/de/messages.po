@@ -506,7 +506,7 @@ msgstr ""
 msgid "Review"
 msgstr "Prüfen"
 
-#: resources/views/review.phtml:78 src/Webtrees/ReviewScreenHandler.php:566
+#: resources/views/review.phtml:78 src/Webtrees/ReviewScreenHandler.php:570
 msgid "Review match"
 msgstr "Treffer prüfen"
 
@@ -637,13 +637,13 @@ msgstr ""
 "Diese Person konnte nicht eingereiht werden: unbekannt, nicht durchsuchbar "
 "oder bereits in Bearbeitung."
 
-#: src/Webtrees/ReviewScreenHandler.php:352
+#: src/Webtrees/ReviewScreenHandler.php:355
 msgid "The death fact was written but could not be recorded; please review it."
 msgstr ""
 "Der Sterbeeintrag wurde geschrieben, konnte aber nicht vermerkt werden; "
 "bitte prüfen."
 
-#: src/Webtrees/ReviewScreenHandler.php:333
+#: src/Webtrees/ReviewScreenHandler.php:336
 msgid "The death notice could not be written; please try again."
 msgstr ""
 "Die Traueranzeige konnte nicht geschrieben werden; bitte erneut versuchen."
@@ -675,19 +675,19 @@ msgid "The finder storage location is unavailable."
 msgstr "Der Speicherort des Finders ist nicht verfügbar."
 
 #: src/Webtrees/ObituaryWorklistHandler.php:323 src/Webtrees/RevertFlash.php:68
-#: src/Webtrees/ReviewScreenHandler.php:411
+#: src/Webtrees/ReviewScreenHandler.php:414
 msgid "The match could not be reverted."
 msgstr "Der Treffer konnte nicht zurückgenommen werden."
 
-#: src/Webtrees/ReviewScreenHandler.php:363
+#: src/Webtrees/ReviewScreenHandler.php:366
 msgid "The match was confirmed and the death date was written."
 msgstr "Der Treffer wurde bestätigt und das Sterbedatum geschrieben."
 
-#: src/Webtrees/ReviewScreenHandler.php:211
+#: src/Webtrees/ReviewScreenHandler.php:214
 msgid "The match was marked uncertain."
 msgstr "Der Treffer wurde als unsicher markiert."
 
-#: src/Webtrees/ReviewScreenHandler.php:205
+#: src/Webtrees/ReviewScreenHandler.php:208
 msgid "The match was rejected."
 msgstr "Der Treffer wurde abgelehnt."
 
@@ -699,7 +699,7 @@ msgstr ""
 "Die maximale Punktzahl, die jedes Signal zur Trefferbewertung beitragen "
 "kann. Höhere Werte gewichten ein Signal stärker."
 
-#: src/Webtrees/ReviewScreenHandler.php:325
+#: src/Webtrees/ReviewScreenHandler.php:328
 msgid "The obituary did not carry writable data."
 msgstr "Die Traueranzeige enthielt keine übernehmbaren Daten."
 
@@ -718,12 +718,12 @@ msgstr ""
 msgid "This individual already has a death date."
 msgstr "Diese Person hat bereits ein Sterbedatum."
 
-#: src/Webtrees/ReviewScreenHandler.php:317
+#: src/Webtrees/ReviewScreenHandler.php:320
 msgid "This individual already has a death date; nothing was written."
 msgstr "Diese Person hat bereits ein Sterbedatum; es wurde nichts geschrieben."
 
-#: src/Webtrees/ReviewScreenHandler.php:296
-#: src/Webtrees/ReviewScreenHandler.php:306
+#: src/Webtrees/ReviewScreenHandler.php:299
+#: src/Webtrees/ReviewScreenHandler.php:309
 msgid "This match can no longer be confirmed."
 msgstr "Dieser Treffer kann nicht mehr bestätigt werden."
 
@@ -731,10 +731,10 @@ msgstr "Dieser Treffer kann nicht mehr bestätigt werden."
 msgid "This match cannot be reverted."
 msgstr "Dieser Treffer kann nicht zurückgenommen werden."
 
-#: src/Webtrees/ReviewScreenHandler.php:181
-#: src/Webtrees/ReviewScreenHandler.php:227
-#: src/Webtrees/ReviewScreenHandler.php:345
-#: src/Webtrees/ReviewScreenHandler.php:358
+#: src/Webtrees/ReviewScreenHandler.php:184
+#: src/Webtrees/ReviewScreenHandler.php:230
+#: src/Webtrees/ReviewScreenHandler.php:348
+#: src/Webtrees/ReviewScreenHandler.php:361
 msgid "This match was already finalised by someone else."
 msgstr "Dieser Treffer wurde bereits von jemand anderem abgeschlossen."
 

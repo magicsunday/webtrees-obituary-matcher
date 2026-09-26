@@ -2,6 +2,7 @@
 <phpunit xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
          xsi:noNamespaceSchemaLocation="./.build/vendor/phpunit/phpunit/phpunit.xsd"
          beStrictAboutCoverageMetadata="true"
+         requireCoverageMetadata="true"
          beStrictAboutOutputDuringTests="true"
          bootstrap="./tests/bootstrap.php"
          cacheDirectory="./.build/cache/.phpunit.cache"
@@ -11,20 +12,18 @@
          failOnDeprecation="true"
          failOnNotice="true"
          failOnPhpunitDeprecation="true"
+         failOnPhpunitNotice="true"
          failOnRisky="true"
          failOnWarning="true"
 >
     <testsuites>
         <testsuite name="unit">
-            <directory>tests/Contract</directory>
-            <directory>tests/Domain</directory>
-            <directory>tests/Matching</directory>
-            <directory>tests/Parsing</directory>
-            <directory>tests/Queue</directory>
-            <directory>tests/Scoring</directory>
-            <directory>tests/Support</directory>
-            <directory>tests/Ui</directory>
-            <directory>tests/Webtrees</directory>
+            <directory>tests</directory>
+            <!-- tests/Architecture holds phpat rule classes (run by PHPStan), not PHPUnit tests. -->
+            <exclude>tests/Architecture</exclude>
+            <exclude>tests/Integration</exclude>
+            <exclude>tests/Interop</exclude>
+            <exclude>tests/fixtures</exclude>
         </testsuite>
         <testsuite name="integration">
             <directory>tests/Integration</directory>

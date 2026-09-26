@@ -18,8 +18,10 @@ use Fisharebest\Webtrees\Registry;
 use Fisharebest\Webtrees\Services\GedcomImportService;
 use Fisharebest\Webtrees\Services\TreeService;
 use Fisharebest\Webtrees\Tree;
+use MagicSunday\ObituaryMatcher\Webtrees\ObituaryWriteBack;
 use MagicSunday\ObituaryMatcher\Webtrees\PortalSourceRepository;
 use MagicSunday\ObituaryMatcher\Webtrees\WriteBackPreconditionException;
+use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 
@@ -32,6 +34,8 @@ use function array_map;
  * @license https://opensource.org/licenses/GPL-3.0 GNU General Public License v3.0
  * @link    https://github.com/magicsunday/webtrees-obituary-matcher/
  */
+#[CoversClass(ObituaryWriteBack::class)]
+#[CoversClass(PortalSourceRepository::class)]
 final class ObituaryWriteBackSourceTest extends IntegrationTestCase
 {
     /**

@@ -84,6 +84,8 @@ final readonly class IngestService
      *                                                               stored match; null for a single-finder run.
      *
      * @return IngestResult The per-metric counts and non-fatal warnings of this run.
+     *
+     * @throws CorruptMatchRowException When an existing stored row is malformed.
      */
     public function ingest(
         array $notices,

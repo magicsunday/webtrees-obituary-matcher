@@ -67,6 +67,9 @@ final class HeadlessBootstrap
      * connected its own in-memory schema first) is left untouched.
      *
      * @return void
+     *
+     * @throws HeadlessBootstrapException When the webtrees config cannot be located or parsed.
+     * @throws PDOException               When the database connection cannot be established.
      */
     public static function boot(): void
     {

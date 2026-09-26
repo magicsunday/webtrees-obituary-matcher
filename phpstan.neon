@@ -1,16 +1,11 @@
 includes:
-    - %currentWorkingDirectory%/.build/vendor/phpstan/phpstan-strict-rules/rules.neon
-    - %currentWorkingDirectory%/.build/vendor/phpstan/phpstan-deprecation-rules/rules.neon
-    - %currentWorkingDirectory%/.build/vendor/phpstan/phpstan-phpunit/extension.neon
-    - %currentWorkingDirectory%/.build/vendor/phpstan/phpstan-phpunit/rules.neon
-    - %currentWorkingDirectory%/.build/vendor/phpat/phpat/extension.neon
+    - %currentWorkingDirectory%/.build/vendor/magicsunday/coding-standard/phpstan/base.neon
+    - %currentWorkingDirectory%/.build/vendor/magicsunday/coding-standard/phpstan/phpat.neon
 
 parameters:
-    # You can currently choose from 11 levels (0 is the loosest and 10 is the strictest).
-    level: max
-
-    # PHP Version to check against (PHP 8.3 as minimum target)
-    phpVersion: 80300
+    phpVersion:
+        min: 80300
+        max: 80500
 
     tmpDir: %currentWorkingDirectory%/.build/cache/.phpstan.cache
 
@@ -24,8 +19,13 @@ parameters:
     excludePaths:
         - %currentWorkingDirectory%/.build/
 
-    phpat:
-        show_rule_names: true
+    ignoreErrors:
+        # A test method that calls a throwing API documents nothing by carrying @throws: PHPUnit
+        # catches whatever it throws and turns it into a failure (or an expectException pass).
+        # Checked-exception contracts are enforced on src/, where callers depend on them.
+        -
+            identifier: missingType.checkedException
+            path: %currentWorkingDirectory%/tests/*
 
 services:
     -

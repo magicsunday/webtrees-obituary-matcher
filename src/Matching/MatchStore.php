@@ -31,6 +31,8 @@ interface MatchStore
      *
      * @return bool True when a row was actually written, false when the existing row was already
      *              terminal and the upsert was a silent no-op.
+     *
+     * @throws CorruptMatchRowException When an existing stored row is malformed.
      */
     public function upsertPending(StoredMatch $match): bool;
 
@@ -66,6 +68,8 @@ interface MatchStore
      * @param string $rowKey   The canonical row key (SHA-256 of the identity-normalised URL).
      *
      * @return StoredMatch|null The stored row, or null when absent.
+     *
+     * @throws CorruptMatchRowException When an existing stored row is malformed.
      */
     public function findOne(string $personId, string $rowKey): ?StoredMatch;
 
@@ -81,6 +85,7 @@ interface MatchStore
      *
      * @throws TerminalMatchTransitionException When the row is already confirmed and the explicit
      *                                          rejection is refused.
+     * @throws CorruptMatchRowException         When an existing stored row is malformed.
      */
     public function markRejected(string $personId, string $obituaryUrl, ?string $reason): void;
 
@@ -96,6 +101,7 @@ interface MatchStore
      *
      * @throws TerminalMatchTransitionException When the current row is already terminal
      *                                          (Confirmed or Rejected): you cannot un-terminal a row.
+     * @throws CorruptMatchRowException         When an existing stored row is malformed.
      */
     public function markUncertain(string $personId, string $obituaryUrl, ?string $reason): void;
 
@@ -111,6 +117,7 @@ interface MatchStore
      *              (an idempotent no-op that does NOT overwrite the existing write-back) or absent.
      *
      * @throws TerminalMatchTransitionException When the row is already rejected.
+     * @throws CorruptMatchRowException         When an existing stored row is malformed.
      */
     public function markConfirmed(string $personId, string $obituaryUrl, WriteBack $writeBack): bool;
 
@@ -125,6 +132,7 @@ interface MatchStore
      * @return void
      *
      * @throws TerminalMatchTransitionException When the row is missing or not Confirmed.
+     * @throws CorruptMatchRowException         When an existing stored row is malformed.
      */
     public function revert(string $personId, string $obituaryUrl): void;
 }

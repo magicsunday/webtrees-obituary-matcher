@@ -19,7 +19,9 @@ use Fisharebest\Webtrees\Tree;
 use MagicSunday\ObituaryMatcher\Webtrees\ObituaryWriteBack;
 use MagicSunday\ObituaryMatcher\Webtrees\RevertPreconditionException;
 use MagicSunday\ObituaryMatcher\Webtrees\WriteBackReverter;
+use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\Test;
+use PHPUnit\Framework\Attributes\UsesClass;
 
 use function iterator_to_array;
 
@@ -33,6 +35,8 @@ use function iterator_to_array;
  * @license https://opensource.org/licenses/GPL-3.0 GNU General Public License v3.0
  * @link    https://github.com/magicsunday/webtrees-obituary-matcher/
  */
+#[CoversClass(WriteBackReverter::class)]
+#[UsesClass(ObituaryWriteBack::class)]
 final class WriteBackReverterTest extends IntegrationTestCase
 {
     /**

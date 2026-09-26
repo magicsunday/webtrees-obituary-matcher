@@ -19,17 +19,20 @@ The full product is two cooperating pieces:
   (Substitute the module path for your checkout if it differs; the form above is the canonical buildbox invocation.)
 
 ## Build & tests
-- **`composer ci:test` MUST run green before every commit** — it runs the full gate: phplint, PHP-CS-Fixer (dry-run), PHPStan, Rector (dry-run), jscpd, and PHPUnit. Catch every issue locally before it reaches GitHub CI.
+- **`composer ci:test` MUST run green before every commit** — it runs the full gate: phplint, PHP-CS-Fixer (dry-run), PHPStan, Rector (dry-run), jscpd, the coding-standard template lockstep, Deptrac, and PHPUnit. Catch every issue locally before it reaches GitHub CI.
 - Individual checks:
   - `composer ci:test:php:lint` — phplint syntax check.
   - `composer ci:test:php:cgl` — PHP-CS-Fixer in `--dry-run` mode (style gate).
   - `composer ci:test:php:phpstan` — PHPStan analysis.
   - `composer ci:test:php:rector` — Rector in `--dry-run` mode.
   - `composer ci:test:cpd` — jscpd copy/paste detection over `src` + `tests`.
+  - `composer ci:test:php:templates` — `check-consumer-config.php`: keeps `phpunit.xml`, `.jscpd.json`, `.phplint.yml`, `.editorconfig` and `deptrac.yaml` in step with the magicsunday/coding-standard templates.
+  - `composer ci:test:php:deptrac` — Deptrac layer boundaries (`deptrac.yaml`: the pure engine layers and the Ui stay free of `Fisharebest\Webtrees`, only the `Webtrees` adapter composes it). The one rule Deptrac cannot express — database access confined to `*Repository` classes — stays a phpat rule in `tests/Architecture/ArchitectureTest.php`, run inside PHPStan through coding-standard's opt-in `phpstan/phpat.neon`.
   - `composer ci:test:php:unit` — PHPUnit suite.
 - Single PHPUnit test: `composer ci:test:php:unit -- --filter TestClassName`.
 - Auto-fix: `composer ci:cgl` (apply PHP-CS-Fixer changes), `composer ci:rector` (apply Rector changes). Run these BEFORE the first `ci:test` + audit-loop so style noise never mixes with substantive review.
 - PHPStan runs with no baseline — the baseline file is intentionally absent so future drift cannot be silently ignored. Every change fixes the underlying type defect; never add a `@phpstan-ignore`.
+- The dev toolchain comes from `magicsunday/coding-standard` (`require-dev`): `phpstan.neon`, `rector.php` and `.php-cs-fixer.dist.php` build on its shared `phpstan/base.neon` (level max, checked exceptions), `rector/base.php` and `php-cs-fixer/base.php`. Test methods are exempt from `missingType.checkedException` (one scoped `ignoreErrors` entry): PHPUnit turns whatever a test throws into a failure, so `@throws` there documents nothing.
 - jscpd, Rector and PHP-CS-Fixer are configured via `.jscpd.json`, `rector.php` and `.php-cs-fixer.dist.php`. PHP-CS-Fixer covers `src/` **and** `tests/`; Rector intentionally covers `src/` only (running Rector over `tests/` reprints and empties the `@author` docblocks).
 
 ## Architecture

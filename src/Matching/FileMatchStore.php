@@ -69,6 +69,8 @@ final readonly class FileMatchStore implements MatchStore
      *
      * @return bool True when a row was actually written, false when the existing row was already
      *              terminal and the upsert was a silent no-op.
+     *
+     * @throws CorruptMatchRowException When an existing stored row is malformed.
      */
     public function upsertPending(StoredMatch $match): bool
     {
@@ -149,6 +151,8 @@ final readonly class FileMatchStore implements MatchStore
      * @param string $rowKey   The canonical row key.
      *
      * @return StoredMatch|null The stored row, or null when absent.
+     *
+     * @throws CorruptMatchRowException When an existing stored row is malformed.
      */
     public function findOne(string $personId, string $rowKey): ?StoredMatch
     {
@@ -169,6 +173,7 @@ final readonly class FileMatchStore implements MatchStore
      * @throws TerminalMatchTransitionException When the existing row is already Confirmed: an
      *                                          explicit rejection of a confirmed match must be
      *                                          surfaced, not silently dropped.
+     * @throws CorruptMatchRowException         When an existing stored row is malformed.
      */
     public function markRejected(string $personId, string $obituaryUrl, ?string $reason): void
     {
@@ -233,6 +238,7 @@ final readonly class FileMatchStore implements MatchStore
      * @return void
      *
      * @throws TerminalMatchTransitionException When the current row is already terminal.
+     * @throws CorruptMatchRowException         When an existing stored row is malformed.
      */
     public function markUncertain(string $personId, string $obituaryUrl, ?string $reason): void
     {
@@ -291,6 +297,7 @@ final readonly class FileMatchStore implements MatchStore
      * @return bool True when the row transitioned; false when already confirmed or absent.
      *
      * @throws TerminalMatchTransitionException When the row is already rejected.
+     * @throws CorruptMatchRowException         When an existing stored row is malformed.
      */
     public function markConfirmed(string $personId, string $obituaryUrl, WriteBack $writeBack): bool
     {
@@ -340,6 +347,7 @@ final readonly class FileMatchStore implements MatchStore
      * @return void
      *
      * @throws TerminalMatchTransitionException When the row is missing or not Confirmed.
+     * @throws CorruptMatchRowException         When an existing stored row is malformed.
      */
     public function revert(string $personId, string $obituaryUrl): void
     {
@@ -429,6 +437,9 @@ final readonly class FileMatchStore implements MatchStore
      * @param string $path The absolute row path.
      *
      * @return StoredMatch|null The reconstructed row, or null when absent.
+     *
+     * @throws CorruptMatchRowException When the stored row is missing a required key, or a key is
+     *                                  mistyped or out of range.
      */
     private function readRow(string $path): ?StoredMatch
     {

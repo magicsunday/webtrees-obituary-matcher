@@ -29,3 +29,6 @@ __pycache__/
 # Design mockup workspace — JSX prototype that drives the redesign
 # layouts; not shipped with the module.
 /design/
+
+# Deptrac result cache (written to the working directory by `deptrac analyse`)
+/.deptrac.cache
