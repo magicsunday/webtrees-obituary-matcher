@@ -12,6 +12,7 @@ declare(strict_types=1);
 namespace MagicSunday\ObituaryMatcher\Webtrees;
 
 use MagicSunday\ObituaryMatcher\Domain\ClassifiedMatch;
+use MagicSunday\ObituaryMatcher\Matching\CorruptMatchRowException;
 use MagicSunday\ObituaryMatcher\Matching\MatchStatus;
 use MagicSunday\ObituaryMatcher\Matching\MatchStore;
 use MagicSunday\ObituaryMatcher\Matching\StoredMatch;
@@ -72,6 +73,8 @@ final class MatchSeeder
      * @param string|null $deathDate The synthetic death date (`YYYY-MM-DD`), or null for no facts.
      *
      * @return StoredMatch The stored suggestion that was written.
+     *
+     * @throws CorruptMatchRowException When an existing stored row is malformed.
      */
     public static function seed(
         MatchStore $store,

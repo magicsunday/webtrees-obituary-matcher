@@ -26,6 +26,7 @@ use Fisharebest\Webtrees\Registry;
 use Fisharebest\Webtrees\Tree;
 use Fisharebest\Webtrees\Validator;
 use MagicSunday\ObituaryMatcher\Domain\Disposition;
+use MagicSunday\ObituaryMatcher\Matching\CorruptMatchRowException;
 use MagicSunday\ObituaryMatcher\Matching\MatchStore;
 use MagicSunday\ObituaryMatcher\Matching\StoredMatch;
 use MagicSunday\ObituaryMatcher\Matching\StoredMatchKey;
@@ -100,6 +101,7 @@ class ReviewScreenHandler implements RequestHandlerInterface
      * @throws HttpNotFoundException     When the key is malformed, or the row is absent or terminal.
      * @throws HttpAccessDeniedException When the user is not a manager of the tree.
      * @throws HttpBadRequestException   When a POST carries an unknown decision action.
+     * @throws CorruptMatchRowException  When an existing stored row is malformed.
      */
     public function handle(ServerRequestInterface $request): ResponseInterface
     {
@@ -152,7 +154,8 @@ class ReviewScreenHandler implements RequestHandlerInterface
      *
      * @return ResponseInterface The redirect response.
      *
-     * @throws HttpBadRequestException When the action is none of reject, uncertain or confirm.
+     * @throws HttpBadRequestException  When the action is none of reject, uncertain or confirm.
+     * @throws CorruptMatchRowException When an existing stored row is malformed.
      */
     private function applyDecision(
         ServerRequestInterface $request,
@@ -433,7 +436,8 @@ class ReviewScreenHandler implements RequestHandlerInterface
      *
      * @return StoredMatch The resolved reviewable row (Pending, Uncertain or Confirmed).
      *
-     * @throws HttpNotFoundException When the row is absent, Rejected, or belongs to another person.
+     * @throws HttpNotFoundException    When the row is absent, Rejected, or belongs to another person.
+     * @throws CorruptMatchRowException When an existing stored row is malformed.
      */
     private function resolveRow(Tree $tree, string $xref, string $key): StoredMatch
     {
