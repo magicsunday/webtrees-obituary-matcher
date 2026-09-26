@@ -16,6 +16,7 @@ use Fisharebest\Webtrees\Contracts\UserInterface;
 use Fisharebest\Webtrees\DB;
 use Fisharebest\Webtrees\Services\UserService;
 use MagicSunday\ObituaryMatcher\Webtrees\HeadlessBootstrap;
+use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\Test;
 
 /**
@@ -30,6 +31,7 @@ use PHPUnit\Framework\Attributes\Test;
  * @license https://opensource.org/licenses/GPL-3.0 GNU General Public License v3.0
  * @link    https://github.com/magicsunday/webtrees-obituary-matcher/
  */
+#[CoversClass(HeadlessBootstrap::class)]
 final class HeadlessBootstrapTest extends IntegrationTestCase
 {
     /**

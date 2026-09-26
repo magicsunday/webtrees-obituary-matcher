@@ -41,6 +41,7 @@ use MagicSunday\ObituaryMatcher\Support\ColognePhonetic;
 use MagicSunday\ObituaryMatcher\Support\GivenNameVariants;
 use MagicSunday\ObituaryMatcher\Support\Normalizer;
 use MagicSunday\ObituaryMatcher\Support\ObituaryNameParser;
+use PHPUnit\Framework\Attributes\CoversClass;
 /* jscpd:ignore-end */
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\Attributes\UsesClass;
@@ -57,6 +58,7 @@ use function usort;
  * @license https://opensource.org/licenses/GPL-3.0 GNU General Public License v3.0
  * @link    https://github.com/magicsunday/webtrees-obituary-matcher/
  */
+/* jscpd:ignore-start - the collaborator list converges with MatchEngineTest's by necessity */
 #[UsesClass(Band::class)]
 #[UsesClass(Classification::class)]
 #[UsesClass(ClassifiedMatch::class)]
@@ -68,7 +70,6 @@ use function usort;
 #[UsesClass(DateValue::class)]
 #[UsesClass(GivenNameVariants::class)]
 #[UsesClass(ColognePhonetic::class)]
-#[UsesClass(MatchEngine::class)]
 #[UsesClass(MatchExplanation::class)]
 #[UsesClass(NameScorer::class)]
 #[UsesClass(Normalizer::class)]
@@ -83,7 +84,9 @@ use function usort;
 #[UsesClass(RunnerUp::class)]
 #[UsesClass(ScoreConfig::class)]
 #[UsesClass(SignalScore::class)]
-#[UsesClass(Classifier::class)]
+#[CoversClass(MatchEngine::class)]
+#[CoversClass(Classifier::class)]
+/* jscpd:ignore-end */
 final class EngineWorkedExampleTest extends TestCase
 {
     /**

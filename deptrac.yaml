@@ -1,0 +1,114 @@
+# Deptrac configuration: the canonical layers and ruleset are imported from
+# magicsunday/coding-standard (deptrac/layers.yaml). Of those, only `Support` matches a
+# directory of this module (src/Support); the other layers below are this module's own
+# and replace the former phpat layer rules one for one.
+#
+# The pure scoring engine (Domain, Parsing, Support, Scoring, Queue, Matching) and the
+# Ui presentation layer stay free of the webtrees framework; only the Webtrees adapter
+# composes it. Dependencies point downward: Domain is the leaf vocabulary, Matching the
+# engine apex, and the Webtrees adapter drives Matching and Queue, never the reverse.
+#
+# What Deptrac cannot express stays in phpat (tests/Architecture/ArchitectureTest.php,
+# loaded through coding-standard's opt-in phpstan/phpat.neon): database access confined
+# to `*Repository` classes is keyed on a class NAME, not a layer.
+imports:
+    - .build/vendor/magicsunday/coding-standard/deptrac/layers.yaml
+
+deptrac:
+    paths:
+        - src
+
+    layers:
+        -
+            name: Domain
+            collectors:
+                -
+                    type: directory
+                    value: 'src/Domain/.*'
+        -
+            name: Parsing
+            collectors:
+                -
+                    type: directory
+                    value: 'src/Parsing/.*'
+        -
+            name: Scoring
+            collectors:
+                -
+                    type: directory
+                    value: 'src/Scoring/.*'
+        -
+            name: Queue
+            collectors:
+                -
+                    type: directory
+                    value: 'src/Queue/.*'
+        -
+            name: Matching
+            collectors:
+                -
+                    type: directory
+                    value: 'src/Matching/.*'
+        -
+            name: Ui
+            collectors:
+                -
+                    type: directory
+                    value: 'src/Ui/.*'
+        -
+            name: Webtrees
+            collectors:
+                -
+                    type: directory
+                    value: 'src/Webtrees/.*'
+        -
+            # The webtrees framework itself. A vendor namespace is matched by class name on
+            # purpose: it is the one external dependency this module restricts.
+            name: WebtreesFramework
+            collectors:
+                -
+                    type: classNameRegex
+                    value: '#^Fisharebest\\Webtrees\\#'
+
+    ruleset:
+        # Domain is the leaf vocabulary every layer speaks.
+        Domain: ~
+        # Support is a leaf helper layer building only on Domain. (It is also the shared
+        # `Support` layer, whose shared allowances name layers this module does not have.)
+        Support:
+            - Domain
+        # Parsing and Scoring build on Domain and Support only; Matching composes Scoring,
+        # so the inverse direction would create a cycle.
+        Parsing:
+            - Domain
+            - Support
+        Scoring:
+            - Domain
+            - Support
+        # Queue builds on Domain, Parsing and Support; Matching composes Queue.
+        Queue:
+            - Domain
+            - Parsing
+            - Support
+        # Matching is the pure engine apex.
+        Matching:
+            - Domain
+            - Parsing
+            - Support
+            - Scoring
+            - Queue
+        # The Ui presentation layer reads the Matching apex over Domain/Support only, so it
+        # stays unit-testable without a webtrees runtime.
+        Ui:
+            - Domain
+            - Support
+            - Matching
+        # The Webtrees adapter composes the framework and drives Matching and Queue, but
+        # reaches the scoring engine only through the Matching apex.
+        Webtrees:
+            - Domain
+            - Support
+            - Queue
+            - Matching
+            - Ui
+            - WebtreesFramework
