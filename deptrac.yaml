@@ -1,16 +1,21 @@
 # Deptrac configuration: the canonical layers and ruleset are imported from
 # magicsunday/coding-standard (deptrac/layers.yaml). Of those, only `Support` matches a
-# directory of this module (src/Support); the other layers below are this module's own
-# and replace the former phpat layer rules one for one.
+# directory of this module (src/Support); the other layers below are this module's own.
 #
 # The pure scoring engine (Domain, Parsing, Support, Scoring, Queue, Matching) and the
 # Ui presentation layer stay free of the webtrees framework; only the Webtrees adapter
 # composes it. Dependencies point downward: Domain is the leaf vocabulary, Matching the
 # engine apex, and the Webtrees adapter drives Matching and Queue, never the reverse.
 #
-# What Deptrac cannot express stays in phpat (tests/Architecture/ArchitectureTest.php,
-# loaded through coding-standard's opt-in phpstan/phpat.neon): database access confined
-# to `*Repository` classes is keyed on a class NAME, not a layer.
+# Query issuance is confined to `*Repository` classes (plus the HeadlessBootstrap
+# composition root, which only establishes the connection). That rule is keyed on a
+# class NAME inside the Webtrees layer, and Deptrac expresses it with an overlay: the
+# `NonRepository` layer holds every module class except those, and Deptrac checks a
+# class against EVERY layer it belongs to, so the overlay's allow-list — which omits
+# the `Database` layer — denies the query layer to every other class, traits included,
+# while the Webtrees entry allows it for the repositories. Deptrac warns that each
+# overlaid class is "in more than one layer"; that is the mechanism, not a defect, and
+# a warning does not fail the run.
 imports:
     - .build/vendor/magicsunday/coding-standard/deptrac/layers.yaml
 
@@ -69,29 +74,86 @@ deptrac:
                 -
                     type: classNameRegex
                     value: '#^Fisharebest\\Webtrees\\#'
+        -
+            # The database query layer: webtrees' `DB` facade and the Illuminate query layer
+            # it hands out (`Builder`, `Expression`, `Capsule\Manager`, …). `DB` also sits in
+            # `WebtreesFramework` above; this layer exists so it can be denied on its own.
+            name: Database
+            collectors:
+                -
+                    type: classNameRegex
+                    value: '#^Fisharebest\\Webtrees\\DB$#'
+                -
+                    type: classNameRegex
+                    value: '#^Illuminate\\Database\\#'
+        -
+            # OVERLAY: every module class except the `*Repository` classes and the
+            # HeadlessBootstrap composition root. Each member also sits in its own layer
+            # above; Deptrac checks a class against EVERY layer it belongs to, so this
+            # overlay's allow-list — which omits Database — narrows the whole module at
+            # once, including the Webtrees adapter whose own entry does allow Database.
+            #
+            # The `must` names the module layers' directories instead of all of `src/`: a
+            # catch-all would also collect a class in a directory no module layer covers,
+            # and `deptrac debug:unassigned` could then never report it. A new layer
+            # directory is added here as well.
+            name: NonRepository
+            collectors:
+                -
+                    type: bool
+                    must:
+                        -
+                            type: directory
+                            value: 'src/(Domain|Parsing|Support|Scoring|Queue|Matching|Ui|Webtrees)/.*'
+                    must_not:
+                        -
+                            type: classNameRegex
+                            value: '#^MagicSunday\\ObituaryMatcher\\.*Repository$#'
+                        -
+                            type: classNameRegex
+                            value: '#^MagicSunday\\ObituaryMatcher\\Webtrees\\HeadlessBootstrap$#'
 
     ruleset:
+        # Every module layer overlaps the NonRepository overlay, so each one names ITSELF and
+        # NonRepository: Deptrac pairs every layer of the depending class with every layer of
+        # the dependency, and an unlisted pair — even a same-layer one — is a violation once
+        # a class sits in more than one layer. Neither entry widens a layer: every
+        # NonRepository member is also in one of the module layers, whose own entry still
+        # has to allow the edge.
+        #
         # Domain is the leaf vocabulary every layer speaks.
-        Domain: ~
+        Domain:
+            - Domain
+            - NonRepository
         # Support is a leaf helper layer building only on Domain. (It is also the shared
         # `Support` layer, whose shared allowances name layers this module does not have.)
         Support:
+            - Support
+            - NonRepository
             - Domain
         # Parsing and Scoring build on Domain and Support only; Matching composes Scoring,
         # so the inverse direction would create a cycle.
         Parsing:
+            - Parsing
+            - NonRepository
             - Domain
             - Support
         Scoring:
+            - Scoring
+            - NonRepository
             - Domain
             - Support
         # Queue builds on Domain, Parsing and Support; Matching composes Queue.
         Queue:
+            - Queue
+            - NonRepository
             - Domain
             - Parsing
             - Support
         # Matching is the pure engine apex.
         Matching:
+            - Matching
+            - NonRepository
             - Domain
             - Parsing
             - Support
@@ -100,15 +162,37 @@ deptrac:
         # The Ui presentation layer reads the Matching apex over Domain/Support only, so it
         # stays unit-testable without a webtrees runtime.
         Ui:
+            - Ui
+            - NonRepository
             - Domain
             - Support
             - Matching
         # The Webtrees adapter composes the framework and drives Matching and Queue, but
-        # reaches the scoring engine only through the Matching apex.
+        # reaches the scoring engine only through the Matching apex. It allows Database for
+        # its `*Repository` classes and the HeadlessBootstrap composition root; every other
+        # adapter class is also in NonRepository, which denies it.
         Webtrees:
+            - Webtrees
+            - NonRepository
             - Domain
             - Support
             - Queue
             - Matching
             - Ui
+            - WebtreesFramework
+            - Database
+        # Query issuance is confined to `*Repository` classes: the overlay allows everything
+        # its members legitimately use EXCEPT Database. `Fisharebest\Webtrees\DB` is in
+        # WebtreesFramework as well, but Deptrac checks the Database pair on its own, so a
+        # `DB::table(...)` outside a repository is still reported.
+        NonRepository:
+            - NonRepository
+            - Domain
+            - Support
+            - Parsing
+            - Scoring
+            - Queue
+            - Matching
+            - Ui
+            - Webtrees
             - WebtreesFramework

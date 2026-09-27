@@ -158,7 +158,8 @@ composer ci:test
 ```
 
 This runs, in order: phplint, PHP-CS-Fixer (dry-run), PHPStan (no baseline), Rector (dry-run), jscpd copy/paste
-detection, the coding-standard template lockstep, Deptrac (layer boundaries), and the PHPUnit suite. The individual checks are also available as `composer ci:test:php:lint`,
+detection, the coding-standard template lockstep, Deptrac (layer boundaries, database access confined to
+`*Repository` classes, no unassigned class), and the PHPUnit suite. The individual checks are also available as `composer ci:test:php:lint`,
 `composer ci:test:php:phpstan`, `composer ci:test:php:rector`, `composer ci:test:cpd`, `composer ci:test:php:templates`,
 `composer ci:test:php:deptrac`, and `composer ci:test:php:unit`;
 auto-fixers are `composer ci:cgl` and `composer ci:rector`. GitHub Actions runs the same granular steps across

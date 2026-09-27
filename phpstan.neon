@@ -1,6 +1,5 @@
 includes:
     - %currentWorkingDirectory%/.build/vendor/magicsunday/coding-standard/phpstan/base.neon
-    - %currentWorkingDirectory%/.build/vendor/magicsunday/coding-standard/phpstan/phpat.neon
 
 parameters:
     phpVersion:
@@ -26,9 +25,3 @@ parameters:
         -
             identifier: missingType.checkedException
             path: %currentWorkingDirectory%/tests/*
-
-services:
-    -
-        class: MagicSunday\ObituaryMatcher\Test\Architecture\ArchitectureTest
-        tags:
-            - phpat.test
