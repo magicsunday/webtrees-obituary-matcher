@@ -113,6 +113,17 @@ deptrac:
                             type: classNameRegex
                             value: '#^MagicSunday\\ObituaryMatcher\\Webtrees\\HeadlessBootstrap$#'
 
+    formatters:
+        graphviz:
+            # The layer-cycle gate (`check-deptrac-cycles.php`) reads the graphviz output.
+            # NonRepository is an overlay, not a layer of the design: its members are the
+            # members of every module layer, so it depends on each of them and each of them
+            # on it, and the gate would report that as one cycle through the whole module.
+            # Hiding it drops only the overlay's own edges; every module layer's edges are
+            # still drawn and checked from the class's own layer.
+            hidden_layers:
+                - NonRepository
+
     ruleset:
         # Every module layer overlaps the NonRepository overlay, so each one names ITSELF and
         # NonRepository: Deptrac pairs every layer of the depending class with every layer of

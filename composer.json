@@ -49,7 +49,7 @@
         "magicsunday/webtrees-module-base": "^2.5"
     },
     "require-dev": {
-        "magicsunday/coding-standard": "^2.1",
+        "magicsunday/coding-standard": "^2.3",
         "opis/json-schema": "^2.6"
     },
     "minimum-stability": "dev",
@@ -103,7 +103,10 @@
         ],
         "ci:test:php:deptrac": [
             "deptrac analyse --no-progress",
-            "deptrac debug:unassigned"
+            "deptrac debug:unassigned",
+            "@php -r \"is_dir('.build') || mkdir('.build', 0777, true);\"",
+            "deptrac analyse --no-progress --formatter=graphviz-dot --output=.build/deptrac-layers.dot",
+            "check-deptrac-cycles.php .build/deptrac-layers.dot"
         ],
         "ci:test": [
             "@ci:test:php:lint",
