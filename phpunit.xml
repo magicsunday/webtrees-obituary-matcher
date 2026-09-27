@@ -19,8 +19,6 @@
     <testsuites>
         <testsuite name="unit">
             <directory>tests</directory>
-            <!-- tests/Architecture holds phpat rule classes (run by PHPStan), not PHPUnit tests. -->
-            <exclude>tests/Architecture</exclude>
             <exclude>tests/Integration</exclude>
             <exclude>tests/Interop</exclude>
             <exclude>tests/fixtures</exclude>
