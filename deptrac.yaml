@@ -1,6 +1,8 @@
 # Deptrac configuration: the canonical layers and ruleset are imported from
-# magicsunday/coding-standard (deptrac/layers.yaml). Of those, only `Support` matches a
-# directory of this module (src/Support); the other layers below are this module's own.
+# magicsunday/coding-standard (deptrac/layers.yaml, strict and acyclic since 3.0: Support <
+# Enum < Model, Configuration < Contract < Repository, Adapter, Service < Facade < Module).
+# Of those, only `Support` matches a directory of this module (src/Support); the other
+# layers below are this module's own.
 #
 # The pure scoring engine (Domain, Parsing, Support, Scoring, Queue, Matching) and the
 # Ui presentation layer stay free of the webtrees framework; only the Webtrees adapter
@@ -137,7 +139,7 @@ deptrac:
             - Domain
             - NonRepository
         # Support is a leaf helper layer building only on Domain. (It is also the shared
-        # `Support` layer, whose shared allowances name layers this module does not have.)
+        # `Support` layer, whose shared entry allows nothing, so every edge here is local.)
         Support:
             - Support
             - NonRepository
