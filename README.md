@@ -93,7 +93,7 @@ Requires **PHP 8.3** or later. Install with Composer:
 composer require magicsunday/webtrees-obituary-matcher
 ```
 
-The library has no Node.js toolchain and ships no frontend assets.
+The library ships no Node.js toolchain and no frontend assets. The pinned jscpd in `package.json` is a dev-only CI tool.
 
 
 ## Usage
@@ -160,10 +160,11 @@ composer ci:test
 This runs, in order: phplint, PHP-CS-Fixer (dry-run), PHPStan (no baseline), Rector (dry-run), jscpd copy/paste
 detection, the coding-standard template lockstep, Deptrac (layer boundaries, database access confined to
 `*Repository` classes, no unassigned class and an acyclic layer graph), and the PHPUnit suite. The individual checks are also available as `composer ci:test:php:lint`,
-`composer ci:test:php:phpstan`, `composer ci:test:php:rector`, `composer ci:test:cpd`, `composer ci:test:php:templates`,
+`composer ci:test:php:phpstan`, `composer ci:test:php:rector`, `composer ci:test:php:cpd`, `composer ci:test:php:templates`,
 `composer ci:test:php:deptrac`, and `composer ci:test:php:unit`;
-auto-fixers are `composer ci:cgl` and `composer ci:rector`. GitHub Actions runs the same granular steps across
-PHP 8.3, 8.4 and 8.5.
+auto-fixers are `composer ci:cgl` and `composer ci:rector`. GitHub Actions runs the same granular steps, except `cpd`,
+across PHP 8.3, 8.4 and 8.5. Copy/paste detection runs as its own job through the shared `cpd.yml` workflow of the `.github`
+repository, and a local run needs `npm ci` once beforehand.
 
 Every change is test-driven: write the failing test first, then the minimal fix. Scorer tests pin the exact
 `SignalScore` against curated fixtures, and scenarios that straddle a band boundary or the ambiguity gap act as the

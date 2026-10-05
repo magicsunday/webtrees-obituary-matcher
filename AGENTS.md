@@ -11,7 +11,7 @@ The full product is two cooperating pieces:
 
 ## Setup/env
 - PHP 8.3–8.5 is required. Composer installs dependencies into `.build/vendor` and binaries into `.build/bin` (see `config.vendor-dir` / `config.bin-dir` in `composer.json`).
-- There is **no Node.js toolchain** — the engine ships no frontend assets. The only Node touch-point is `npx jscpd` for the copy/paste check, invoked through `composer ci:test:cpd`.
+- There is **no Node.js toolchain** for the product — the engine ships no frontend assets. The only Node touch-point is the pinned dev tool jscpd for the copy/paste check (`package.json`, installed by `make install` or `npm ci`), invoked through `composer ci:test:php:cpd`. CI runs it as its own job through the shared `cpd.yml` workflow of the `.github` repository, reported as `cpd / Copy-paste detection`.
 - Run all PHP tooling inside the webtrees buildbox container — **never on the host**. From the webtrees root:
   ```
   docker compose run --rm buildbox bash -c "cd app/vendor/magicsunday/webtrees-obituary-matcher && composer ci:test"
@@ -25,7 +25,7 @@ The full product is two cooperating pieces:
   - `composer ci:test:php:cgl` — PHP-CS-Fixer in `--dry-run` mode (style gate).
   - `composer ci:test:php:phpstan` — PHPStan analysis.
   - `composer ci:test:php:rector` — Rector in `--dry-run` mode.
-  - `composer ci:test:cpd` — jscpd copy/paste detection over `src` + `tests`.
+  - `composer ci:test:php:cpd` — jscpd copy/paste detection over `src` + `tests`.
   - `composer ci:test:php:templates` — `check-consumer-config.php`: keeps `phpunit.xml`, `.jscpd.json`, `.phplint.yml`, `.editorconfig` and `deptrac.yaml` in step with the magicsunday/coding-standard templates.
   - `composer ci:test:php:deptrac` — Deptrac layer boundaries (`deptrac.yaml`: the pure engine layers and the Ui stay free of `Fisharebest\Webtrees`, only the `Webtrees` adapter composes it; database access — webtrees' `DB` facade and `Illuminate\Database` — is confined to `*Repository` classes and the `HeadlessBootstrap` composition root through the `NonRepository` overlay layer, whose allow-list omits the `Database` layer). The script also runs `deptrac debug:unassigned` (every `src/` class must sit in a layer) and the coding-standard layer-cycle gate `check-deptrac-cycles.php` over Deptrac's graphviz output (`.build/deptrac-layers.dot`; the overlay is hidden from that graph because it overlaps every module layer by design).
   - `composer ci:test:php:unit` — PHPUnit suite.

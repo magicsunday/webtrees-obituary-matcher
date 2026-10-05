@@ -25,7 +25,7 @@ unit: .logo ## Runs the PHPUnit tests.
 	${COMPOSE_RUN} composer ci:test:php:unit
 
 cpd: .logo ## Runs copy-paste detection (jscpd).
-	${COMPOSE_RUN} composer ci:test:cpd
+	${COMPOSE_RUN} composer ci:test:php:cpd
 
 
 #### Fix
@@ -43,8 +43,9 @@ rector: .logo ## Applies the rector rules.
 
 .PHONY: install update
 
-install: .logo ## Installs the composer dependencies.
+install: .logo ## Installs the composer and Node dependencies.
 	${COMPOSE_RUN} composer install
+	${COMPOSE_RUN} npm ci
 
 update: .logo ## Updates the composer dependencies.
 	${COMPOSE_RUN} composer update

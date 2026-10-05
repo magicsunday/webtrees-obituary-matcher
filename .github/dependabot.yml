@@ -20,6 +20,20 @@ updates:
                 patterns:
                     - "*"
 
+    -   package-ecosystem: npm
+        directory: /
+        schedule:
+            interval: weekly
+        open-pull-requests-limit: 5
+        cooldown:
+            default-days: 7
+        commit-message:
+            prefix: "Update dependencies"
+        groups:
+            npm:
+                patterns:
+                    - "*"
+
     -   package-ecosystem: github-actions
         directory: /
         schedule:
