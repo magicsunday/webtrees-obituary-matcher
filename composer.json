@@ -96,8 +96,8 @@
         "ci:test:php:interop": [
             "phpunit --configuration phpunit.xml --testsuite interop --display-all-issues"
         ],
-        "ci:test:cpd": [
-            "npx jscpd@5.0.11 src tests --config .jscpd.json --skip-comments --no-tips"
+        "ci:test:php:cpd": [
+            "node_modules/.bin/jscpd --config .jscpd.json --skip-comments --no-tips --fail-on-empty"
         ],
         "ci:test:php:templates": [
             "check-consumer-config.php ."
@@ -115,7 +115,7 @@
             "@ci:test:php:phpstan",
             "@ci:test:php:phpstan-glue",
             "@ci:test:php:rector",
-            "@ci:test:cpd",
+            "@ci:test:php:cpd",
             "@ci:test:php:templates",
             "@ci:test:php:deptrac",
             "@ci:test:php:unit",
