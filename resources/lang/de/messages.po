@@ -100,11 +100,11 @@ msgstr "Angebotene Schema-Versionen"
 
 #: resources/views/review.phtml:37 resources/views/review.phtml:65
 msgid "Age"
-msgstr "Alter"
+msgstr ""
 
 #: resources/views/worklist.phtml:39 resources/views/worklist.phtml:47
 msgid "All"
-msgstr "Alle"
+msgstr ""
 
 #: resources/views/control-panel.phtml:72
 msgid "Ambiguity gap"
@@ -121,7 +121,7 @@ msgstr "Schwellenwerte der Bewertungsstufen"
 
 #: resources/views/review.phtml:33
 msgid "Birth"
-msgstr "Geburt"
+msgstr ""
 
 #: resources/views/review.phtml:63
 msgid "Birth date"
@@ -141,11 +141,11 @@ msgstr "Kandidaten pro Durchlauf"
 
 #: resources/views/review.phtml:38 resources/views/review.phtml:45
 msgid "Cemetery"
-msgstr "Friedhof"
+msgstr ""
 
 #: resources/views/review.phtml:52
 msgid "Child"
-msgstr "Kind"
+msgstr ""
 
 #: src/Webtrees/EnqueuePersonHandler.php:114
 #: src/Webtrees/ObituaryControlPanelHandler.php:648
@@ -182,11 +182,11 @@ msgstr "Ergebnis des Verbindungstests"
 
 #: resources/views/control-panel.phtml:230
 msgid "Country"
-msgstr "Land"
+msgstr ""
 
 #: resources/views/worklist.phtml:55 resources/views/worklist.phtml:182
 msgid "Date of death"
-msgstr "Sterbedatum"
+msgstr ""
 
 #: resources/views/review.phtml:64
 msgid "Death date"
@@ -209,7 +209,7 @@ msgstr "Ermitteltes Sterbedatum"
 
 #: resources/views/review.phtml:114
 msgid "Family"
-msgstr "Familie"
+msgstr ""
 
 #: resources/views/control-panel.phtml:211
 msgid "Finder ID"
@@ -256,7 +256,7 @@ msgstr "Personen ohne bekanntes Geburtsdatum einschließen"
 
 #: resources/views/worklist.phtml:179
 msgid "Individual"
-msgstr "Person"
+msgstr ""
 
 #: resources/views/worklist.phtml:180
 msgid "Match"
@@ -285,7 +285,7 @@ msgstr "Mindestalter"
 #: resources/views/control-panel.phtml:229 resources/views/review.phtml:32
 #: resources/views/worklist.phtml:54
 msgid "Name"
-msgstr "Name"
+msgstr ""
 
 #: resources/views/control-panel.phtml:57
 msgid "Name weight"
@@ -341,7 +341,7 @@ msgstr "Es sind keine Stammbäume verfügbar."
 
 #: resources/views/review.phtml:74
 msgid "Note"
-msgstr "Notiz"
+msgstr ""
 
 #: resources/views/control-panel.phtml:249
 msgid "Notice fields"
@@ -395,7 +395,7 @@ msgstr "Ausstehend"
 
 #: resources/views/review.phtml:34 resources/views/review.phtml:44
 msgid "Place"
-msgstr "Ort"
+msgstr ""
 
 #: resources/views/control-panel.phtml:63
 msgid "Place weight"
@@ -575,7 +575,7 @@ msgstr "Einstellungen gespeichert."
 
 #: resources/views/review.phtml:54
 msgid "Sibling"
-msgstr "Geschwister"
+msgstr ""
 
 #: resources/views/review.phtml:73
 msgid "Soft conflict"
@@ -596,7 +596,7 @@ msgstr "Sortieren nach"
 
 #: resources/views/worklist.phtml:183
 msgid "Source"
-msgstr "Quelle"
+msgstr ""
 
 #: resources/views/review.phtml:51
 msgid "Spouse"
@@ -608,7 +608,7 @@ msgstr "Suche starten"
 
 #: resources/views/worklist.phtml:187
 msgid "Status"
-msgstr "Status"
+msgstr ""
 
 #: resources/views/control-panel.phtml:89
 msgid "Strong"
@@ -791,11 +791,11 @@ msgstr "und %s weitere"
 
 #: resources/views/worklist.phtml:256 resources/views/worklist.phtml:258
 msgid "next"
-msgstr "weiter"
+msgstr ""
 
 #: resources/views/worklist.phtml:245 resources/views/worklist.phtml:247
 msgid "previous"
-msgstr "zurück"
+msgstr ""
 
 #: resources/views/review.phtml:140
 msgid "uncertain"

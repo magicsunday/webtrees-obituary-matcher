@@ -28,7 +28,6 @@ msgstr ""
 msgid "%s finder job is awaiting results."
 msgid_plural "%s finder jobs are awaiting results."
 msgstr[0] ""
-msgstr[1] ""
 
 #: src/Webtrees/ObituaryWorklistHandler.php:392
 #, php-format
@@ -41,7 +40,6 @@ msgstr[0] ""
 msgid "%s open suggestion"
 msgid_plural "%s open suggestions"
 msgstr[0] ""
-msgstr[1] ""
 
 #: resources/views/worklist.phtml:99
 #, php-format
@@ -154,7 +152,6 @@ msgstr ""
 msgid "Confirmation reverted; %s fact removed."
 msgid_plural "Confirmation reverted; %s facts removed."
 msgstr[0] ""
-msgstr[1] ""
 
 #: resources/views/review.phtml:28 resources/views/worklist.phtml:34
 #: resources/views/worklist.phtml:41
