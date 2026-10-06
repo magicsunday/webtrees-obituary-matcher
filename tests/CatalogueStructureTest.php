@@ -1,0 +1,38 @@
+<?php
+
+/**
+ * This file is part of the package magicsunday/webtrees-obituary-matcher.
+ *
+ * For the full copyright and license information, please read the
+ * LICENSE file that was distributed with this source code.
+ */
+
+declare(strict_types=1);
+
+namespace MagicSunday\ObituaryMatcher\Test;
+
+use MagicSunday\Webtrees\ModuleBase\Testing\AbstractCatalogueStructureTestCase;
+use PHPUnit\Framework\Attributes\CoversNothing;
+
+/**
+ * Locks the structure of the shipped translation catalogues. The checks live in the
+ * shared abstract case of webtrees-module-base, this class only names the directory
+ * that holds the catalogues of this module.
+ *
+ * @author  Rico Sonntag <mail@ricosonntag.de>
+ * @license https://opensource.org/licenses/GPL-3.0 GNU General Public License v3.0
+ * @link    https://github.com/magicsunday/webtrees-obituary-matcher/
+ */
+#[CoversNothing]
+final class CatalogueStructureTest extends AbstractCatalogueStructureTestCase
+{
+    /**
+     * Returns the directory that holds the catalogues of all locales.
+     *
+     * @return string The path of the catalogue directory
+     */
+    protected static function languageDirectory(): string
+    {
+        return __DIR__ . '/../resources/lang';
+    }
+}
