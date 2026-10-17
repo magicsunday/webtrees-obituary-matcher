@@ -18,6 +18,14 @@ The full product is two cooperating pieces:
   ```
   (Substitute the module path for your checkout if it differs; the form above is the canonical buildbox invocation.)
 
+### Convention for new advisory ignores
+
+Before adding an entry, check the following. Is the package a direct dependency (`composer why`)? Does a public fix exist? Does an exact pin of webtrees alone block that fix (`composer why-not <package> <fixed version>`)? Update instead of ignoring whenever the fix is reachable.
+
+- An advisory that webtrees' exact pin keeps unresolved is ignored by its **advisory ID** under `config.policy.advisories.ignore-id`, so later advisories on the same package keep blocking. Never ignore by package name under `ignore`, because that also hides every later advisory of the package.
+- The reason starts with a prefix that says why the entry exists, followed by the CVE and the condition for removing it. `UPSTREAM-PINNED:` marks a fix that exists publicly but is held back by the exact pin of webtrees. `ACCEPTED:` is reserved for a conscious risk acceptance with a low severity and no attack path in this package.
+- Remove the entry once the supported webtrees range no longer pins an affected version.
+
 ## Build & tests
 - **`composer ci:test` MUST run green before every commit** — it runs the full gate: phplint, PHP-CS-Fixer (dry-run), PHPStan, Rector (dry-run), jscpd, the coding-standard template lockstep, Deptrac, and PHPUnit. Catch every issue locally before it reaches GitHub CI.
 - Individual checks:
