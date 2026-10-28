@@ -100,7 +100,7 @@ msgstr "Angebotene Schema-Versionen"
 
 #: resources/views/review.phtml:37 resources/views/review.phtml:65
 msgid "Age"
-msgstr ""
+msgstr "Alter (probe)"
 
 #: resources/views/worklist.phtml:39 resources/views/worklist.phtml:47
 msgid "All"
