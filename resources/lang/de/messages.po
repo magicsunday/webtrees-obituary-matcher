@@ -451,7 +451,7 @@ msgstr "Regionen"
 
 #: resources/views/review.phtml:206
 msgid "Reject"
-msgstr "Ablehnen"
+msgstr ""
 
 #: resources/views/worklist.phtml:172
 msgid "Reject selected"
@@ -556,7 +556,7 @@ msgstr "Suchauftrag eingereiht (%s)."
 
 #: resources/views/worklist.phtml:178
 msgid "Select"
-msgstr "Auswählen"
+msgstr ""
 
 #: resources/views/worklist.phtml:197
 #, php-format
@@ -600,7 +600,7 @@ msgstr ""
 
 #: resources/views/review.phtml:51
 msgid "Spouse"
-msgstr "Ehepartner"
+msgstr ""
 
 #: resources/views/control-panel.phtml:274
 msgid "Start search"
