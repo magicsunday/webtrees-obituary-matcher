@@ -411,7 +411,7 @@ msgstr "Gewichtung Plausibilität"
 
 #: resources/views/control-panel.phtml:228
 msgid "Portal"
-msgstr "Portal"
+msgstr ""
 
 #: resources/views/control-panel.phtml:91
 msgid "Possible"
