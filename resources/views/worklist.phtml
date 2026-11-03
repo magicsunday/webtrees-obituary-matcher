@@ -8,6 +8,7 @@ use MagicSunday\ObituaryMatcher\Ui\CandidateFilterView;
 use MagicSunday\ObituaryMatcher\Ui\WorklistView;
 use MagicSunday\ObituaryMatcher\Webtrees\CandidateCriteria;
 use MagicSunday\ObituaryMatcher\Webtrees\ObituaryWorklistHandler;
+use MagicSunday\ObituaryMatcher\Webtrees\Wording;
 
 /** @var Tree $tree */
 /** @var WorklistView $view */
@@ -175,7 +176,7 @@ $navParams = [
             <table class="table table-sm om-worklist-table">
                 <thead>
                     <tr>
-                        <th><span class="visually-hidden"><?php echo e(I18N::translate('Select')); ?></span></th>
+                        <th><span class="visually-hidden"><?php echo e(Wording::select()); ?></span></th>
                         <th><?php echo e(I18N::translate('Individual')); ?></th>
                         <th><?php echo e(I18N::translate('Match')); ?></th>
                         <th><?php echo e(I18N::translate('Score')); ?></th>

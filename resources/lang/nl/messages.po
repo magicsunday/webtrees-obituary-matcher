@@ -18,7 +18,7 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=2; plural=(n != 1);\n"
 
-#: resources/views/worklist.phtml:127
+#: resources/views/worklist.phtml:128
 #, php-format
 msgid "%1$s open · %2$s confirmed · %3$s rejected · %4$s uncertain"
 msgstr ""
@@ -44,7 +44,7 @@ msgid_plural "%s open suggestions"
 msgstr[0] ""
 msgstr[1] ""
 
-#: resources/views/worklist.phtml:99
+#: resources/views/worklist.phtml:100
 #, php-format
 msgid ""
 "%s person was searched but a portal was unavailable, so the result is "
@@ -55,14 +55,14 @@ msgid_plural ""
 msgstr[0] ""
 msgstr[1] ""
 
-#: resources/views/worklist.phtml:90
+#: resources/views/worklist.phtml:91
 #, php-format
 msgid "%s person would be searched"
 msgid_plural "%s people would be searched"
 msgstr[0] ""
 msgstr[1] ""
 
-#: resources/views/review.phtml:226
+#: resources/views/review.phtml:227
 msgid "A hard conflict prevents confirming. Review it manually."
 msgstr ""
 
@@ -94,11 +94,11 @@ msgstr ""
 msgid "Advertised schema versions"
 msgstr ""
 
-#: resources/views/review.phtml:37 resources/views/review.phtml:65
+#: resources/views/review.phtml:38 resources/views/review.phtml:66
 msgid "Age"
 msgstr ""
 
-#: resources/views/worklist.phtml:39 resources/views/worklist.phtml:47
+#: resources/views/worklist.phtml:40 resources/views/worklist.phtml:48
 msgid "All"
 msgstr ""
 
@@ -106,8 +106,8 @@ msgstr ""
 msgid "Ambiguity gap"
 msgstr ""
 
-#: resources/views/review.phtml:85 resources/views/tab.phtml:50
-#: resources/views/worklist.phtml:49
+#: resources/views/review.phtml:86 resources/views/tab.phtml:50
+#: resources/views/worklist.phtml:50
 msgid "Ambiguous"
 msgstr ""
 
@@ -115,11 +115,11 @@ msgstr ""
 msgid "Band thresholds"
 msgstr ""
 
-#: resources/views/review.phtml:33
+#: resources/views/review.phtml:34
 msgid "Birth"
 msgstr ""
 
-#: resources/views/review.phtml:63
+#: resources/views/review.phtml:64
 msgid "Birth date"
 msgstr ""
 
@@ -127,7 +127,7 @@ msgstr ""
 msgid "Birth-date weight"
 msgstr ""
 
-#: resources/views/review.phtml:92 resources/views/review.phtml:176
+#: resources/views/review.phtml:93 resources/views/review.phtml:177
 msgid "Born"
 msgstr ""
 
@@ -135,11 +135,11 @@ msgstr ""
 msgid "Candidates per run"
 msgstr ""
 
-#: resources/views/review.phtml:38 resources/views/review.phtml:45
+#: resources/views/review.phtml:39 resources/views/review.phtml:46
 msgid "Cemetery"
 msgstr ""
 
-#: resources/views/review.phtml:52
+#: resources/views/review.phtml:53
 msgid "Child"
 msgstr ""
 
@@ -148,7 +148,7 @@ msgstr ""
 msgid "Configure the finder connection first."
 msgstr ""
 
-#: resources/views/review.phtml:221 resources/views/review.phtml:231
+#: resources/views/review.phtml:222 resources/views/review.phtml:232
 msgid "Confirm as source"
 msgstr ""
 
@@ -159,8 +159,8 @@ msgid_plural "Confirmation reverted; %s facts removed."
 msgstr[0] ""
 msgstr[1] ""
 
-#: resources/views/review.phtml:28 resources/views/worklist.phtml:34
-#: resources/views/worklist.phtml:41
+#: resources/views/review.phtml:29 resources/views/worklist.phtml:35
+#: resources/views/worklist.phtml:42
 msgid "Confirmed"
 msgstr ""
 
@@ -168,7 +168,7 @@ msgstr ""
 msgid "Conflict-penalty cap"
 msgstr ""
 
-#: resources/views/review.phtml:160 resources/views/worklist.phtml:48
+#: resources/views/review.phtml:161 resources/views/worklist.phtml:49
 msgid "Conflicts"
 msgstr ""
 
@@ -180,30 +180,30 @@ msgstr ""
 msgid "Country"
 msgstr ""
 
-#: resources/views/worklist.phtml:55 resources/views/worklist.phtml:182
+#: resources/views/worklist.phtml:56 resources/views/worklist.phtml:183
 msgid "Date of death"
 msgstr ""
 
-#: resources/views/review.phtml:64
+#: resources/views/review.phtml:65
 msgid "Death date"
 msgstr ""
 
-#: resources/views/control-panel.phtml:34 resources/views/worklist.phtml:69
+#: resources/views/control-panel.phtml:34 resources/views/worklist.phtml:70
 #: src/Webtrees/ObituaryControlPanelHandler.php:741
 #: src/Webtrees/ObituaryMatcherModule.php:261
 #: src/Webtrees/ObituaryMatcherModule.php:277
 msgid "Death notices"
 msgstr ""
 
-#: resources/views/review.phtml:93
+#: resources/views/review.phtml:94
 msgid "Died"
 msgstr ""
 
-#: resources/views/review.phtml:101
+#: resources/views/review.phtml:102
 msgid "Extracted death date"
 msgstr ""
 
-#: resources/views/review.phtml:114
+#: resources/views/review.phtml:115
 msgid "Family"
 msgstr ""
 
@@ -228,7 +228,7 @@ msgstr ""
 msgid "Finder version"
 msgstr ""
 
-#: resources/views/review.phtml:55
+#: resources/views/review.phtml:56
 msgid "Grandchild"
 msgstr ""
 
@@ -237,24 +237,24 @@ msgstr ""
 msgid "HTTP status: %s"
 msgstr ""
 
-#: resources/views/review.phtml:72 resources/views/review.phtml:84
+#: resources/views/review.phtml:73 resources/views/review.phtml:85
 #: resources/views/tab.phtml:49
 msgid "Hard conflict"
 msgstr ""
 
-#: resources/views/review.phtml:117
+#: resources/views/review.phtml:118
 msgid "In the tree"
 msgstr ""
 
-#: resources/views/worklist.phtml:85
+#: resources/views/worklist.phtml:86
 msgid "Include people without a known birth date"
 msgstr ""
 
-#: resources/views/worklist.phtml:179
+#: resources/views/worklist.phtml:180
 msgid "Individual"
 msgstr ""
 
-#: resources/views/worklist.phtml:180
+#: resources/views/worklist.phtml:181
 msgid "Match"
 msgstr ""
 
@@ -264,20 +264,20 @@ msgid ""
 "dates."
 msgstr ""
 
-#: resources/views/review.phtml:126 resources/views/review.phtml:139
+#: resources/views/review.phtml:127 resources/views/review.phtml:140
 msgid "Matched"
 msgstr ""
 
-#: resources/views/worklist.phtml:80
+#: resources/views/worklist.phtml:81
 msgid "Maximum age"
 msgstr ""
 
-#: resources/views/control-panel.phtml:40 resources/views/worklist.phtml:76
+#: resources/views/control-panel.phtml:40 resources/views/worklist.phtml:77
 msgid "Minimum age"
 msgstr ""
 
-#: resources/views/control-panel.phtml:229 resources/views/review.phtml:32
-#: resources/views/worklist.phtml:54
+#: resources/views/control-panel.phtml:229 resources/views/review.phtml:33
+#: resources/views/worklist.phtml:55
 msgid "Name"
 msgstr ""
 
@@ -285,11 +285,11 @@ msgstr ""
 msgid "Name weight"
 msgstr ""
 
-#: resources/views/review.phtml:133
+#: resources/views/review.phtml:134
 msgid "Named in the notice"
 msgstr ""
 
-#: resources/views/review.phtml:174
+#: resources/views/review.phtml:175
 msgid "Next best candidate"
 msgstr ""
 
@@ -297,11 +297,11 @@ msgstr ""
 msgid "No candidates matched the current settings; nothing was queued."
 msgstr ""
 
-#: resources/views/review.phtml:228
+#: resources/views/review.phtml:229
 msgid "No exact (day-level) death date was extracted."
 msgstr ""
 
-#: resources/views/review.phtml:119
+#: resources/views/review.phtml:120
 msgid "No family is recorded in the tree."
 msgstr ""
 
@@ -309,16 +309,16 @@ msgstr ""
 msgid "No finder jobs are currently open."
 msgstr ""
 
-#: resources/views/review.phtml:22 resources/views/tab.phtml:22
-#: resources/views/worklist.phtml:20
+#: resources/views/review.phtml:23 resources/views/tab.phtml:22
+#: resources/views/worklist.phtml:21
 msgid "No match"
 msgstr ""
 
-#: resources/views/worklist.phtml:162
+#: resources/views/worklist.phtml:163
 msgid "No matches for this filter."
 msgstr ""
 
-#: resources/views/worklist.phtml:123
+#: resources/views/worklist.phtml:124
 msgid "No obituary matches in this tree yet."
 msgstr ""
 
@@ -331,7 +331,7 @@ msgstr ""
 msgid "No trees are available."
 msgstr ""
 
-#: resources/views/review.phtml:74
+#: resources/views/review.phtml:75
 msgid "Note"
 msgstr ""
 
@@ -339,7 +339,7 @@ msgstr ""
 msgid "Notice fields"
 msgstr ""
 
-#: resources/views/review.phtml:97
+#: resources/views/review.phtml:98
 msgid "Obituary"
 msgstr ""
 
@@ -351,7 +351,7 @@ msgstr ""
 msgid "Obituary worklist"
 msgstr ""
 
-#: resources/views/worklist.phtml:40
+#: resources/views/worklist.phtml:41
 msgid "Open"
 msgstr ""
 
@@ -359,33 +359,33 @@ msgstr ""
 msgid "Open finder jobs"
 msgstr ""
 
-#: resources/views/worklist.phtml:185
+#: resources/views/worklist.phtml:186
 msgid "Origin finder"
 msgstr ""
 
-#: resources/views/review.phtml:56
+#: resources/views/review.phtml:57
 msgid "Other relative"
 msgstr ""
 
-#: resources/views/worklist.phtml:251
+#: resources/views/worklist.phtml:252
 #, php-format
 msgid "Page %1$s of %2$s"
 msgstr ""
 
-#: resources/views/worklist.phtml:240
+#: resources/views/worklist.phtml:241
 msgid "Pagination"
 msgstr ""
 
-#: resources/views/review.phtml:53
+#: resources/views/review.phtml:54
 msgid "Parent"
 msgstr ""
 
-#: resources/views/review.phtml:26 resources/views/tab.phtml:34
-#: resources/views/worklist.phtml:32
+#: resources/views/review.phtml:27 resources/views/tab.phtml:34
+#: resources/views/worklist.phtml:33
 msgid "Pending"
 msgstr ""
 
-#: resources/views/review.phtml:34 resources/views/review.phtml:44
+#: resources/views/review.phtml:35 resources/views/review.phtml:45
 msgid "Place"
 msgstr ""
 
@@ -393,7 +393,7 @@ msgstr ""
 msgid "Place weight"
 msgstr ""
 
-#: resources/views/review.phtml:35
+#: resources/views/review.phtml:36
 msgid "Plausibility"
 msgstr ""
 
@@ -409,16 +409,16 @@ msgstr ""
 msgid "Possible"
 msgstr ""
 
-#: resources/views/review.phtml:20 resources/views/tab.phtml:20
-#: resources/views/worklist.phtml:18
+#: resources/views/review.phtml:21 resources/views/tab.phtml:20
+#: resources/views/worklist.phtml:19
 msgid "Possible match"
 msgstr ""
 
-#: resources/views/worklist.phtml:87
+#: resources/views/worklist.phtml:88
 msgid "Preview count"
 msgstr ""
 
-#: resources/views/worklist.phtml:72
+#: resources/views/worklist.phtml:73
 msgid "Preview who would be searched"
 msgstr ""
 
@@ -426,8 +426,8 @@ msgstr ""
 msgid "Probable"
 msgstr ""
 
-#: resources/views/review.phtml:19 resources/views/tab.phtml:19
-#: resources/views/worklist.phtml:17
+#: resources/views/review.phtml:20 resources/views/tab.phtml:19
+#: resources/views/worklist.phtml:18
 msgid "Probable match"
 msgstr ""
 
@@ -441,19 +441,20 @@ msgstr ""
 msgid "Regions"
 msgstr ""
 
-#: resources/views/review.phtml:206
+#: src/Webtrees/Wording.php:41
+msgctxt "webtrees-obituary-matcher"
 msgid "Reject"
 msgstr ""
 
-#: resources/views/worklist.phtml:172
+#: resources/views/worklist.phtml:173
 msgid "Reject selected"
 msgstr ""
 
-#: resources/views/worklist.phtml:35 resources/views/worklist.phtml:42
+#: resources/views/worklist.phtml:36 resources/views/worklist.phtml:43
 msgid "Rejected"
 msgstr ""
 
-#: resources/views/review.phtml:36
+#: resources/views/review.phtml:37
 msgid "Relatives"
 msgstr ""
 
@@ -467,7 +468,7 @@ msgstr ""
 msgid "Remove token"
 msgstr ""
 
-#: resources/views/worklist.phtml:96
+#: resources/views/worklist.phtml:97
 msgid "Repeat search needed"
 msgstr ""
 
@@ -475,11 +476,11 @@ msgstr ""
 msgid "Restore defaults"
 msgstr ""
 
-#: resources/views/review.phtml:200 resources/views/worklist.phtml:230
+#: resources/views/review.phtml:201 resources/views/worklist.phtml:231
 msgid "Revert"
 msgstr ""
 
-#: resources/views/review.phtml:200 resources/views/worklist.phtml:230
+#: resources/views/review.phtml:201 resources/views/worklist.phtml:231
 #, php-format
 msgid "Revert match for %s"
 msgstr ""
@@ -490,12 +491,12 @@ msgid ""
 "revert tool with --force to override."
 msgstr ""
 
-#: resources/views/tab.phtml:55 resources/views/worklist.phtml:188
-#: resources/views/worklist.phtml:222
+#: resources/views/tab.phtml:55 resources/views/worklist.phtml:189
+#: resources/views/worklist.phtml:223
 msgid "Review"
 msgstr ""
 
-#: resources/views/review.phtml:78 src/Webtrees/ReviewScreenHandler.php:570
+#: resources/views/review.phtml:79 src/Webtrees/ReviewScreenHandler.php:570
 msgid "Review match"
 msgstr ""
 
@@ -508,7 +509,7 @@ msgstr ""
 msgid "Save finder connection"
 msgstr ""
 
-#: resources/views/worklist.phtml:53 resources/views/worklist.phtml:181
+#: resources/views/worklist.phtml:54 resources/views/worklist.phtml:182
 msgid "Score"
 msgstr ""
 
@@ -541,11 +542,12 @@ msgstr ""
 msgid "Search job queued (%s)."
 msgstr ""
 
-#: resources/views/worklist.phtml:178
+#: src/Webtrees/Wording.php:49
+msgctxt "webtrees-obituary-matcher"
 msgid "Select"
 msgstr ""
 
-#: resources/views/worklist.phtml:197
+#: resources/views/worklist.phtml:198
 #, php-format
 msgid "Select %s for bulk reject"
 msgstr ""
@@ -560,11 +562,11 @@ msgstr ""
 msgid "Settings saved."
 msgstr ""
 
-#: resources/views/review.phtml:54
+#: resources/views/review.phtml:55
 msgid "Sibling"
 msgstr ""
 
-#: resources/views/review.phtml:73
+#: resources/views/review.phtml:74
 msgid "Soft conflict"
 msgstr ""
 
@@ -574,15 +576,16 @@ msgid ""
 "incomplete. Try searching again later."
 msgstr ""
 
-#: resources/views/worklist.phtml:154
+#: resources/views/worklist.phtml:155
 msgid "Sort by"
 msgstr ""
 
-#: resources/views/worklist.phtml:183
+#: resources/views/worklist.phtml:184
 msgid "Source"
 msgstr ""
 
-#: resources/views/review.phtml:51
+#: src/Webtrees/Wording.php:57
+msgctxt "webtrees-obituary-matcher"
 msgid "Spouse"
 msgstr ""
 
@@ -590,7 +593,7 @@ msgstr ""
 msgid "Start search"
 msgstr ""
 
-#: resources/views/worklist.phtml:187
+#: resources/views/worklist.phtml:188
 msgid "Status"
 msgstr ""
 
@@ -598,8 +601,8 @@ msgstr ""
 msgid "Strong"
 msgstr ""
 
-#: resources/views/review.phtml:18 resources/views/tab.phtml:18
-#: resources/views/worklist.phtml:16
+#: resources/views/review.phtml:19 resources/views/tab.phtml:18
+#: resources/views/worklist.phtml:17
 msgid "Strong match"
 msgstr ""
 
@@ -686,7 +689,7 @@ msgid ""
 "These bands are fixed and shown for reference only. They are not editable."
 msgstr ""
 
-#: resources/views/review.phtml:227
+#: resources/views/review.phtml:228
 msgid "This individual already has a death date."
 msgstr ""
 
@@ -716,18 +719,18 @@ msgid ""
 "not repeated. Use “Search again” to search now anyway."
 msgstr ""
 
-#: resources/views/worklist.phtml:119
+#: resources/views/worklist.phtml:120
 #, php-format
 msgid "Total: %d"
 msgstr ""
 
-#: resources/views/review.phtml:90
+#: resources/views/review.phtml:91
 msgid "Tree person"
 msgstr ""
 
-#: resources/views/review.phtml:27 resources/views/review.phtml:213
-#: resources/views/tab.phtml:35 resources/views/worklist.phtml:33
-#: resources/views/worklist.phtml:43
+#: resources/views/review.phtml:28 resources/views/review.phtml:214
+#: resources/views/tab.phtml:35 resources/views/worklist.phtml:34
+#: resources/views/worklist.phtml:44
 msgid "Uncertain"
 msgstr ""
 
@@ -736,7 +739,7 @@ msgstr ""
 msgid "Unknown tree."
 msgstr ""
 
-#: resources/views/review.phtml:186
+#: resources/views/review.phtml:187
 msgid "View source"
 msgstr ""
 
@@ -744,28 +747,28 @@ msgstr ""
 msgid "Weak"
 msgstr ""
 
-#: resources/views/review.phtml:21 resources/views/tab.phtml:21
-#: resources/views/worklist.phtml:19
+#: resources/views/review.phtml:22 resources/views/tab.phtml:21
+#: resources/views/worklist.phtml:20
 msgid "Weak match"
 msgstr ""
 
-#: resources/views/review.phtml:150
+#: resources/views/review.phtml:151
 msgid "Why this score"
 msgstr ""
 
-#: resources/views/worklist.phtml:112
+#: resources/views/worklist.phtml:113
 #, php-format
 msgid "and %s more"
 msgstr ""
 
-#: resources/views/worklist.phtml:256 resources/views/worklist.phtml:258
+#: resources/views/worklist.phtml:257 resources/views/worklist.phtml:259
 msgid "next"
 msgstr ""
 
-#: resources/views/worklist.phtml:245 resources/views/worklist.phtml:247
+#: resources/views/worklist.phtml:246 resources/views/worklist.phtml:248
 msgid "previous"
 msgstr ""
 
-#: resources/views/review.phtml:140
+#: resources/views/review.phtml:141
 msgid "uncertain"
 msgstr ""

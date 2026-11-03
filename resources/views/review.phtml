@@ -6,6 +6,7 @@ use Fisharebest\Webtrees\I18N;
 use Fisharebest\Webtrees\Tree;
 use MagicSunday\ObituaryMatcher\Ui\ReviewViewModel;
 use MagicSunday\ObituaryMatcher\Webtrees\ReviewScreenHandler;
+use MagicSunday\ObituaryMatcher\Webtrees\Wording;
 
 /** @var ReviewViewModel $vm */
 /** @var Tree $tree */
@@ -48,7 +49,7 @@ $factLabels = [
 // Labels for the family-graph relation keys/guesses (tree relations and the finder's relationGuess). An
 // unknown value falls back to the raw string so a novel finder label still renders rather than vanishing.
 $relationLabels = [
-    'spouse'     => I18N::translate('Spouse'),
+    'spouse'     => Wording::spouse(),
     'child'      => I18N::translate('Child'),
     'parent'     => I18N::translate('Parent'),
     'sibling'    => I18N::translate('Sibling'),
@@ -203,7 +204,7 @@ $severityLabels = [
         <form method="post" action="<?= e($actionUrl) ?>">
             <?= csrf_field() ?>
             <input type="hidden" name="action" value="reject">
-            <button type="submit"><?= e(I18N::translate('Reject')) ?></button>
+            <button type="submit"><?= e(Wording::reject()) ?></button>
         </form>
 
         <?php if ($vm->statusKey !== 'uncertain') : ?>
