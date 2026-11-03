@@ -106,11 +106,56 @@ The total score is a weighted sum of independent positive signals, capped at 100
 - **Multi-condition formatting.** An `if` / `while` / `elseif` with more than one `&&` / `||` operand breaks one condition per line: `if (` on its own line, the operator at the START of each continuation line, `) {` on its own line. A single-condition statement stays inline.
 - One class per file.
 
+<!-- testing-policy:begin v1 -->
+## Testing policy
+
+Tests protect behavior whose regression would be materially incorrect, unsafe,
+destructive or hard to notice before release. They are not a coverage target and
+they are not a mutation-score target.
+
+Protect these with durable tests:
+- security and privacy boundaries, including untrusted data reaching a path,
+  archive member, URL, header, query, command or DOM sink
+- confidentiality outside access checks (secrets or personal data in logs,
+  exceptions, temporary files, caches, exports, URLs)
+- data integrity across import, export, update and migration
+- lifecycle and failure semantics: atomic writes, rollback, cleanup, idempotency,
+  retries, partial failure, and ordering where the order is the protocol
+- calculation and decision rules, including their boundaries
+- compatibility boundaries: public API, serialized formats, extension interfaces,
+  persisted configuration keys, producer and consumer contracts
+- every fixed behavioral bug (some test must fail on the old behavior). A bug
+  that is only a wrong label, CSS class or default is not behavioral unless a
+  named consumer breaks on it.
+
+For side effects assert the postcondition and the identity of the affected
+resource, not only that a collaborator was called.
+
+Do not add tests whose only content is:
+- a getter, setter, constructor that only stores values, DTO, enum or constant,
+  unless it carries a persisted key or a serialized format from the list above
+- a CSS class list, a label or message text, or a default value, unless the exact
+  value is a documented interface that a named consumer breaks on. Prefer testing
+  the consuming behavior over the producer literal and pin only the minimum literal.
+- transparent delegation that adds no argument selection, ordering, error
+  translation or security context
+- the text of source files instead of the behavior they produce
+
+Order and default assertions are fine when they encode a safety property, for
+example authorize before the side effect, write before rename, private unless
+made public.
+
+A test that a reviewer, human or agent, questions must show the observable
+behavior or invariant it protects, a plausible faulty change it rejects, and for
+a pinned literal the consumer that would break. Mutating the code or reverting
+the fix and watching the test fail is the way to show it.
+<!-- testing-policy:end -->
+
 ## TDD & testing
-- Write the failing test FIRST, then the minimal fix — every bug and every feature, no exceptions. The test files mirror `src/` under `tests/` and are themselves held to the full code-style + PHPDoc rules (tests are NOT exempt).
+- Write the failing test FIRST, then the minimal fix — every bug and every behavior-bearing feature. The test files mirror `src/` under `tests/` and are themselves held to the full code-style + PHPDoc rules (tests are NOT exempt).
 - Use PHPUnit attributes (`#[Test]`, `#[CoversClass]`, `#[UsesClass]`, `#[DataProvider]`), complete coverage annotations, and zero tolerance for notices / warnings / risky / deprecations (`phpunit.xml` sets `failOn*` for all of them).
 - Assert **real value-equality against curated fixtures** — a scorer test pins the exact `SignalScore` (score + reasons), not just `assertGreaterThan(0)`. A scenario that straddles a band boundary or an ambiguity gap is the discriminator that makes a regression fail.
-- Every pure-helper branch gets a `DataProvider` row. Don't over-mock the unit under test — the engine is deterministic, so feed it real typed input.
+- Every pure-helper branch that carries a decision rule gets a `DataProvider` row. Don't over-mock the unit under test — the engine is deterministic, so feed it real typed input.
 
 ## Commit & git discipline
 - Commit subjects — and the pull-request title — are governed by the shared `commit-convention` gate; the normative rule and its full rationale live in `magicsunday/.github/.github/workflows/commit-convention.yml@main`, which self-tests a decision table before applying it. In short: a `GH-`-prefixed subject must match `^GH-\d+: [A-Z]`, every other subject `^[A-Z]` — a capitalised English imperative — and conventional-commit prefixes (`feat:`, `Fix:`, …) as well as path-like starts (`src/…: …`) are rejected whatever their case. It runs on every pull request via `.github/workflows/commit-lint.yml`, advisory until `commit-convention / Commit convention` is a required context in branch protection.
