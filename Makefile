@@ -26,6 +26,14 @@ COMPOSE_BIN := $(shell \
 
 COMPOSE_RUN := $(COMPOSE_BIN) run --rm buildbox
 
+# The lang recipes run in the webtrees-docker tooling image, which carries gettext, PHP and Composer,
+# as the numeric user and group of the caller, so that no root-owned file lands in the checkout. The
+# module has no compose file of its own, because that would hide the buildbox service of the webtrees
+# project, so the runner is a plain docker run. The CI i18n freshness gate overrides this and
+# COMPOSE_RUN with an empty value, so the recipes run directly inside the image it already spawned.
+TOOLING_IMAGE ?= ghcr.io/magicsunday/webtrees-docker-module-base:node24
+COMPOSE_RUN_USER = docker run --rm --user $(shell id -u):$(shell id -g) -e HOME=/tmp -v "$(CURDIR)":/app -w /app $(TOOLING_IMAGE)
+
 # Includes
 -include Make/*.mk
 -include Make/**/*.mk
