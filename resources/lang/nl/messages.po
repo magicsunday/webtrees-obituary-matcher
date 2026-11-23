@@ -9,40 +9,41 @@ msgstr ""
 "Report-Msgid-Bugs-To: https://github.com/magicsunday/webtrees-obituary-"
 "matcher/issues\n"
 "POT-Creation-Date: 1970-01-01 00:00+0000\n"
-"PO-Revision-Date: 1970-01-01 00:00+0000\n"
-"Last-Translator: Automatically generated\n"
+"PO-Revision-Date: 2026-11-23 15:48+0100\n"
+"Last-Translator: TheDutchJewel <thedutchjewel@gmail.com>\n"
 "Language-Team: none\n"
 "Language: nl\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 "Plural-Forms: nplurals=2; plural=(n != 1);\n"
+"X-Generator: Poedit 3.10\n"
 
 #: resources/views/worklist.phtml:128
 #, php-format
 msgid "%1$s open · %2$s confirmed · %3$s rejected · %4$s uncertain"
-msgstr ""
+msgstr "%1$s open · %2$s bevestigd · %3$s afgewezen · %4$s onzeker"
 
 #: resources/views/control-panel.phtml:286
 #, php-format
 msgid "%s finder job is awaiting results."
 msgid_plural "%s finder jobs are awaiting results."
-msgstr[0] ""
-msgstr[1] ""
+msgstr[0] "%s finder-taak wacht op resultaten."
+msgstr[1] "%s finder-taken wachten op resultaten."
 
 #: src/Webtrees/ObituaryWorklistHandler.php:392
 #, php-format
 msgid "%s match rejected."
 msgid_plural "%s matches rejected."
-msgstr[0] ""
-msgstr[1] ""
+msgstr[0] "%s overeenkomst afgewezen."
+msgstr[1] "%s overeenkomsten afgewezen."
 
 #: resources/views/tab.phtml:42
 #, php-format
 msgid "%s open suggestion"
 msgid_plural "%s open suggestions"
-msgstr[0] ""
-msgstr[1] ""
+msgstr[0] "%s open suggestie"
+msgstr[1] "%s open suggesties"
 
 #: resources/views/worklist.phtml:100
 #, php-format
@@ -53,722 +54,754 @@ msgid_plural ""
 "%s people were searched but a portal was unavailable, so their results are "
 "incomplete — a repeat search is recommended."
 msgstr[0] ""
+"%s persoon is doorzocht, maar een portaal was niet beschikbaar, waardoor het "
+"resultaat onvolledig is. Opnieuw zoeken wordt aanbevolen."
 msgstr[1] ""
+"%s personen zijn doorzocht, maar een portaal was niet beschikbaar, waardoor "
+"de resultaten onvolledig zijn. Opnieuw zoeken wordt aanbevolen."
 
 #: resources/views/worklist.phtml:91
 #, php-format
 msgid "%s person would be searched"
 msgid_plural "%s people would be searched"
-msgstr[0] ""
-msgstr[1] ""
+msgstr[0] "%s persoon zou worden doorzocht"
+msgstr[1] "%s personen zouden worden doorzocht"
 
 #: resources/views/review.phtml:227
 msgid "A hard conflict prevents confirming. Review it manually."
-msgstr ""
+msgstr "Een ernstig conflict verhindert bevestiging. Controleer dit handmatig."
 
 #: resources/views/control-panel.phtml:108
 #: resources/views/control-panel.phtml:130
 msgid "A token is set."
-msgstr ""
+msgstr "Er is een token ingesteld."
 
 #: resources/views/control-panel.phtml:106
 #: resources/views/control-panel.phtml:127
 #: resources/views/control-panel.phtml:166
 msgid "Access token"
-msgstr ""
+msgstr "Toegangstoken"
 
 #: resources/views/control-panel.phtml:139
 #: resources/views/control-panel.phtml:172
 msgid "Active"
-msgstr ""
+msgstr "Actief"
 
 #: resources/views/control-panel.phtml:148
 msgid "Add finder"
-msgstr ""
+msgstr "Finder toevoegen"
 
 #: resources/views/control-panel.phtml:117
 msgid "Additional finders"
-msgstr ""
+msgstr "Aanvullende finders"
 
 #: resources/views/control-panel.phtml:219
 msgid "Advertised schema versions"
-msgstr ""
+msgstr "Aangeboden schemaversies"
 
 #: resources/views/review.phtml:38 resources/views/review.phtml:66
 msgid "Age"
-msgstr ""
+msgstr "Leeftijd"
 
 #: resources/views/worklist.phtml:40 resources/views/worklist.phtml:48
 msgid "All"
-msgstr ""
+msgstr "Alle"
 
 #: resources/views/control-panel.phtml:72
 msgid "Ambiguity gap"
-msgstr ""
+msgstr "Onduidelijkheidsmarge"
 
 #: resources/views/review.phtml:86 resources/views/tab.phtml:50
 #: resources/views/worklist.phtml:50
 msgid "Ambiguous"
-msgstr ""
+msgstr "Onduidelijk"
 
 #: resources/views/control-panel.phtml:84
 msgid "Band thresholds"
-msgstr ""
+msgstr "Banddrempels"
 
 #: resources/views/review.phtml:34
 msgid "Birth"
-msgstr ""
+msgstr "Geboorte"
 
 #: resources/views/review.phtml:64
 msgid "Birth date"
-msgstr ""
+msgstr "Geboortedatum"
 
 #: resources/views/control-panel.phtml:60
 msgid "Birth-date weight"
-msgstr ""
+msgstr "Geboortedatumweging"
 
 #: resources/views/review.phtml:93 resources/views/review.phtml:177
 msgid "Born"
-msgstr ""
+msgstr "Geboren"
 
 #: resources/views/control-panel.phtml:43
 msgid "Candidates per run"
-msgstr ""
+msgstr "Kandidaten per uitvoering"
 
 #: resources/views/review.phtml:39 resources/views/review.phtml:46
 msgid "Cemetery"
-msgstr ""
+msgstr "Begraafplaats"
 
 #: resources/views/review.phtml:53
 msgid "Child"
-msgstr ""
+msgstr "Kind"
 
 #: src/Webtrees/EnqueuePersonHandler.php:114
 #: src/Webtrees/ObituaryControlPanelHandler.php:648
 msgid "Configure the finder connection first."
-msgstr ""
+msgstr "Configureer eerst de finder-verbinding."
 
 #: resources/views/review.phtml:222 resources/views/review.phtml:232
 msgid "Confirm as source"
-msgstr ""
+msgstr "Bevestigen als bron"
 
 #: src/Webtrees/RevertFlash.php:51
 #, php-format
 msgid "Confirmation reverted; %s fact removed."
 msgid_plural "Confirmation reverted; %s facts removed."
-msgstr[0] ""
-msgstr[1] ""
+msgstr[0] "Bevestiging teruggedraaid; %s feit verwijderd."
+msgstr[1] "Bevestiging teruggedraaid; %s feiten verwijderd."
 
 #: resources/views/review.phtml:29 resources/views/worklist.phtml:35
 #: resources/views/worklist.phtml:42
 msgid "Confirmed"
-msgstr ""
+msgstr "Bevestigd"
 
 #: resources/views/control-panel.phtml:69
 msgid "Conflict-penalty cap"
-msgstr ""
+msgstr "Maximumconflictstraf"
 
 #: resources/views/review.phtml:161 resources/views/worklist.phtml:49
 msgid "Conflicts"
-msgstr ""
+msgstr "Conflicten"
 
 #: resources/views/control-panel.phtml:200
 msgid "Connection test result"
-msgstr ""
+msgstr "Resultaat van verbindingstest"
 
 #: resources/views/control-panel.phtml:230
 msgid "Country"
-msgstr ""
+msgstr "Land"
 
 #: resources/views/worklist.phtml:56 resources/views/worklist.phtml:183
 msgid "Date of death"
-msgstr ""
+msgstr "Overlijdensdatum"
 
 #: resources/views/review.phtml:65
 msgid "Death date"
-msgstr ""
+msgstr "Datum van overlijden"
 
 #: resources/views/control-panel.phtml:34 resources/views/worklist.phtml:70
 #: src/Webtrees/ObituaryControlPanelHandler.php:741
 #: src/Webtrees/ObituaryMatcherModule.php:261
 #: src/Webtrees/ObituaryMatcherModule.php:277
 msgid "Death notices"
-msgstr ""
+msgstr "Overlijdensberichten"
 
 #: resources/views/review.phtml:94
 msgid "Died"
-msgstr ""
+msgstr "Overleden"
 
 #: resources/views/review.phtml:102
 msgid "Extracted death date"
-msgstr ""
+msgstr "Geëxtraheerde overlijdensdatum"
 
 #: resources/views/review.phtml:115
 msgid "Family"
-msgstr ""
+msgstr "Gezin"
 
 #: resources/views/control-panel.phtml:211
 msgid "Finder ID"
-msgstr ""
+msgstr "Finder-ID"
 
 #: resources/views/control-panel.phtml:95
 #: resources/views/control-panel.phtml:101
 msgid "Finder connection"
-msgstr ""
+msgstr "Finder-verbinding"
 
 #: src/Webtrees/ObituaryControlPanelHandler.php:336
 msgid "Finder connection could not be saved."
-msgstr ""
+msgstr "De finder-verbinding kon niet worden opgeslagen."
 
 #: src/Webtrees/ObituaryControlPanelHandler.php:370
 msgid "Finder connection saved."
-msgstr ""
+msgstr "Finder-verbinding opgeslagen."
 
 #: resources/views/control-panel.phtml:214
 msgid "Finder version"
-msgstr ""
+msgstr "Finder-versie"
 
 #: resources/views/review.phtml:56
 msgid "Grandchild"
-msgstr ""
+msgstr "Kleinkind"
 
 #: resources/views/control-panel.phtml:206
 #, php-format
 msgid "HTTP status: %s"
-msgstr ""
+msgstr "HTTP-status: %s"
 
 #: resources/views/review.phtml:73 resources/views/review.phtml:85
 #: resources/views/tab.phtml:49
 msgid "Hard conflict"
-msgstr ""
+msgstr "Hard conflict"
 
 #: resources/views/review.phtml:118
 msgid "In the tree"
-msgstr ""
+msgstr "In de stamboom"
 
 #: resources/views/worklist.phtml:86
 msgid "Include people without a known birth date"
-msgstr ""
+msgstr "Ook personen zonder bekende geboortedatum opnemen"
 
 #: resources/views/worklist.phtml:180
 msgid "Individual"
-msgstr ""
+msgstr "Persoon"
 
 #: resources/views/worklist.phtml:181
 msgid "Match"
-msgstr ""
+msgstr "Overeenkomst"
 
 #: src/Webtrees/ObituaryMatcherModule.php:86
 msgid ""
 "Match individuals against public death notices to suggest missing death "
 "dates."
 msgstr ""
+"Vergelijk personen met openbare overlijdensberichten om ontbrekende "
+"overlijdensdatums voor te stellen."
 
 #: resources/views/review.phtml:127 resources/views/review.phtml:140
 msgid "Matched"
-msgstr ""
+msgstr "Komt overeen"
 
 #: resources/views/worklist.phtml:81
 msgid "Maximum age"
-msgstr ""
+msgstr "Maximumleeftijd"
 
 #: resources/views/control-panel.phtml:40 resources/views/worklist.phtml:77
 msgid "Minimum age"
-msgstr ""
+msgstr "Minimumleeftijd"
 
 #: resources/views/control-panel.phtml:229 resources/views/review.phtml:33
 #: resources/views/worklist.phtml:55
 msgid "Name"
-msgstr ""
+msgstr "Naam"
 
 #: resources/views/control-panel.phtml:57
 msgid "Name weight"
-msgstr ""
+msgstr "Naamweging"
 
 #: resources/views/review.phtml:134
 msgid "Named in the notice"
-msgstr ""
+msgstr "Genoemd in het bericht"
 
 #: resources/views/review.phtml:175
 msgid "Next best candidate"
-msgstr ""
+msgstr "Volgende beste kandidaat"
 
 #: src/Webtrees/ObituaryControlPanelHandler.php:689
 msgid "No candidates matched the current settings; nothing was queued."
 msgstr ""
+"Geen kandidaten voldeden aan de huidige instellingen; er is niets in de "
+"wachtrij geplaatst."
 
 #: resources/views/review.phtml:229
 msgid "No exact (day-level) death date was extracted."
-msgstr ""
+msgstr "Er is geen exacte overlijdensdatum (op dagniveau) geëxtraheerd."
 
 #: resources/views/review.phtml:120
 msgid "No family is recorded in the tree."
-msgstr ""
+msgstr "Er is geen gezin in de stamboom vastgelegd."
 
 #: resources/views/control-panel.phtml:282
 msgid "No finder jobs are currently open."
-msgstr ""
+msgstr "Er zijn momenteel geen open finder-taken."
 
 #: resources/views/review.phtml:23 resources/views/tab.phtml:22
 #: resources/views/worklist.phtml:21
 msgid "No match"
-msgstr ""
+msgstr "Geen overeenkomst"
 
 #: resources/views/worklist.phtml:163
 msgid "No matches for this filter."
-msgstr ""
+msgstr "Geen overeenkomsten voor dit filter."
 
 #: resources/views/worklist.phtml:124
 msgid "No obituary matches in this tree yet."
 msgstr ""
+"Er zijn nog geen overeenkomsten met overlijdensberichten in deze stamboom."
 
 #: resources/views/control-panel.phtml:108
 #: resources/views/control-panel.phtml:130
 msgid "No token set."
-msgstr ""
+msgstr "Geen token ingesteld."
 
 #: resources/views/control-panel.phtml:266
 msgid "No trees are available."
-msgstr ""
+msgstr "Er zijn geen stambomen beschikbaar."
 
 #: resources/views/review.phtml:75
 msgid "Note"
-msgstr ""
+msgstr "Notitie"
 
 #: resources/views/control-panel.phtml:249
 msgid "Notice fields"
-msgstr ""
+msgstr "Berichtvelden"
 
 #: resources/views/review.phtml:98
 msgid "Obituary"
-msgstr ""
+msgstr "Overlijdensbericht"
 
 #: src/Webtrees/ObituaryMatcherModule.php:75
 msgid "Obituary Matcher"
-msgstr ""
+msgstr "Overlijdensberichtenvergelijker"
 
 #: src/Webtrees/ObituaryWorklistHandler.php:536
 msgid "Obituary worklist"
-msgstr ""
+msgstr "Werklijst voor overlijdensberichten"
 
 #: resources/views/worklist.phtml:41
 msgid "Open"
-msgstr ""
+msgstr "Open"
 
 #: resources/views/control-panel.phtml:279
 msgid "Open finder jobs"
-msgstr ""
+msgstr "Open finder-taken"
 
 #: resources/views/worklist.phtml:186
 msgid "Origin finder"
-msgstr ""
+msgstr "Bron-finder"
 
 #: resources/views/review.phtml:57
 msgid "Other relative"
-msgstr ""
+msgstr "Andere verwant"
 
 #: resources/views/worklist.phtml:252
 #, php-format
 msgid "Page %1$s of %2$s"
-msgstr ""
+msgstr "Pagina %1$s van %2$s"
 
 #: resources/views/worklist.phtml:241
 msgid "Pagination"
-msgstr ""
+msgstr "Paginering"
 
 #: resources/views/review.phtml:54
 msgid "Parent"
-msgstr ""
+msgstr "Ouder"
 
 #: resources/views/review.phtml:27 resources/views/tab.phtml:34
 #: resources/views/worklist.phtml:33
 msgid "Pending"
-msgstr ""
+msgstr "In afwachting"
 
 #: resources/views/review.phtml:35 resources/views/review.phtml:45
 msgid "Place"
-msgstr ""
+msgstr "Plaats"
 
 #: resources/views/control-panel.phtml:63
 msgid "Place weight"
-msgstr ""
+msgstr "Plaatsweging"
 
 #: resources/views/review.phtml:36
 msgid "Plausibility"
-msgstr ""
+msgstr "Plausibiliteit"
 
 #: resources/views/control-panel.phtml:66
 msgid "Plausibility weight"
-msgstr ""
+msgstr "Plausibiliteitsweging"
 
 #: resources/views/control-panel.phtml:228
 msgid "Portal"
-msgstr ""
+msgstr "Portaal"
 
 #: resources/views/control-panel.phtml:91
 msgid "Possible"
-msgstr ""
+msgstr "Mogelijk"
 
 #: resources/views/review.phtml:21 resources/views/tab.phtml:20
 #: resources/views/worklist.phtml:19
 msgid "Possible match"
-msgstr ""
+msgstr "Mogelijke overeenkomst"
 
 #: resources/views/worklist.phtml:88
 msgid "Preview count"
-msgstr ""
+msgstr "Aantal in voorvertoning"
 
 #: resources/views/worklist.phtml:73
 msgid "Preview who would be searched"
-msgstr ""
+msgstr "Voorvertoning van te doorzoeken personen"
 
 #: resources/views/control-panel.phtml:90
 msgid "Probable"
-msgstr ""
+msgstr "Waarschijnlijk"
 
 #: resources/views/review.phtml:20 resources/views/tab.phtml:19
 #: resources/views/worklist.phtml:18
 msgid "Probable match"
-msgstr ""
+msgstr "Waarschijnlijke overeenkomst"
 
 #: resources/views/control-panel.phtml:103
 #: resources/views/control-panel.phtml:123
 #: resources/views/control-panel.phtml:162
 msgid "REST base URL"
-msgstr ""
+msgstr "Basis-URL van REST"
 
 #: resources/views/control-panel.phtml:231
 msgid "Regions"
-msgstr ""
+msgstr "Regio's"
 
 #: src/Webtrees/Wording.php:41
 msgctxt "webtrees-obituary-matcher"
 msgid "Reject"
-msgstr ""
+msgstr "Afwijzen"
 
 #: resources/views/worklist.phtml:173
 msgid "Reject selected"
-msgstr ""
+msgstr "Geselecteerde afwijzen"
 
 #: resources/views/worklist.phtml:36 resources/views/worklist.phtml:43
 msgid "Rejected"
-msgstr ""
+msgstr "Afgewezen"
 
 #: resources/views/review.phtml:37
 msgid "Relatives"
-msgstr ""
+msgstr "Verwanten"
 
 #: resources/views/control-panel.phtml:143
 #: resources/views/control-panel.phtml:176
 msgid "Remove finder"
-msgstr ""
+msgstr "Finder verwijderen"
 
 #: resources/views/control-panel.phtml:112
 #: resources/views/control-panel.phtml:134
 msgid "Remove token"
-msgstr ""
+msgstr "Token verwijderen"
 
 #: resources/views/worklist.phtml:97
 msgid "Repeat search needed"
-msgstr ""
+msgstr "Opnieuw zoeken vereist"
 
 #: resources/views/control-panel.phtml:81
 msgid "Restore defaults"
-msgstr ""
+msgstr "Standaardwaarden herstellen"
 
 #: resources/views/review.phtml:201 resources/views/worklist.phtml:231
 msgid "Revert"
-msgstr ""
+msgstr "Ongedaan maken"
 
 #: resources/views/review.phtml:201 resources/views/worklist.phtml:231
 #, php-format
 msgid "Revert match for %s"
-msgstr ""
+msgstr "Overeenkomst voor %s ongedaan maken"
 
 #: src/Webtrees/RevertFlash.php:59
 msgid ""
 "Revert refused: a written fact was edited or removed. Use the command-line "
 "revert tool with --force to override."
 msgstr ""
+"Ongedaan maken geweigerd: een vastgelegd feit is gewijzigd of verwijderd. "
+"Gebruik het opdrachtregelhulpmiddel voor ongedaan maken met --force om dit "
+"te forceren."
 
 #: resources/views/tab.phtml:55 resources/views/worklist.phtml:189
 #: resources/views/worklist.phtml:223
 msgid "Review"
-msgstr ""
+msgstr "Beoordelen"
 
 #: resources/views/review.phtml:79 src/Webtrees/ReviewScreenHandler.php:570
 msgid "Review match"
-msgstr ""
+msgstr "Overeenkomst beoordelen"
 
 #: resources/views/control-panel.phtml:46
 #: resources/views/control-panel.phtml:75
 msgid "Save"
-msgstr ""
+msgstr "Opslaan"
 
 #: resources/views/control-panel.phtml:152
 msgid "Save finder connection"
-msgstr ""
+msgstr "Finder-verbinding opslaan"
 
 #: resources/views/worklist.phtml:54 resources/views/worklist.phtml:182
 msgid "Score"
-msgstr ""
+msgstr "Score"
 
 #: resources/views/control-panel.phtml:49
 msgid "Scoring weights"
-msgstr ""
+msgstr "Scorewegingen"
 
 #: resources/views/control-panel.phtml:118
 msgid ""
 "Search additional finder services alongside the primary connection. Each "
 "finder is queried independently and its results are merged."
 msgstr ""
+"Doorzoek aanvullende finder-iensten naast de primaire verbinding. Elke "
+"finder wordt onafhankelijk geraadpleegd en de resultaten worden samengevoegd."
 
 #: resources/views/tab.phtml:65
 msgid "Search again"
-msgstr ""
+msgstr "Opnieuw zoeken"
 
 #: resources/views/control-panel.phtml:263 resources/views/tab.phtml:63
 msgid "Search for death notices"
-msgstr ""
+msgstr "Zoeken naar overlijdensberichten"
 
 #: src/Webtrees/EnqueuePersonHandler.php:142
 #: src/Webtrees/ObituaryControlPanelHandler.php:680
 msgid "Search job could not be queued."
-msgstr ""
+msgstr "Zoektaak kon niet in de wachtrij worden geplaatst."
 
 #: src/Webtrees/EnqueuePersonHandler.php:148
 #: src/Webtrees/ObituaryControlPanelHandler.php:686
 #, php-format
 msgid "Search job queued (%s)."
-msgstr ""
+msgstr "Zoektaak in de wachtrij geplaatst (%s)."
 
 #: src/Webtrees/Wording.php:49
 msgctxt "webtrees-obituary-matcher"
 msgid "Select"
-msgstr ""
+msgstr "Selecteren"
 
 #: resources/views/worklist.phtml:198
 #, php-format
 msgid "Select %s for bulk reject"
-msgstr ""
+msgstr "%s selecteren voor bulkafwijzing"
 
 #: src/Webtrees/ObituaryControlPanelHandler.php:219
 #: src/Webtrees/ObituaryControlPanelHandler.php:250
 msgid "Settings could not be saved."
-msgstr ""
+msgstr "Instellingen konden niet worden opgeslagen."
 
 #: src/Webtrees/ObituaryControlPanelHandler.php:217
 #: src/Webtrees/ObituaryControlPanelHandler.php:262
 msgid "Settings saved."
-msgstr ""
+msgstr "Instellingen opgeslagen."
 
 #: resources/views/review.phtml:55
 msgid "Sibling"
-msgstr ""
+msgstr "Broer of zus"
 
 #: resources/views/review.phtml:74
 msgid "Soft conflict"
-msgstr ""
+msgstr "Zacht conflict"
 
 #: resources/views/tab.phtml:40
 msgid ""
 "Some sources were unavailable during the last search, so this result may be "
 "incomplete. Try searching again later."
 msgstr ""
+"Sommige bronnen waren tijdens de laatste zoekopdracht niet beschikbaar, "
+"waardoor dit resultaat mogelijk onvolledig is. Probeer later opnieuw te "
+"zoeken."
 
 #: resources/views/worklist.phtml:155
 msgid "Sort by"
-msgstr ""
+msgstr "Sorteren op"
 
 #: resources/views/worklist.phtml:184
 msgid "Source"
-msgstr ""
+msgstr "Bron"
 
 #: src/Webtrees/Wording.php:57
 msgctxt "webtrees-obituary-matcher"
 msgid "Spouse"
-msgstr ""
+msgstr "Partner"
 
 #: resources/views/control-panel.phtml:274
 msgid "Start search"
-msgstr ""
+msgstr "Zoekopdracht starten"
 
 #: resources/views/worklist.phtml:188
 msgid "Status"
-msgstr ""
+msgstr "Status"
 
 #: resources/views/control-panel.phtml:89
 msgid "Strong"
-msgstr ""
+msgstr "Sterk"
 
 #: resources/views/review.phtml:19 resources/views/tab.phtml:18
 #: resources/views/worklist.phtml:17
 msgid "Strong match"
-msgstr ""
+msgstr "Sterke overeenkomst"
 
 #: resources/views/control-panel.phtml:259
 msgid "Supported features"
-msgstr ""
+msgstr "Ondersteunde functies"
 
 #: resources/views/control-panel.phtml:142
 #: resources/views/control-panel.phtml:151
 #: resources/views/control-panel.phtml:175
 msgid "Test connection"
-msgstr ""
+msgstr "Verbinding testen"
 
 #: src/Webtrees/EnqueuePersonHandler.php:156
 msgid ""
 "That person could not be queued: unknown, unsearchable, or already awaiting "
 "results."
 msgstr ""
+"Die persoon kon niet in de wachtrij worden geplaatst: onbekend, niet "
+"doorzoekbaar of al in afwachting van resultaten."
 
 #: src/Webtrees/ReviewScreenHandler.php:355
 msgid "The death fact was written but could not be recorded; please review it."
 msgstr ""
+"Het overlijdensfeit is geschreven maar kon niet worden vastgelegd. "
+"Controleer dit alstublieft."
 
 #: src/Webtrees/ReviewScreenHandler.php:336
 msgid "The death notice could not be written; please try again."
 msgstr ""
+"Het overlijdensbericht kon niet worden geschreven. Probeer het opnieuw."
 
 #: src/Webtrees/RevertFlash.php:64
 msgid ""
 "The facts were reverted but the match status could not be updated; please re-"
 "run the command-line revert with --force."
 msgstr ""
+"De feiten zijn teruggedraaid, maar de overeenkomststatus kon niet worden "
+"bijgewerkt. Voer de opdrachtregelactie voor ongedaan maken opnieuw uit met --"
+"force."
 
 #: resources/views/control-panel.phtml:30
 msgid "The finder connection is invalid."
-msgstr ""
+msgstr "De finder-verbinding is ongeldig."
 
 #: resources/views/control-panel.phtml:29
 msgid "The finder could not be reached."
-msgstr ""
+msgstr "De finder kon niet worden bereikt."
 
 #: resources/views/control-panel.phtml:28
 msgid "The finder is reachable."
-msgstr ""
+msgstr "De finder is bereikbaar."
 
 #: src/Webtrees/EnqueuePersonHandler.php:122
 #: src/Webtrees/ObituaryControlPanelHandler.php:656
 msgid "The finder storage location is unavailable."
-msgstr ""
+msgstr "De finder-opslaglocatie is niet beschikbaar."
 
 #: src/Webtrees/ObituaryWorklistHandler.php:323 src/Webtrees/RevertFlash.php:68
 #: src/Webtrees/ReviewScreenHandler.php:414
 msgid "The match could not be reverted."
-msgstr ""
+msgstr "De overeenkomst kon niet ongedaan worden gemaakt."
 
 #: src/Webtrees/ReviewScreenHandler.php:366
 msgid "The match was confirmed and the death date was written."
-msgstr ""
+msgstr "De overeenkomst is bevestigd en de overlijdensdatum is vastgelegd."
 
 #: src/Webtrees/ReviewScreenHandler.php:214
 msgid "The match was marked uncertain."
-msgstr ""
+msgstr "De overeenkomst is als onzeker gemarkeerd."
 
 #: src/Webtrees/ReviewScreenHandler.php:208
 msgid "The match was rejected."
-msgstr ""
+msgstr "De overeenkomst is afgewezen."
 
 #: resources/views/control-panel.phtml:51
 msgid ""
 "The maximum points each signal may contribute to a match score. Higher "
 "values weight a signal more heavily."
 msgstr ""
+"Het maximumaantal punten dat elk signaal kan bijdragen aan een "
+"overeenkomstscore. Hogere waarden geven een signaal meer gewicht."
 
 #: src/Webtrees/ReviewScreenHandler.php:328
 msgid "The obituary did not carry writable data."
-msgstr ""
+msgstr "Het overlijdensbericht bevatte geen schrijfbare gegevens."
 
 #: src/Webtrees/ObituaryControlPanelHandler.php:279
 msgid "The scoring weights were reset to their defaults."
-msgstr ""
+msgstr "De scorewegingen zijn teruggezet naar de standaardwaarden."
 
 #: resources/views/control-panel.phtml:86
 msgid ""
 "These bands are fixed and shown for reference only. They are not editable."
 msgstr ""
+"Deze banden staan vast en worden uitsluitend ter referentie getoond. Ze "
+"kunnen niet worden gewijzigd."
 
 #: resources/views/review.phtml:228
 msgid "This individual already has a death date."
-msgstr ""
+msgstr "Deze persoon heeft al een overlijdensdatum."
 
 #: src/Webtrees/ReviewScreenHandler.php:320
 msgid "This individual already has a death date; nothing was written."
-msgstr ""
+msgstr "Deze persoon heeft al een overlijdensdatum; er is niets vastgelegd."
 
 #: src/Webtrees/ReviewScreenHandler.php:299
 #: src/Webtrees/ReviewScreenHandler.php:309
 msgid "This match can no longer be confirmed."
-msgstr ""
+msgstr "Deze overeenkomst kan niet meer worden bevestigd."
 
 #: src/Webtrees/RevertFlash.php:84
 msgid "This match cannot be reverted."
-msgstr ""
+msgstr "Deze overeenkomst kan niet ongedaan worden gemaakt."
 
 #: src/Webtrees/ReviewScreenHandler.php:184
 #: src/Webtrees/ReviewScreenHandler.php:230
 #: src/Webtrees/ReviewScreenHandler.php:348
 #: src/Webtrees/ReviewScreenHandler.php:361
 msgid "This match was already finalised by someone else."
-msgstr ""
+msgstr "Deze overeenkomst is al door iemand anders afgehandeld."
 
 #: src/Webtrees/EnqueuePersonHandler.php:151
 msgid ""
 "This person was recently searched and nothing was found, so the search was "
 "not repeated. Use “Search again” to search now anyway."
 msgstr ""
+"Deze persoon is onlangs al doorzocht en er is niets gevonden. Daarom is de "
+"zoekopdracht niet herhaald. Gebruik ‘Opnieuw zoeken’ om toch direct opnieuw "
+"te zoeken."
 
 #: resources/views/worklist.phtml:120
 #, php-format
 msgid "Total: %d"
-msgstr ""
+msgstr "Totaal: %d"
 
 #: resources/views/review.phtml:91
 msgid "Tree person"
-msgstr ""
+msgstr "Persoon in stamboom"
 
 #: resources/views/review.phtml:28 resources/views/review.phtml:214
 #: resources/views/tab.phtml:35 resources/views/worklist.phtml:34
 #: resources/views/worklist.phtml:44
 msgid "Uncertain"
-msgstr ""
+msgstr "Onzeker"
 
 #: src/Webtrees/ObituaryControlPanelHandler.php:640
 #: src/Webtrees/ObituaryControlPanelHandler.php:673
 msgid "Unknown tree."
-msgstr ""
+msgstr "Onbekende stamboom."
 
 #: resources/views/review.phtml:187
 msgid "View source"
-msgstr ""
+msgstr "Bron bekijken"
 
 #: resources/views/control-panel.phtml:92
 msgid "Weak"
-msgstr ""
+msgstr "Zwak"
 
 #: resources/views/review.phtml:22 resources/views/tab.phtml:21
 #: resources/views/worklist.phtml:20
 msgid "Weak match"
-msgstr ""
+msgstr "Zwakke overeenkomst"
 
 #: resources/views/review.phtml:151
 msgid "Why this score"
-msgstr ""
+msgstr "Waarom deze score"
 
 #: resources/views/worklist.phtml:113
 #, php-format
 msgid "and %s more"
-msgstr ""
+msgstr "en nog %s"
 
 #: resources/views/worklist.phtml:257 resources/views/worklist.phtml:259
 msgid "next"
-msgstr ""
+msgstr "volgende"
 
 #: resources/views/worklist.phtml:246 resources/views/worklist.phtml:248
 msgid "previous"
-msgstr ""
+msgstr "vorige"
 
 #: resources/views/review.phtml:141
 msgid "uncertain"
-msgstr ""
+msgstr "onzeker"
